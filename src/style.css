@@ -1,0 +1,276 @@
+/* ============================================================
+   Magnus – TTC Scene Simulator  |  Global Stylesheet
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --color-bg:          #1a1a2e;
+  --color-surface:     #16213e;
+  --color-panel:       #0f3460;
+  --color-accent:      #e94560;
+  --color-text:        #eaeaea;
+  --color-text-muted:  #8a8a9a;
+  --color-gospel:      #4caf50;
+  --color-modified:    #2196f3;
+  --color-violate:     #ff9800;
+  --color-road:        #333333;
+  --color-road-casing: #1a1a1a;
+  --font-mono:         'Courier New', Courier, monospace;
+  --toolbar-h:         52px;
+  --pane-comms-w:      260px;
+  --pane-analytics-w:  280px;
+}
+
+html, body {
+  height: 100%;
+  font-family: system-ui, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  overflow: hidden;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────── */
+#toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--toolbar-h);
+  padding: 0 12px;
+  background: var(--color-surface);
+  border-bottom: 2px solid var(--color-panel);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toolbar-left select {
+  background: var(--color-panel);
+  color: var(--color-text);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+
+.toolbar-mode {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-btn {
+  padding: 6px 14px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--color-panel);
+  color: var(--color-text);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mode-btn[data-mode="gospel"].active   { border-color: var(--color-gospel);   background: #1b3b1b; }
+.mode-btn[data-mode="modified"].active { border-color: var(--color-modified);  background: #0e2a45; }
+.mode-btn[data-mode="violate"].active  { border-color: var(--color-violate);   background: #3d2200; }
+
+.toolbar-right button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  background: transparent;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.toolbar-right button:hover { background: var(--color-accent); color: #fff; }
+
+/* ── App Shell (three-pane) ──────────────────────────────── */
+#app-shell {
+  display: grid;
+  grid-template-columns: var(--pane-comms-w) 1fr var(--pane-analytics-w);
+  height: calc(100vh - var(--toolbar-h));
+  overflow: hidden;
+}
+
+/* ── Shared pane base ────────────────────────────────────── */
+#pane-comms,
+#pane-analytics {
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-panel);
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+#pane-analytics { border-right: none; border-left: 1px solid var(--color-panel); }
+
+aside h2 {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-panel);
+  padding-bottom: 6px;
+}
+
+.comms-section h3,
+.analytics-section h3 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+}
+
+/* ── Communications pane ─────────────────────────────────── */
+#triggered-scripts, #event-log {
+  list-style: none;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.channel-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+
+.channel-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.channel-badge.toc  { background: #2a4d2a; color: #8dff8d; }
+.channel-badge.supv { background: #1a3a5c; color: #8dbeff; }
+.channel-badge.ems  { background: #5c1a1a; color: #ffaaaa; }
+
+#event-log li { color: var(--color-text-muted); }
+#event-log li::before { content: attr(data-time) ' '; font-weight: 700; color: var(--color-text); }
+
+/* ── Canvas pane ─────────────────────────────────────────── */
+#pane-canvas {
+  position: relative;
+  background: #0d0d0d;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#canvas-container {
+  flex: 1;
+  overflow: auto;
+  cursor: crosshair;
+}
+
+#highway-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Asset drawer ────────────────────────────────────────── */
+#asset-drawer {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-surface);
+  border: 1px solid var(--color-panel);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  width: 680px;
+  max-width: 95%;
+  z-index: 20;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.6);
+}
+
+.drawer-handle {
+  text-align: center;
+  padding: 6px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.drawer-items {
+  display: flex;
+  gap: 10px;
+  padding: 8px 16px 12px;
+  overflow-x: auto;
+}
+
+.asset-item {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-panel);
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: grab;
+  font-size: 0.78rem;
+  gap: 4px;
+  transition: border-color 0.15s;
+  user-select: none;
+}
+
+.asset-item:hover { border-color: var(--color-gospel); }
+.asset-item:active { cursor: grabbing; }
+
+/* ── Analytics pane ──────────────────────────────────────── */
+.mode-display {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.mode-display.gospel   { background: #1b3b1b; color: var(--color-gospel);  border: 1px solid var(--color-gospel); }
+.mode-display.modified { background: #0e2a45; color: var(--color-modified); border: 1px solid var(--color-modified); }
+.mode-display.violate  { background: #3d2200; color: var(--color-violate);  border: 1px solid var(--color-violate); }
+
+.mode-rationale {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+#risk-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  font-size: 0.78rem;
+}
+
+#risk-metrics dt { color: var(--color-text-muted); }
+#risk-metrics dd { font-weight: 700; color: var(--color-text); font-family: var(--font-mono); }
+
+#sop-audit-flags {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+
+.sop-flag {
+  background: #3d1a00;
+  border-left: 3px solid var(--color-violate);
+  padding: 4px 8px;
+  border-radius: 2px;
+}
+
+.sop-clear { color: var(--color-gospel); font-size: 0.78rem; margin-top: 6px; }

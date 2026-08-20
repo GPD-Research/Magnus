@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Magnus – TTC Scene Simulator</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════════
+       TOP TOOLBAR
+  ══════════════════════════════════════════════════════ -->
+  <header id="toolbar">
+    <div class="toolbar-left">
+      <select id="scenario-presets" aria-label="Scenario Presets">
+        <option value="">Scenario Presets ▼</option>
+        <option value="shoulder_block">Shoulder Block – Disabled Vehicle</option>
+        <option value="lane_closure_1">Single Lane Closure – Right Lane</option>
+        <option value="lane_closure_2">Two Lane Closure</option>
+        <option value="full_closure">Full Roadway Closure</option>
+        <option value="ramp_closure">On-Ramp Closure</option>
+      </select>
+    </div>
+    <div class="toolbar-mode">
+      <button id="btn-gospel"   class="mode-btn active" data-mode="gospel">🟢 GOSPEL SOP</button>
+      <button id="btn-modified" class="mode-btn"        data-mode="modified">🔵 MODIFIED SOP</button>
+      <button id="btn-violate"  class="mode-btn"        data-mode="violate">⚠️ VIOLATE SOP</button>
+    </div>
+    <div class="toolbar-right">
+      <button id="btn-export-svg">Export SVG</button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════
+       THREE-PANE LAYOUT
+  ══════════════════════════════════════════════════════ -->
+  <main id="app-shell">
+
+    <!-- PANE 1: Communications & Protocol Log -->
+    <aside id="pane-comms" aria-label="Communications Log">
+      <h2>Communications Log</h2>
+
+      <section class="comms-section">
+        <h3>Triggered Scripts</h3>
+        <ul id="triggered-scripts"></ul>
+      </section>
+
+      <section class="comms-section">
+        <h3>Channel Targets</h3>
+        <ul class="channel-list">
+          <li><span class="channel-badge toc">TOC Radio</span></li>
+          <li><span class="channel-badge supv">Field Supervisor</span></li>
+          <li><span class="channel-badge ems">911 Escalation</span></li>
+        </ul>
+      </section>
+
+      <section class="comms-section">
+        <h3>Event Log</h3>
+        <ol id="event-log" reversed></ol>
+      </section>
+    </aside>
+
+    <!-- PANE 2: Interactive Highway Canvas -->
+    <section id="pane-canvas" aria-label="Highway Canvas">
+      <div id="canvas-container">
+        <svg id="highway-svg"
+             xmlns="http://www.w3.org/2000/svg"
+             viewBox="0 0 1200 2400"
+             aria-label="Interactive highway canvas">
+          <!-- Highway base layers rendered here by JS -->
+          <g id="layer-ground"></g>
+          <g id="layer-flyover-1"></g>
+          <g id="layer-flyover-2"></g>
+          <g id="layer-flyover-3"></g>
+          <!-- Interactive asset layer -->
+          <g id="layer-assets"></g>
+          <!-- Measurement overlay -->
+          <g id="layer-measurements"></g>
+        </svg>
+      </div>
+
+      <!-- Floating Asset Drawer -->
+      <div id="asset-drawer" role="toolbar" aria-label="Asset Toolkit">
+        <div class="drawer-handle">Assets ▲</div>
+        <div class="drawer-items">
+          <button class="asset-item" data-asset="cone"        draggable="true" title="Traffic Cone">🔺 Cone</button>
+          <button class="asset-item" data-asset="flare"       draggable="true" title="Flare">🔥 Flare</button>
+          <button class="asset-item" data-asset="f350"        draggable="true" title="F350 SSP Truck">🚛 F350</button>
+          <button class="asset-item" data-asset="arrow_board" draggable="true" title="Arrow Board">➡️ Arrow Board</button>
+          <button class="asset-item" data-asset="tma"         draggable="true" title="Truck-Mounted Attenuator">🛡️ TMA</button>
+          <button class="asset-item" data-asset="sign_board"  draggable="true" title="Portable Sign Board">🪧 Sign Board</button>
+          <button class="asset-item" data-asset="incident"    draggable="true" title="Incident / Disabled Vehicle">🚗 Incident</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PANE 3: Decision Analytics -->
+    <aside id="pane-analytics" aria-label="Decision Analytics">
+      <h2>Decision Analytics</h2>
+
+      <section class="analytics-section">
+        <h3>Active Mode</h3>
+        <div id="active-mode-display" class="mode-display gospel">🟢 Gospel SOP</div>
+        <p id="mode-rationale" class="mode-rationale">
+          Baseline textbook MUTCD setup. Hard snapping enforced.
+          Taper gaps locked to 40 ft intervals. Minimum cone counts enforced.
+        </p>
+      </section>
+
+      <section class="analytics-section">
+        <h3>Live Risk Profile</h3>
+        <dl id="risk-metrics">
+          <dt>Taper Distance</dt>
+          <dd id="metric-taper">— ft</dd>
+          <dt>Buffer Length</dt>
+          <dd id="metric-buffer">— ft</dd>
+          <dt>Cone Inventory</dt>
+          <dd id="metric-cones">0 placed</dd>
+          <dt>Approach Speed</dt>
+          <dd id="metric-speed">— mph</dd>
+        </dl>
+      </section>
+
+      <section class="analytics-section">
+        <h3>SOP Compliance Audit</h3>
+        <ul id="sop-audit-flags"></ul>
+        <p id="sop-clear" class="sop-clear">✅ No active violations.</p>
+      </section>
+    </aside>
+
+  </main>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
