@@ -1,0 +1,7 @@
+node_modules/
+dist/
+target/
+assets/*.osm.pbf
+*.AppImage
+*.deb
+*.rpm
