@@ -1,0 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+  font-family: 'IBM Plex Sans', sans-serif;
+  color: #17201f;
+  background: #dce2df;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  letter-spacing: 0;
+  --ink: #17201f;
+  --muted: #66726f;
+  --line: #d7dedb;
+  --paper: #f7f8f5;
+  --yellow: #f3c52b;
+  --green: #187853;
+  --amber: #c86c19;
+  --red: #b54235;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, select { font: inherit; }
+button { color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(24, 120, 83, .25); outline-offset: 2px; }
