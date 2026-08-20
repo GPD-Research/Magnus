@@ -28,6 +28,30 @@ describe('scene camera', () => {
     expect(clampSceneZoom(5)).toBe(MAX_SCENE_ZOOM)
   })
 
+  it('fits a tall road scene to a wide display before zooming', () => {
+    expect(centeredSceneViewBox(
+      { width: 72, height: 760 },
+      1,
+      { width: 800, height: 600 },
+    )).toEqual({
+      x: -470.66666666666663,
+      y: 0,
+      width: 1013.3333333333333,
+      height: 760,
+    })
+
+    expect(centeredSceneViewBox(
+      { width: 72, height: 760 },
+      2,
+      { width: 800, height: 600 },
+    )).toEqual({
+      x: -217.33333333333331,
+      y: 190,
+      width: 506.66666666666663,
+      height: 380,
+    })
+  })
+
   it('maps pointer positions through the active view box', () => {
     const point = clientToScenePoint(
       { x: 150, y: 200 },

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Check,
@@ -91,7 +91,9 @@ function App() {
   const [points, setPoints] = useState<ScenePoint[]>(() => createScene('right-lane'))
   const [dragging, setDragging] = useState<string | null>(null)
   const [sceneZoom, setSceneZoom] = useState(1)
+  const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
   const [designerOpen, setDesignerOpen] = useState(false)
+  const roadStageRef = useRef<HTMLDivElement>(null)
   const [roadLayerVisibility, setRoadLayerVisibility] = useState<RoadLayerVisibility>({
     roadGeometry: true,
     barriers: true,
@@ -114,8 +116,12 @@ function App() {
     ? orderedDownstream[0].y - orderedDownstream[1].y
     : RIGHT_LANE_STANDARD.coneSpacing
   const taperLength = scenario === 'right-lane' ? taperCount * 40 : 120
-  const sceneViewBox = centeredSceneViewBox(roadScene.viewport, sceneZoom)
+  const sceneViewBox = centeredSceneViewBox(roadScene.viewport, 1, sceneDisplaySize)
   const sceneViewBoxValue = `${sceneViewBox.x} ${sceneViewBox.y} ${sceneViewBox.width} ${sceneViewBox.height}`
+  const sceneCanvasSize = {
+    width: Math.max(1, sceneDisplaySize.width - 36) * sceneZoom,
+    height: Math.max(1, sceneDisplaySize.height - 36) * sceneZoom,
+  }
   const roadSections = selectableRoadSections(roadScene)
   const selectedRoadSection = roadSections.find((feature) => feature.id === selectedRoadSectionId)
   const selectedSectionTransform = selectedRoadSection
@@ -124,6 +130,32 @@ function App() {
   const equipmentTransform = selectedSectionTransform
     ? `translate(${selectedSectionTransform.x} ${selectedSectionTransform.y}) rotate(${selectedSectionTransform.rotation}) translate(${-RIGHT_LANE_STANDARD.truck.x} ${-RIGHT_LANE_STANDARD.truck.y})`
     : undefined
+
+  useEffect(() => {
+    const stage = roadStageRef.current
+    if (!stage) return
+
+    const updateDisplaySize = () => {
+      const { width, height } = stage.getBoundingClientRect()
+      if (width > 0 && height > 0) setSceneDisplaySize({ width, height })
+    }
+    const observer = new ResizeObserver(updateDisplaySize)
+    observer.observe(stage)
+    updateDisplaySize()
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const stage = roadStageRef.current
+    if (!stage) return
+    const frame = requestAnimationFrame(() => {
+      stage.scrollTo({
+        left: Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2),
+        top: Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2),
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [roadScene, sceneZoom])
 
   function changeScenario(nextScenario: ScenarioType) {
     setScenario(nextScenario)
@@ -288,8 +320,9 @@ function App() {
               <div className="scale-key"><span /> 40 FT</div>
             </div>
           </div>
-          <div className="road-stage" onWheel={(event) => { event.preventDefault(); changeSceneZoom(event.deltaY < 0 ? SCENE_ZOOM_STEP : -SCENE_ZOOM_STEP) }}>
-            <svg className="road-canvas" viewBox={sceneViewBoxValue} style={{ aspectRatio: `${roadScene.viewport.width} / ${roadScene.viewport.height}` }} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-zoom={sceneZoom} onPointerMove={moveCone} onPointerUp={() => setDragging(null)} onPointerLeave={() => setDragging(null)}>
+          <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom}>
+            <div className="road-canvas-surface" style={sceneCanvasSize}>
+            <svg className="road-canvas" viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-zoom={sceneZoom} onPointerMove={moveCone} onPointerUp={() => setDragging(null)} onPointerLeave={() => setDragging(null)}>
               <RoadwayLayer
                 scene={roadScene}
                 visibility={roadLayerVisibility}
@@ -330,6 +363,7 @@ function App() {
               </g>
               <g className="north-arrow" transform="translate(10 695)"><path d="M 0 20 V 0 M 0 0 l -3 6 M 0 0 l 3 6" /><text x="-2" y="28">N</text></g>
             </svg>
+            </div>
             <div className="canvas-hint">{sectionSelectionEnabled ? <><MousePointer2 size={15} /> Select a roadway section</> : mode === 'gospel' ? <><ShieldCheck size={15} /> Positions locked to Standard SOP</> : <><Navigation size={15} /> Drag cones to adapt the scene</>}</div>
           </div>
         </section>

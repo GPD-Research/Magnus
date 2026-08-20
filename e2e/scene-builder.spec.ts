@@ -11,14 +11,37 @@ test('loads the scene builder with a visible roadway and passing audit', async (
 test('zooms the imported vector highway graphic', async ({ page }) => {
   await page.goto('/')
   const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
+  const stage = page.locator('.road-stage')
 
-  await expect(canvas).toHaveAttribute('viewBox', '0 0 72 760')
+  const canvasBounds = await canvas.boundingBox()
+  expect(canvasBounds).not.toBeNull()
+  expect(canvasBounds!.width / canvasBounds!.height).toBeGreaterThan(0.5)
+  const fittedViewBox = await canvas.getAttribute('viewBox')
   await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
   await expect(canvas).toHaveAttribute('data-zoom', '1.25')
-  await expect(canvas).not.toHaveAttribute('viewBox', '0 0 500 760')
+  await expect(canvas).toHaveAttribute('viewBox', fittedViewBox!)
+  await expect.poll(() => stage.evaluate((element) => ({
+    horizontal: element.scrollWidth > element.clientWidth,
+    vertical: element.scrollHeight > element.clientHeight,
+  }))).toEqual({ horizontal: true, vertical: true })
+
+  await stage.evaluate((element) => element.scrollTo(element.scrollWidth, element.scrollHeight))
+  await expect.poll(() => stage.evaluate((element) => ({
+    left: element.scrollLeft,
+    top: element.scrollTop,
+  }))).toEqual({
+    left: expect.any(Number),
+    top: expect.any(Number),
+  })
+  expect(await stage.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  expect(await stage.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: /Reset highway graphic zoom/ }).click()
-  await expect(canvas).toHaveAttribute('viewBox', '0 0 72 760')
+  await expect(canvas).toHaveAttribute('viewBox', fittedViewBox!)
+  await expect.poll(() => stage.evaluate((element) => ({
+    horizontal: element.scrollWidth > element.clientWidth,
+    vertical: element.scrollHeight > element.clientHeight,
+  }))).toEqual({ horizontal: false, vertical: false })
 })
 
 test('renders highway markings and the SSP vehicle to the same foot scale', async ({ page }) => {
@@ -46,7 +69,7 @@ test('resolves a highway exit request into scaled interchange geometry', async (
 
   await expect(page.getByRole('status')).toContainText('scale-accurate development preview')
   await expect(page.getByText('I-95 Northbound Exit 166 scale preview')).toBeVisible()
-  await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('viewBox', '0 0 122 760')
+  await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('data-zoom', '1')
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveCount(1)
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveAttribute('stroke-width', '12')
 })

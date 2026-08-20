@@ -16,10 +16,22 @@ export function clampSceneZoom(zoom: number): number {
   return Math.min(MAX_SCENE_ZOOM, Math.max(MIN_SCENE_ZOOM, zoom))
 }
 
-export function centeredSceneViewBox(viewport: SceneViewport, zoom: number): SceneViewBox {
+export function centeredSceneViewBox(
+  viewport: SceneViewport,
+  zoom: number,
+  displayViewport: SceneViewport = viewport,
+): SceneViewBox {
   const boundedZoom = clampSceneZoom(zoom)
-  const width = viewport.width / boundedZoom
-  const height = viewport.height / boundedZoom
+  const sceneAspectRatio = viewport.width / viewport.height
+  const displayAspectRatio = displayViewport.width / displayViewport.height
+  const fittedWidth = displayAspectRatio > sceneAspectRatio
+    ? viewport.height * displayAspectRatio
+    : viewport.width
+  const fittedHeight = displayAspectRatio > sceneAspectRatio
+    ? viewport.height
+    : viewport.width / displayAspectRatio
+  const width = fittedWidth / boundedZoom
+  const height = fittedHeight / boundedZoom
 
   return {
     x: (viewport.width - width) / 2,
