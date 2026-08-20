@@ -3,12 +3,13 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
-  ChevronDown,
   Clock3,
   Layers3,
+  LoaderCircle,
   MapPinned,
   Maximize2,
   Minus,
+  MousePointer2,
   Navigation,
   PencilRuler,
   Plus,
@@ -23,7 +24,23 @@ import {
 import './App.css'
 import { RoadwayLayer } from './components/RoadwayLayer'
 import { SceneDesigner } from './components/SceneDesigner'
-import { createDevelopmentRoadScene } from './domain/roadScene'
+import {
+  createDevelopmentRoadScene,
+  type RoadScene,
+  type RoadLayerVisibility,
+} from './domain/roadScene'
+import {
+  resolveRoadLocation,
+  travelDirections,
+  validateRoadLocation,
+  type ResolvedRoadLocation,
+  type RoadLocationRequest,
+} from './domain/roadLocation'
+import {
+  roadSectionLabel,
+  roadSectionTransform,
+  selectableRoadSections,
+} from './domain/roadSection'
 import {
   MAX_SCENE_ZOOM,
   MIN_SCENE_ZOOM,
@@ -55,9 +72,19 @@ const scenarios: { id: ScenarioType; label: string }[] = [
   { id: 'right-lane', label: 'Right lane closure' },
 ]
 
-const roadScene = createDevelopmentRoadScene()
-
 function App() {
+  const [roadScene, setRoadScene] = useState<RoadScene>(createDevelopmentRoadScene)
+  const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>({
+    highway: 'I-95',
+    direction: 'northbound',
+    referenceType: 'exit',
+    reference: '166',
+  })
+  const [resolvedLocation, setResolvedLocation] = useState<ResolvedRoadLocation | null>(null)
+  const [locationErrors, setLocationErrors] = useState<string[]>([])
+  const [locationLoading, setLocationLoading] = useState(false)
+  const [sectionSelectionEnabled, setSectionSelectionEnabled] = useState(false)
+  const [selectedRoadSectionId, setSelectedRoadSectionId] = useState<string | null>(null)
   const [scenario, setScenario] = useState<ScenarioType>('right-lane')
   const [mode, setMode] = useState<ComplianceMode>('gospel')
   const [laneCount, setLaneCount] = useState(3)
@@ -65,6 +92,11 @@ function App() {
   const [dragging, setDragging] = useState<string | null>(null)
   const [sceneZoom, setSceneZoom] = useState(1)
   const [designerOpen, setDesignerOpen] = useState(false)
+  const [roadLayerVisibility, setRoadLayerVisibility] = useState<RoadLayerVisibility>({
+    roadGeometry: true,
+    barriers: true,
+    trafficFlow: true,
+  })
   const [radioEvents, setRadioEvents] = useState([
     { time: '14:32', text: 'Unit 214 on scene, right lane blocked', channel: 'TOC' },
   ])
@@ -84,6 +116,14 @@ function App() {
   const taperLength = scenario === 'right-lane' ? taperCount * 40 : 120
   const sceneViewBox = centeredSceneViewBox(roadScene.viewport, sceneZoom)
   const sceneViewBoxValue = `${sceneViewBox.x} ${sceneViewBox.y} ${sceneViewBox.width} ${sceneViewBox.height}`
+  const roadSections = selectableRoadSections(roadScene)
+  const selectedRoadSection = roadSections.find((feature) => feature.id === selectedRoadSectionId)
+  const selectedSectionTransform = selectedRoadSection
+    ? roadSectionTransform(selectedRoadSection)
+    : null
+  const equipmentTransform = selectedSectionTransform
+    ? `translate(${selectedSectionTransform.x} ${selectedSectionTransform.y}) rotate(${selectedSectionTransform.rotation}) translate(${-RIGHT_LANE_STANDARD.truck.x} ${-RIGHT_LANE_STANDARD.truck.y})`
+    : undefined
 
   function changeScenario(nextScenario: ScenarioType) {
     setScenario(nextScenario)
@@ -98,7 +138,7 @@ function App() {
       bounds,
       sceneViewBox,
     )
-    const x = Math.max(22, Math.min(roadScene.viewport.width - 22, scenePoint.x))
+    const x = Math.max(6, Math.min(roadScene.viewport.width - 6, scenePoint.x))
     const y = Math.max(30, Math.min(roadScene.viewport.height - 30, scenePoint.y))
     setPoints((current) =>
       current.map((point) => (point.id === dragging ? { ...point, x, y } : point)),
@@ -134,6 +174,29 @@ function App() {
     setSceneZoom((current) => clampSceneZoom(current + change))
   }
 
+  async function loadRoadLocation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const errors = validateRoadLocation(locationRequest)
+    setLocationErrors(errors)
+    if (errors.length > 0) return
+
+    setLocationLoading(true)
+    const resolved = await resolveRoadLocation(locationRequest)
+    setRoadScene(resolved.scene)
+    setResolvedLocation(resolved)
+    setSelectedRoadSectionId(null)
+    setSectionSelectionEnabled(false)
+    setSceneZoom(1)
+    setLocationLoading(false)
+  }
+
+  function setRoadLayerVisibilityValue(
+    layer: keyof RoadLayerVisibility,
+    visible: boolean,
+  ) {
+    setRoadLayerVisibility((current) => ({ ...current, [layer]: visible }))
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -150,11 +213,18 @@ function App() {
           <div className="template-designer-launch">
             <button type="button" onClick={() => setDesignerOpen(true)}><PencilRuler size={16} /><span><b>Scene design tool</b><small>Author vector SOP templates</small></span></button>
           </div>
-          <div className="control-group">
-            <label htmlFor="corridor">Corridor</label>
-            <div className="select-wrap"><MapPinned size={17} /><select id="corridor" defaultValue="I-95 Northbound"><option>I-95 Northbound</option><option>I-395 Northbound</option><option>I-495 Inner Loop</option></select><ChevronDown size={15} /></div>
-            <p className="location-note">MM 169.2 · Fairfax County, VA</p>
-          </div>
+          <form className="location-tool" aria-label="Roadway location" onSubmit={(event) => { void loadRoadLocation(event) }}>
+            <div className="location-tool-heading"><MapPinned size={16} /><div><label htmlFor="highway">Roadway location</label><span>Load scaled corridor geometry</span></div></div>
+            <div className="location-fields">
+              <label className="location-highway" htmlFor="highway">Highway<input id="highway" placeholder="I-95 or Route 28" value={locationRequest.highway} onChange={(event) => setLocationRequest((current) => ({ ...current, highway: event.target.value }))} /></label>
+              <label htmlFor="direction">Direction<select id="direction" value={locationRequest.direction} onChange={(event) => setLocationRequest((current) => ({ ...current, direction: event.target.value as RoadLocationRequest['direction'] }))}>{travelDirections.map((direction) => <option value={direction.value} key={direction.value}>{direction.label}</option>)}</select></label>
+              <label htmlFor="reference-type">Reference<select id="reference-type" value={locationRequest.referenceType} onChange={(event) => setLocationRequest((current) => ({ ...current, referenceType: event.target.value as RoadLocationRequest['referenceType'] }))}><option value="mile-marker">Mile marker</option><option value="exit">Exit number</option></select></label>
+              <label htmlFor="reference">{locationRequest.referenceType === 'exit' ? 'Exit' : 'Mile marker'}<input id="reference" inputMode="decimal" placeholder={locationRequest.referenceType === 'exit' ? '166' : '168.0'} value={locationRequest.reference} onChange={(event) => setLocationRequest((current) => ({ ...current, reference: event.target.value }))} /></label>
+            </div>
+            {locationErrors.map((error) => <p className="location-error" role="alert" key={error}>{error}</p>)}
+            <button className="location-load" type="submit" disabled={locationLoading}>{locationLoading ? <LoaderCircle className="location-spinner" size={15} /> : <MapPinned size={15} />}<span>{locationLoading ? 'Resolving location' : 'Render location'}</span></button>
+            {resolvedLocation && <div className={`location-result ${resolvedLocation.source}`} role="status"><strong>{resolvedLocation.request.highway} · {resolvedLocation.request.direction.replace('bound', 'bound ')}</strong><span>{resolvedLocation.message}</span></div>}
+          </form>
           <div className="control-group">
             <label>Closure type</label>
             <div className="scenario-options">
@@ -198,16 +268,16 @@ function App() {
           </div>
           <div className="control-group map-layers">
             <label>Map layers</label>
-            <label className="toggle-row"><span><Layers3 size={16} /> Road geometry</span><input type="checkbox" defaultChecked /></label>
-            <label className="toggle-row"><span><span className="barrier-symbol" /> Barriers</span><input type="checkbox" defaultChecked /></label>
-            <label className="toggle-row"><span><span className="flow-symbol">→</span> Traffic flow</span><input type="checkbox" defaultChecked /></label>
+            <label className="toggle-row"><span><Layers3 size={16} /> Road geometry</span><input type="checkbox" checked={roadLayerVisibility.roadGeometry} onChange={(event) => setRoadLayerVisibilityValue('roadGeometry', event.target.checked)} /></label>
+            <label className="toggle-row"><span><span className="barrier-symbol" /> Barriers</span><input type="checkbox" checked={roadLayerVisibility.barriers} onChange={(event) => setRoadLayerVisibilityValue('barriers', event.target.checked)} /></label>
+            <label className="toggle-row"><span><span className="flow-symbol">→</span> Traffic flow</span><input type="checkbox" checked={roadLayerVisibility.trafficFlow} onChange={(event) => setRoadLayerVisibilityValue('trafficFlow', event.target.checked)} /></label>
           </div>
           <div className="asset-inventory"><div><span>Available assets</span><b>{points.length + 3}</b></div><div className="asset-icons"><span><Truck size={19} /> 1</span><span><TrafficCone size={19} /> {points.length}</span><span><Radio size={18} /> 2</span></div></div>
         </aside>
 
         <section className="canvas-panel" aria-label="Interactive scene canvas">
           <div className="canvas-toolbar">
-            <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><h1>{scenario === 'right-lane' ? 'Single right lane closure' : 'Standard shoulder closure'}</h1></div>
+            <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><h1>{scenario === 'right-lane' ? 'Single right lane closure' : 'Standard shoulder closure'}</h1><small className="scene-dataset">{roadScene.source.dataset}</small></div>
             <div className="canvas-tools">
               <div className="zoom-controls" role="group" aria-label="Highway graphic zoom">
                 <button type="button" title="Zoom out" aria-label="Zoom out highway graphic" disabled={sceneZoom <= MIN_SCENE_ZOOM} onClick={() => changeSceneZoom(-SCENE_ZOOM_STEP)}><ZoomOut size={15} /></button>
@@ -220,36 +290,58 @@ function App() {
           </div>
           <div className="road-stage" onWheel={(event) => { event.preventDefault(); changeSceneZoom(event.deltaY < 0 ? SCENE_ZOOM_STEP : -SCENE_ZOOM_STEP) }}>
             <svg className="road-canvas" viewBox={sceneViewBoxValue} style={{ aspectRatio: `${roadScene.viewport.width} / ${roadScene.viewport.height}` }} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-zoom={sceneZoom} onPointerMove={moveCone} onPointerUp={() => setDragging(null)} onPointerLeave={() => setDragging(null)}>
-              <RoadwayLayer scene={roadScene} />
-              <g className="ssp-truck" transform={`translate(${scenario === 'right-lane' ? RIGHT_LANE_STANDARD.truck.x : 435} ${RIGHT_LANE_STANDARD.truck.y})`}>
-                <rect className="truck-body" x="-22" y="-34" width="44" height="68" />
-                <path className="truck-panel-line" d="M -22 -2 H 22 M -22 -22 H 22 M -16 -22 V -2 M 16 -22 V -2" />
-                <path className="truck-windshield" d="M -17 -8 H 17 L 14 -26 H -14 Z" />
-                <path className="truck-hood-line" d="M -16 -29 H 16 M -12 -34 V -29 M 12 -34 V -29" />
-                <rect className="truck-lightbar" x="-24" y="-2" width="48" height="5" />
-                <rect className="strobe" x="-22" y="-31" width="3" height="3" />
-                <rect className="strobe delayed" x="19" y="-31" width="3" height="3" />
-                <rect className="signboard" x="-20" y="26" width="40" height="7" />
-                <path className="signboard-symbol" d={scenario === 'right-lane' ? 'M 11 29.5 H -10 M -10 29.5 L -4 26 M -10 29.5 L -4 33' : 'M -14 27 L -8 32 L -2 27 M 3 27 L 9 32 L 15 27'} />
+              <RoadwayLayer
+                scene={roadScene}
+                visibility={roadLayerVisibility}
+                selectionEnabled={sectionSelectionEnabled}
+                selectedFeatureId={selectedRoadSectionId}
+                onSelectFeature={(feature) => {
+                  setSelectedRoadSectionId(feature.id)
+                  setSectionSelectionEnabled(false)
+                }}
+              />
+              <g className={`scene-equipment${sectionSelectionEnabled ? ' selection-paused' : ''}`} transform={equipmentTransform}>
+              <g
+                className="ssp-truck"
+                data-width-feet={RIGHT_LANE_STANDARD.truck.width}
+                data-length-feet={RIGHT_LANE_STANDARD.truck.length}
+                transform={`translate(${scenario === 'right-lane' ? RIGHT_LANE_STANDARD.truck.x : 60} ${RIGHT_LANE_STANDARD.truck.y})`}
+              >
+                <rect className="truck-body" x="-4.25" y="-12" width="8.5" height="24" />
+                <path className="truck-panel-line" d="M -4.25 -1 H 4.25 M -4.25 -7 H 4.25 M -3 -7 V -1 M 3 -7 V -1" />
+                <path className="truck-windshield" d="M -3.4 -3 H 3.4 L 2.8 -8 H -2.8 Z" />
+                <path className="truck-hood-line" d="M -3.2 -10 H 3.2 M -2.5 -12 V -10 M 2.5 -12 V -10" />
+                <rect className="truck-lightbar" x="-4.5" y="-1" width="9" height="1.4" />
+                <rect className="strobe" x="-4" y="-11" width="0.8" height="0.8" />
+                <rect className="strobe delayed" x="3.2" y="-11" width="0.8" height="0.8" />
+                <rect className="signboard" x="-4" y="9" width="8" height="2.2" />
+                <path className="signboard-symbol" d={scenario === 'right-lane' ? 'M 2.4 10.1 H -2.2 M -2.2 10.1 L -1 9.4 M -2.2 10.1 L -1 10.8' : 'M -3 9.5 L -1.7 10.7 L -.4 9.5 M .6 9.5 L 1.9 10.7 L 3.2 9.5'} />
               </g>
               {points.map((point, index) => (
                 <g className={`cone ${mode === 'gospel' ? 'locked' : ''}`} key={point.id} transform={`translate(${point.x} ${point.y})`} onPointerDown={(event) => { if (mode === 'gospel') return; event.currentTarget.setPointerCapture(event.pointerId); setDragging(point.id) }}>
-                  <rect className="cone-hit-area" x="-12" y="-12" width="24" height="24" />
-                  <path className="cone-body" d="M -4 5 L -2 -7 H 2 L 4 5 Z" />
-                  <path className="cone-band" d="M -3 -1 H 3" />
-                  <path className="cone-base" d="M -6 6 H 6" />
+                  <rect className="cone-hit-area" x="-4" y="-4" width="8" height="8" />
+                  <path className="cone-body" d="M -.7 .8 L -.3 -1.3 H .3 L .7 .8 Z" />
+                  <path className="cone-band" d="M -.5 -.2 H .5" />
+                  <path className="cone-base" d="M -1 1 H 1" />
                   {point.role === 'anchor' && <g className="cone-label"><rect x="9" y="-9" width="43" height="14" /><text x="14" y="1">ANCHOR</text></g>}
                   {index === 1 && <g className="distance-label"><path d="M -18 18 V 54 M 18 18 V 54 M -18 47 H 18" /><text x="-13" y="43">40 FT</text></g>}
                 </g>
               ))}
-              <g className="north-arrow" transform="translate(55 695)"><path d="M 0 30 V 0 M 0 0 l -7 11 M 0 0 l 7 11" /><text x="-6" y="45">N</text></g>
+              </g>
+              <g className="north-arrow" transform="translate(10 695)"><path d="M 0 20 V 0 M 0 0 l -3 6 M 0 0 l 3 6" /><text x="-2" y="28">N</text></g>
             </svg>
-            <div className="canvas-hint">{mode === 'gospel' ? <><ShieldCheck size={15} /> Positions locked to Standard SOP</> : <><Navigation size={15} /> Drag cones to adapt the scene</>}</div>
+            <div className="canvas-hint">{sectionSelectionEnabled ? <><MousePointer2 size={15} /> Select a roadway section</> : mode === 'gospel' ? <><ShieldCheck size={15} /> Positions locked to Standard SOP</> : <><Navigation size={15} /> Drag cones to adapt the scene</>}</div>
           </div>
         </section>
 
         <aside className="panel audit-panel" aria-label="Compliance and communications">
           <div className="panel-heading"><span>02</span><div><p>Operations</p><h2>Mode & audit</h2></div></div>
+          {roadSections.length > 1 && (
+            <section className={`section-control${sectionSelectionEnabled ? ' selecting' : ''}`} aria-label="Controlled roadway section">
+              <div><span>Controlled sector</span><b>{selectedRoadSection ? roadSectionLabel(selectedRoadSection) : 'No section selected'}</b></div>
+              <button type="button" onClick={() => setSectionSelectionEnabled((enabled) => !enabled)}><MousePointer2 size={15} />{sectionSelectionEnabled ? 'Cancel selection' : 'Select section'}</button>
+            </section>
+          )}
           <div className="mode-selector" role="tablist" aria-label="Compliance mode">
             {modes.map((item) => <button type="button" role="tab" aria-selected={mode === item.id} className={mode === item.id ? `mode-${item.id} active` : `mode-${item.id}`} key={item.id} onClick={() => setMode(item.id)}><span>{item.id === 'violate' ? <AlertTriangle size={15} /> : <ShieldCheck size={15} />}{item.label}</span><small>{item.detail}</small></button>)}
           </div>

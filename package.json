@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:spatial": "cargo run -p magnus-spatial-core --bin spatial_server",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

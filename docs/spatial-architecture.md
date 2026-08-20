@@ -14,6 +14,8 @@ The pipeline is:
 6. Index compiled features with `rstar`.
 7. Send bounded, IPC-safe `RoadScene` JSON to the HTML5/SVG renderer.
 
+The frontend sends highway, direction, and mile-marker/exit parameters to the stateless Rust spatial API. The API generates an escaped Overpass query, locates the requested junction or milestone against matching OSM route refs, and converts only nearby returned ways into `RoadScene`. It does not maintain a second database of named locations. A failed live query produces a visibly labeled development preview; it must never silently masquerade as OSM geometry.
+
 ## Data preparation
 
 The large source files are intentionally ignored by Git.
@@ -43,7 +45,9 @@ The initial compiler uses a local tangent-plane approximation in feet around the
 
 `RoadScene` is shared conceptually by Rust and TypeScript. Features are sorted by ascending structural `layer`. Road casings render before surfaces at each level, allowing upper bridge and flyover casings to occlude lower roads. SSP assets and SOP templates remain a separate overlay and placement domain.
 
-The current UI fixture is explicitly marked `development-fixture`. It exists only to exercise the contract and must not be presented as actual Northern Virginia geometry. Production scenes must carry `source.type = osm-pbf` and OpenStreetMap attribution.
+Each OSM road surface retains its way ID, highway class, structural layer, and bridge/tunnel metadata. In complex scenes, the renderer can arm section-selection mode and use a selected way's center tangent as the transform origin for the SSP equipment overlay. The `I-95 Northbound / MM 170` Mixing Bowl request is the acceptance case for layered flyover selection.
+
+The current UI fixture is explicitly marked `development-fixture`. It exists only to exercise the contract and must not be presented as actual Northern Virginia geometry. Production scenes must carry `source.type = osm-api` or `osm-pbf` and OpenStreetMap attribution.
 
 ## Public data licenses
 

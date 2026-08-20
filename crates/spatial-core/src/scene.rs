@@ -55,6 +55,7 @@ pub struct RoadFeature {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SceneSourceType {
+    OsmApi,
     OsmPbf,
     QgisSupplement,
     DevelopmentFixture,

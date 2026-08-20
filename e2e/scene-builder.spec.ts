@@ -12,13 +12,78 @@ test('zooms the imported vector highway graphic', async ({ page }) => {
   await page.goto('/')
   const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
 
-  await expect(canvas).toHaveAttribute('viewBox', '0 0 500 760')
+  await expect(canvas).toHaveAttribute('viewBox', '0 0 72 760')
   await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
   await expect(canvas).toHaveAttribute('data-zoom', '1.25')
   await expect(canvas).not.toHaveAttribute('viewBox', '0 0 500 760')
 
   await page.getByRole('button', { name: /Reset highway graphic zoom/ }).click()
-  await expect(canvas).toHaveAttribute('viewBox', '0 0 500 760')
+  await expect(canvas).toHaveAttribute('viewBox', '0 0 72 760')
+})
+
+test('renders highway markings and the SSP vehicle to the same foot scale', async ({ page }) => {
+  await page.goto('/')
+
+  const truck = page.locator('.ssp-truck')
+  const skipLine = page.locator('.road-feature-skip-line').first()
+
+  await expect(truck).toHaveAttribute('data-width-feet', '8.5')
+  await expect(truck).toHaveAttribute('data-length-feet', '24')
+  await expect(truck.locator('.truck-body')).toHaveAttribute('width', '8.5')
+  await expect(truck.locator('.truck-body')).toHaveAttribute('height', '24')
+  await expect(skipLine).toHaveAttribute('stroke-dasharray', '10 30')
+  await expect(skipLine).toHaveAttribute('stroke-width', '0.5')
+})
+
+test('resolves a highway exit request into scaled interchange geometry', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Highway').fill('I 95')
+  await page.getByLabel('Direction').selectOption('northbound')
+  await page.getByLabel('Reference').selectOption('exit')
+  await page.getByLabel('Exit', { exact: true }).fill('166')
+  await page.getByRole('button', { name: 'Render location' }).click()
+
+  await expect(page.getByRole('status')).toContainText('scale-accurate development preview')
+  await expect(page.getByText('I-95 Northbound Exit 166 scale preview')).toBeVisible()
+  await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('viewBox', '0 0 122 760')
+  await expect(page.locator('#preview-exit-ramp-surface')).toHaveCount(1)
+  await expect(page.locator('#preview-exit-ramp-surface')).toHaveAttribute('stroke-width', '12')
+})
+
+test('selects a Mixing Bowl overpass as the controlled scene sector', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Highway').fill('I-95')
+  await page.getByLabel('Direction').selectOption('northbound')
+  await page.getByLabel('Reference').selectOption('mile-marker')
+  await page.getByLabel('Mile marker', { exact: true }).fill('170')
+  await page.getByRole('button', { name: 'Render location' }).click()
+
+  const connector = page.locator('#preview-express-ramp-surface')
+  await expect(page.getByLabel('Controlled roadway section')).toBeVisible()
+  await page.getByRole('button', { name: 'Select section' }).click()
+  await expect(page.getByText('Select a roadway section')).toBeVisible()
+  await connector.click()
+
+  await expect(connector).toHaveClass(/section-selected/)
+  await expect(page.getByLabel('Controlled roadway section')).toContainText('Northbound express connector')
+  await expect(page.locator('.scene-equipment')).toHaveAttribute('transform', /translate\(.+\) rotate\(.+\)/)
+})
+
+test('toggles roadway display layers independently', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('checkbox', { name: 'Road geometry' }).uncheck()
+  await expect(page.locator('.road-feature-road-surface')).toHaveCount(0)
+  await expect(page.locator('.road-feature-shoulder-edge')).toHaveCount(2)
+
+  await page.getByRole('checkbox', { name: 'Barriers' }).uncheck()
+  await expect(page.locator('.road-feature-shoulder-edge')).toHaveCount(0)
+
+  await page.getByRole('checkbox', { name: 'Traffic flow' }).uncheck()
+  await expect(page.locator('.road-feature-traffic-flow')).toHaveCount(0)
+  await expect(page.getByText('DOWNSTREAM')).toHaveCount(0)
 })
 
 test('configures an enhanced safety scene', async ({ page }) => {

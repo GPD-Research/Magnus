@@ -15,9 +15,9 @@ export interface AuditResult {
 }
 
 export const RIGHT_LANE_STANDARD = {
-  truck: { x: 330, y: 260, halfLength: 40, signboard: 'left-arrow' },
-  skipLineX: 270,
-  rightFogLineX: 390,
+  truck: { x: 48, y: 260, width: 8.5, length: 24, halfLength: 12, signboard: 'left-arrow' },
+  skipLineX: 42,
+  rightFogLineX: 54,
   anchorGap: 10,
   leadGap: 10,
   bufferConeCount: 3,
@@ -29,26 +29,26 @@ const POSITION_TOLERANCE = 4
 
 const templates: Record<ScenarioType, ScenePoint[]> = {
   shoulder: [
-    { id: 'anchor', x: 390, y: 310, role: 'anchor' },
-    { id: 'taper-1', x: 420, y: 350, role: 'taper' },
-    { id: 'taper-2', x: 450, y: 390, role: 'taper' },
-    { id: 'taper-3', x: 478, y: 430, role: 'taper' },
-    { id: 'lead', x: 390, y: 210, role: 'perimeter' },
-    { id: 'perimeter-1', x: 390, y: 170, role: 'perimeter' },
-    { id: 'perimeter-2', x: 390, y: 130, role: 'perimeter' },
+    { id: 'anchor', x: 54, y: 282, role: 'anchor' },
+    { id: 'taper-1', x: 58, y: 322, role: 'taper' },
+    { id: 'taper-2', x: 62, y: 362, role: 'taper' },
+    { id: 'taper-3', x: 66, y: 402, role: 'taper' },
+    { id: 'lead', x: 54, y: 238, role: 'perimeter' },
+    { id: 'perimeter-1', x: 54, y: 198, role: 'perimeter' },
+    { id: 'perimeter-2', x: 54, y: 158, role: 'perimeter' },
   ],
   'right-lane': [
-    { id: 'anchor', x: RIGHT_LANE_STANDARD.skipLineX, y: 310, role: 'anchor' },
-    { id: 'buffer-1', x: RIGHT_LANE_STANDARD.skipLineX, y: 350, role: 'buffer' },
-    { id: 'buffer-2', x: RIGHT_LANE_STANDARD.skipLineX, y: 390, role: 'buffer' },
-    { id: 'taper-1', x: 294, y: 430, role: 'taper' },
-    { id: 'taper-2', x: 318, y: 470, role: 'taper' },
-    { id: 'taper-3', x: 342, y: 510, role: 'taper' },
-    { id: 'taper-4', x: 366, y: 550, role: 'taper' },
-    { id: 'taper-5', x: RIGHT_LANE_STANDARD.rightFogLineX, y: 590, role: 'taper' },
-    { id: 'lead', x: RIGHT_LANE_STANDARD.skipLineX, y: 210, role: 'perimeter' },
-    { id: 'perimeter-1', x: RIGHT_LANE_STANDARD.skipLineX, y: 170, role: 'perimeter' },
-    { id: 'perimeter-2', x: RIGHT_LANE_STANDARD.skipLineX, y: 130, role: 'perimeter' },
+    { id: 'anchor', x: RIGHT_LANE_STANDARD.skipLineX, y: 282, role: 'anchor' },
+    { id: 'buffer-1', x: RIGHT_LANE_STANDARD.skipLineX, y: 322, role: 'buffer' },
+    { id: 'buffer-2', x: RIGHT_LANE_STANDARD.skipLineX, y: 362, role: 'buffer' },
+    { id: 'taper-1', x: 44.4, y: 402, role: 'taper' },
+    { id: 'taper-2', x: 46.8, y: 442, role: 'taper' },
+    { id: 'taper-3', x: 49.2, y: 482, role: 'taper' },
+    { id: 'taper-4', x: 51.6, y: 522, role: 'taper' },
+    { id: 'taper-5', x: RIGHT_LANE_STANDARD.rightFogLineX, y: 562, role: 'taper' },
+    { id: 'lead', x: RIGHT_LANE_STANDARD.skipLineX, y: 238, role: 'perimeter' },
+    { id: 'perimeter-1', x: RIGHT_LANE_STANDARD.skipLineX, y: 198, role: 'perimeter' },
+    { id: 'perimeter-2', x: RIGHT_LANE_STANDARD.skipLineX, y: 158, role: 'perimeter' },
   ],
 }
 

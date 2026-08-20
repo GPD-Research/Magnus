@@ -10,7 +10,10 @@ import {
 describe('SOP scene audit', () => {
   it('places the SSP truck in the right lane with a left-arrow signboard', () => {
     expect(RIGHT_LANE_STANDARD.truck).toMatchObject({
-      x: 330,
+      x: 48,
+      width: 8.5,
+      length: 24,
+      halfLength: 12,
       signboard: 'left-arrow',
     })
     expect(RIGHT_LANE_STANDARD.truck.x).toBeGreaterThan(RIGHT_LANE_STANDARD.skipLineX)
@@ -98,7 +101,7 @@ describe('SOP scene audit', () => {
 
   it('flags rear taper spacing below 40 ft as an SOP violation', () => {
     const scene = createScene('right-lane').map((point) =>
-      point.id === 'taper-1' ? { ...point, y: 405 } : point,
+      point.id === 'taper-1' ? { ...point, y: 387 } : point,
     )
 
     const result = auditScene('right-lane', 'violate', scene)

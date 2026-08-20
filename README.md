@@ -12,6 +12,7 @@ The first development slice includes:
 - Draggable cone placement outside strict Gospel mode
 - Live SOP audit, scene metrics, and timestamped communications log
 - Unit-tested rules for cone placement, spacing, and shoulder access
+- Highway, direction, and mile-marker/exit location requests in the configuration pane
 
 ## Single right-lane closure rules
 
@@ -79,5 +80,20 @@ ESLint uses TypeScript's project service with type-aware recommended and stylist
 The frontend now renders roadway features through an IPC-safe `RoadScene` vector contract rather than generating pavement directly in React. The standalone Rust spatial core streams OSM PBF data, extracts roadway tags and structural layers, serializes matching DTOs, and indexes features with `rstar`. See [docs/spatial-architecture.md](docs/spatial-architecture.md) for the NoVA PBF and QGIS workflow.
 
 The current on-screen roadway is explicitly identified as a development fixture until a local NoVA extract is prepared. It must not be treated as actual roadway geometry.
+
+### Live location resolution
+
+The **Roadway location** tool accepts a highway, travel direction, and either a mile marker or exit number. The Rust spatial service converts that request into an Overpass query against actual OpenStreetMap route, motorway-junction, milestone, bridge, tunnel, and layer tags. It returns a bounded feet-based `RoadScene` without maintaining a separate local catalog of locations.
+
+Run the API and Vite frontend in separate terminals during development:
+
+```bash
+cargo run -p magnus-spatial-core --bin spatial_server
+npm run dev
+```
+
+Vite proxies `/api` requests to `127.0.0.1:8787`. Set `OVERPASS_URL` to use another compatible Overpass endpoint and `MAGNUS_SPATIAL_ADDR` to change the API listener. If live geometry is unavailable, Magnus displays an explicit development-preview status rather than representing fixture geometry as map data.
+
+`I-95 / Northbound / Mile marker 170` is the complex-interchange acceptance case for the Springfield Interchange, commonly called the Mixing Bowl. When a scene contains multiple roadway surfaces, the right-pane **Select section** control lets the operator choose a rendered mainline, ramp, or flyover as the controlled sector. SSP equipment and cones are then aligned to that way's center tangent while retaining feet-based spacing.
 
 The central vector pane supports 50–250% zoom through toolbar controls or the mouse wheel/trackpad. Zoom changes the SVG camera view box, keeping compiled roadway geometry and interactive SSP equipment in the same projected coordinate space. The percentage button and fit control restore the imported scene viewport.
