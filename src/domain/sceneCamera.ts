@@ -71,3 +71,17 @@ export function clientToScenePoint(
     y: viewBox.y + ((client.y - bounds.top) / bounds.height) * viewBox.height,
   }
 }
+
+export function scenePointToLocal(
+  point: { x: number; y: number },
+  transform: { x: number; y: number; rotation: number },
+  anchor: { x: number; y: number },
+): { x: number; y: number } {
+  const radians = (-transform.rotation * Math.PI) / 180
+  const translatedX = point.x - transform.x
+  const translatedY = point.y - transform.y
+  return {
+    x: translatedX * Math.cos(radians) - translatedY * Math.sin(radians) + anchor.x,
+    y: translatedX * Math.sin(radians) + translatedY * Math.cos(radians) + anchor.y,
+  }
+}

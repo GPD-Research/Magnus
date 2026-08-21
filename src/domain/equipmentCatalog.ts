@@ -6,6 +6,7 @@ export type EquipmentGlyph =
   | 'ladder-truck' | 'pump-truck' | 'pickup' | 'tool' | 'suv' | 'sedan'
   | 'tractor-trailer' | 'jackknife' | 'tractor' | 'bus' | 'trailer'
   | 'car-hauler' | 'vehicle-fire' | 'tanker' | 'debris' | 'deer' | 'airplane' | 'helipad'
+  | 'tow-truck' | 'heavy-tow' | 'tma-crash' | 'tma-cone' | 'barrel' | 'motorcycle' | 'injured-person'
 
 export interface EquipmentDefinition {
   id: string
@@ -17,7 +18,8 @@ export interface EquipmentDefinition {
   width: number
   length: number
   limit?: number
-  capacity?: { per: 'ssp-truck' | 'vsp-cruiser' | 'fire-response' | 'incident-command'; quantity: number }
+  rotatable?: boolean
+  capacity?: { per: 'ssp-truck' | 'vsp-cruiser' | 'fire-response' | 'incident-command' | 'tma-cone-truck'; quantity: number }
 }
 
 export interface DeployedEquipment {
@@ -36,7 +38,7 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'flare', label: 'Road flare', category: 'asset', countClass: 'equipment', glyph: 'flare', color: '#e24631', width: 2, length: 2, capacity: { per: 'ssp-truck', quantity: 80 } },
   { id: 'emergency-sign', label: 'Emergency Scene Ahead sign', category: 'asset', countClass: 'equipment', glyph: 'diamond-sign', color: '#ed5ca8', width: 6, length: 6, capacity: { per: 'ssp-truck', quantity: 2 } },
   { id: 'ssp-patroller', label: 'SSP patroller', category: 'asset', countClass: 'personnel', glyph: 'person', color: '#e7d62e', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 1 } },
-  { id: 'vsp-cruiser', label: 'VSP cruiser', category: 'asset', countClass: 'vehicle', glyph: 'cruiser', color: '#333b42', width: 8, length: 18, limit: 5 },
+  { id: 'vsp-cruiser', label: 'VSP cruiser', category: 'asset', countClass: 'vehicle', glyph: 'cruiser', color: '#c9ced0', width: 8, length: 20, limit: 5, rotatable: true },
   { id: 'vsp-officer', label: 'VSP officer', category: 'asset', countClass: 'personnel', glyph: 'person', color: '#777b7e', width: 3, length: 3, capacity: { per: 'vsp-cruiser', quantity: 1 } },
   { id: 'ems-ambulance', label: 'EMS ambulance', category: 'asset', countClass: 'vehicle', glyph: 'ambulance', color: '#f2f3ef', width: 9, length: 24 },
   { id: 'ladder-truck', label: 'Fire & rescue ladder truck', category: 'asset', countClass: 'vehicle', glyph: 'ladder-truck', color: '#c83b31', width: 10, length: 42 },
@@ -46,9 +48,14 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'compact-cone', label: 'Compact cone', category: 'asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 2, length: 2, capacity: { per: 'fire-response', quantity: 10 } },
   { id: 'incident-command', label: 'Incident commander SUV', category: 'asset', countClass: 'vehicle', glyph: 'suv', color: '#f3f4ef', width: 8, length: 20, limit: 2 },
   { id: 'command-cone', label: 'Incident command cone', category: 'asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'incident-command', quantity: 10 } },
-  { id: 'sedan-green', label: 'Green sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#477b58', width: 7, length: 16 },
-  { id: 'sedan-grey', label: 'Grey sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#858c8d', width: 7, length: 16 },
-  { id: 'sedan-black', label: 'Black sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#242827', width: 7, length: 16 },
+  { id: 'tow-truck', label: 'Tow truck', category: 'asset', countClass: 'vehicle', glyph: 'tow-truck', color: '#e6e9e7', width: 9, length: 24, rotatable: true },
+  { id: 'heavy-tow-truck', label: 'Heavy tow truck', category: 'asset', countClass: 'vehicle', glyph: 'heavy-tow', color: '#d8dcda', width: 10, length: 38, rotatable: true },
+  { id: 'tma-crash-truck', label: 'TMA crash truck', category: 'asset', countClass: 'vehicle', glyph: 'tma-crash', color: '#e3e6e2', width: 11, length: 36, rotatable: true },
+  { id: 'tma-cone-truck', label: 'TMA cone truck', category: 'asset', countClass: 'vehicle', glyph: 'tma-cone', color: '#e3e6e2', width: 11, length: 32, rotatable: true },
+  { id: 'barrel', label: 'Barrel / drum', category: 'asset', countClass: 'equipment', glyph: 'barrel', color: '#ed6a24', width: 6, length: 6, capacity: { per: 'tma-cone-truck', quantity: 50 } },
+  { id: 'sedan-green', label: 'Green sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#477b58', width: 7, length: 16, rotatable: true },
+  { id: 'sedan-grey', label: 'Grey sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#858c8d', width: 7, length: 16, rotatable: true },
+  { id: 'sedan-black', label: 'Black sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#242827', width: 7, length: 16, rotatable: true },
   { id: 'vehicle-fire', label: 'Vehicle fire', category: 'hazard', countClass: 'hazard', glyph: 'vehicle-fire', color: '#555d5b', width: 8, length: 18 },
   { id: 'pickup-green', label: 'Green pickup', category: 'hazard', countClass: 'hazard', glyph: 'pickup', color: '#477b58', width: 8, length: 19 },
   { id: 'pickup-grey', label: 'Grey pickup', category: 'hazard', countClass: 'hazard', glyph: 'pickup', color: '#858c8d', width: 8, length: 19 },
@@ -61,6 +68,8 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'tour-bus', label: 'White tour bus', category: 'hazard', countClass: 'hazard', glyph: 'bus', color: '#f1f2ee', width: 9, length: 42 },
   { id: 'car-hauler-trailer', label: 'Disconnected car hauler', category: 'hazard', countClass: 'hazard', glyph: 'trailer', color: '#777f7d', width: 9, length: 34 },
   { id: 'fifth-wheel-hauler', label: 'Pickup with three-car hauler', category: 'hazard', countClass: 'hazard', glyph: 'car-hauler', color: '#687473', width: 9, length: 48 },
+  { id: 'fallen-motorcycle', label: 'Motorcycle on its side', category: 'hazard', countClass: 'hazard', glyph: 'motorcycle', color: '#303735', width: 8, length: 7, rotatable: true },
+  { id: 'injured-person', label: 'Injured person', category: 'hazard', countClass: 'hazard', glyph: 'injured-person', color: '#d5b39a', width: 7, length: 12 },
   { id: 'debris-grey', label: 'Grey debris', category: 'hazard', countClass: 'hazard', glyph: 'debris', color: '#b3b9b7', width: 8, length: 8 },
   { id: 'debris-red', label: 'Red debris', category: 'hazard', countClass: 'hazard', glyph: 'debris', color: '#c94b41', width: 8, length: 8 },
   { id: 'deer', label: 'Deer debris', category: 'hazard', countClass: 'hazard', glyph: 'deer', color: '#8a674b', width: 6, length: 9 },
@@ -74,6 +83,26 @@ export const equipmentDefinition = (id: string): EquipmentDefinition => {
   return definition
 }
 
+const rotatableHazardGlyphs: EquipmentGlyph[] = [
+  'sedan',
+  'pickup',
+  'vehicle-fire',
+  'tractor-trailer',
+  'tanker',
+  'jackknife',
+  'tractor',
+  'bus',
+  'trailer',
+  'car-hauler',
+  'motorcycle',
+]
+
+export function isEquipmentRotatable(definition: EquipmentDefinition): boolean {
+  return definition.rotatable === true
+    || definition.countClass === 'vehicle'
+    || rotatableHazardGlyphs.includes(definition.glyph)
+}
+
 export function deploymentLimit(definition: EquipmentDefinition, deployed: DeployedEquipment[], sspTruckCount: number): number {
   if (definition.limit !== undefined) return definition.limit
   if (!definition.capacity) return Number.POSITIVE_INFINITY
@@ -82,6 +111,7 @@ export function deploymentLimit(definition: EquipmentDefinition, deployed: Deplo
     'vsp-cruiser': deployed.filter((item) => item.definitionId === 'vsp-cruiser').length,
     'fire-response': deployed.filter((item) => ['ladder-truck', 'pump-truck', 'fire-chief'].includes(item.definitionId)).length,
     'incident-command': deployed.filter((item) => item.definitionId === 'incident-command').length,
+    'tma-cone-truck': deployed.filter((item) => item.definitionId === 'tma-cone-truck').length,
   }
   return sourceCounts[definition.capacity.per] * definition.capacity.quantity
 }

@@ -8,10 +8,18 @@ import {
   clampSceneZoom,
   clientToScenePoint,
   sceneZoomForVisibleWidth,
+  scenePointToLocal,
   visibleSceneWidth,
 } from './sceneCamera'
 
 describe('scene camera', () => {
+  it('maps world points into a rotated scene coordinate system', () => {
+    expect(scenePointToLocal(
+      { x: 110, y: 100 },
+      { x: 100, y: 100, rotation: 90 },
+      { x: 36, y: 260 },
+    )).toEqual({ x: 36, y: 250 })
+  })
   it('centers a smaller view box when zooming in', () => {
     expect(centeredSceneViewBox({ width: 500, height: 760 }, 2)).toEqual({
       x: 125,

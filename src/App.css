@@ -231,7 +231,15 @@
 .deployed-equipment { cursor: move; outline: none; }
 .deployed-selection { fill: none; stroke: transparent; stroke-width: 1; stroke-dasharray: 3 2; }
 .deployed-equipment.selected .deployed-selection, .deployed-equipment:focus .deployed-selection { stroke: #ffc323; }
+.equipment-rotation-handle { fill: #ffc323; stroke: #111817; stroke-width: .6; cursor: grab; }
+.equipment-rotation-handle:hover { r: 2.8; }
+.equipment-rotation-handle:active { cursor: grabbing; }
 .catalog-detail, .catalog-person, .catalog-ladder { fill: none; stroke: #26302e; stroke-width: .7; }
+.catalog-cone-band { fill: none; stroke: #f5f1df; stroke-width: .55; }
+.catalog-cone-base { fill: none; stroke: #111817; stroke-width: .7; }
+.catalog-tow-rig, .catalog-attenuator { fill: none; stroke: #26302e; stroke-width: .9; }
+.catalog-police-stripe { fill: none; stroke: #2d67ae; stroke-width: .7; }
+.catalog-blood { fill: #b92926; stroke: #711513; stroke-width: .3; }
 .catalog-person { stroke-width: 1; }
 .catalog-medical { fill: none; stroke: #c94439; stroke-width: 1.5; }
 .catalog-damage { fill: none; stroke: #c94439; stroke-width: 2; }

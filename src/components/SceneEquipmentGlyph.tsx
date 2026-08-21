@@ -13,7 +13,9 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
 
   switch (definition.glyph) {
     case 'cone':
-      return <><path {...common} d={`M ${-halfWidth} ${halfLength} L ${-width * .18} ${-halfLength} H ${width * .18} L ${halfWidth} ${halfLength} Z`} /><path d={`M ${-halfWidth} ${halfLength} H ${halfWidth}`} className="catalog-detail" /></>
+      return <><path {...common} d={`M ${-halfWidth} ${halfLength * .65} L ${-width * .18} ${-halfLength} H ${width * .18} L ${halfWidth} ${halfLength * .65} Z`} /><path d={`M ${-width * .34} 0 H ${width * .34}`} className="catalog-cone-band" /><path d={`M ${-halfWidth} ${halfLength} H ${halfWidth}`} className="catalog-cone-base" /></>
+    case 'barrel':
+      return <><circle r={halfWidth} fill="#161b1a" /><circle r={width * .38} fill="#c9cecc" /><circle r={width * .26} fill={definition.color} /></>
     case 'flare':
       return <><circle r={Math.max(width, 2)} fill="#d93528" className="catalog-flare" /><path d="M -1.5 0 H 1.5 M 0 -1.5 V 1.5" className="catalog-detail" /></>
     case 'diamond-sign':
@@ -21,6 +23,8 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
       return <><rect {...common} x={-halfWidth} y={-halfLength} width={width} height={length} transform="rotate(45) scale(.7)" /><text className="catalog-label" textAnchor="middle" y="1.5">{definition.glyph === 'debris' ? 'DEBRIS' : 'SCENE'}</text></>
     case 'person':
       return <><circle {...common} cy={-length * .3} r={width * .28} /><path d={`M 0 ${-length * .05} V ${length * .3} M 0 ${length * .05} L ${-halfWidth} ${length * .15} M 0 ${length * .05} L ${halfWidth} ${length * .15} M 0 ${length * .3} L ${-halfWidth * .7} ${halfLength} M 0 ${length * .3} L ${halfWidth * .7} ${halfLength}`} className="catalog-person" /></>
+    case 'injured-person':
+      return <><circle {...common} cy={-length * .34} r={width * .22} /><path d={`M 0 ${-length * .13} V ${length * .28} M 0 0 L ${-halfWidth} ${length * .12} M 0 0 L ${halfWidth} ${length * .12} M 0 ${length * .28} L ${-halfWidth * .65} ${halfLength} M 0 ${length * .28} L ${halfWidth * .65} ${halfLength}`} className="catalog-person" /><path className="catalog-blood" d={`M ${width * .3} ${-length * .18} C ${width * .1} ${length * .02} ${width * .12} ${length * .17} ${width * .3} ${length * .17} C ${width * .48} ${length * .17} ${width * .5} ${length * .02} ${width * .3} ${-length * .18} Z`} /></>
     case 'helipad':
       return <><circle r={halfWidth} fill="rgba(210,64,53,.08)" stroke="#d24035" strokeWidth="2" /><text className="helipad-h" textAnchor="middle" y={width * .18}>H</text><text className="helipad-label" textAnchor="middle" y={halfLength + 5}>HELICOPTER LANDING ZONE</text></>
     case 'airplane':
@@ -42,6 +46,14 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
           <text transform="rotate(-45)" textAnchor="middle" y={width * .09}>!</text>
         </g>
       </>
+    case 'tow-truck':
+      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .38} ${length * .02} H ${width * .38} V ${length * .38} H ${-width * .38} Z M 0 ${length * .04} V ${length * .3} M ${-width * .28} ${length * .32} L 0 ${length * .18} L ${width * .28} ${length * .32}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" /></>
+    case 'heavy-tow':
+      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .42} y={-length * .08} width={width * .84} height={length * .38} fill="none" className="catalog-detail" /><path d={`M 0 ${-length * .02} V ${length * .38} M ${-width * .34} ${length * .3} L 0 ${length * .08} L ${width * .34} ${length * .3}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" /></>
+    case 'tma-crash':
+      return <><VehicleBody width={width} length={length * .72} color={definition.color} /><path d={`M ${-halfWidth} ${length * .2} H ${halfWidth} L ${width * .34} ${halfLength} H ${-width * .34} Z M ${-width * .28} ${length * .28} L ${width * .28} ${length * .42} M ${width * .28} ${length * .28} L ${-width * .28} ${length * .42}`} className="catalog-attenuator" /><LightBar width={width} color="#efbd20" /></>
+    case 'tma-cone':
+      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .42} y={-length * .02} width={width * .84} height={length * .42} fill="#444c49" stroke="#151c1b" strokeWidth=".6" />{[-.25, 0, .25].map((x) => <g key={x} transform={`translate(${width * x} ${length * .13}) scale(.7)`}><path fill="#ed6a24" d="M -1 1 L -.35 -1 H .35 L 1 1 Z" /></g>)}<circle cx={-width * .22} cy={length * .31} r={width * .1} fill="#ed6a24" stroke="#c9cecc" strokeWidth=".5" /><circle cx={width * .22} cy={length * .31} r={width * .1} fill="#ed6a24" stroke="#c9cecc" strokeWidth=".5" /><LightBar width={width} color="#efbd20" /></>
     case 'trailer':
       return <><rect {...common} x={-halfWidth} y={-halfLength} width={width} height={length} rx="1" /><path d={`M ${-halfWidth} ${-length * .22} H ${halfWidth} M ${-halfWidth} ${length * .22} H ${halfWidth}`} className="catalog-detail" /></>
     case 'ladder-truck':
@@ -53,7 +65,7 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'ambulance':
       return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .25} 0 H ${width * .25} M 0 ${-width * .25} V ${width * .25}`} className="catalog-medical" /></>
     case 'cruiser':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .38} y="-1" width={width * .76} height="2" fill="#4b82b6" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .28} ${-length * .38} V ${length * .4} M ${width * .28} ${-length * .38} V ${length * .4}`} className="catalog-police-stripe" /><LightBar width={width} color="#2d67ae" /></>
     case 'suv':
     case 'ssp-truck':
       return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y="-1" width={width * .8} height="2" fill="#efc227" /></>
@@ -69,9 +81,15 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
           <path className="catalog-flame-core" d={`M ${-width * .08} ${length * .18} C ${-width * .2} 0 ${width * .02} ${-length * .13} ${width * .08} ${-length * .3} C ${width * .28} ${-length * .02} ${width * .24} ${length * .12} ${width * .12} ${length * .18} Z`} />
         </g>
       </>
+    case 'motorcycle':
+      return <><g transform="rotate(90)"><circle cx={0} cy={-length * .32} r={width * .2} fill="none" stroke="#151c1b" strokeWidth=".8" /><circle cx={0} cy={length * .32} r={width * .2} fill="none" stroke="#151c1b" strokeWidth=".8" /><path d={`M 0 ${-length * .2} L ${-width * .28} 0 L 0 ${length * .2} L ${width * .28} 0 Z M ${-width * .28} 0 H ${width * .28}`} stroke={definition.color} strokeWidth="1.2" fill="none" /></g></>
     case 'tool':
       return <><circle {...common} r={halfWidth} /><path d={`M ${-halfWidth * .6} ${halfLength * .6} L ${halfWidth * .6} ${-halfLength * .6} M ${-halfWidth * .6} ${-halfLength * .6} L ${halfWidth * .6} ${halfLength * .6}`} className="catalog-detail" /></>
   }
+}
+
+function LightBar({ width, color }: { width: number; color: string }) {
+  return <rect x={-width * .38} y={-1} width={width * .76} height="2" fill={color} stroke="#151c1b" strokeWidth=".25" />
 }
 
 function VehicleBody({ width, length, color }: { width: number; length: number; color: string }) {

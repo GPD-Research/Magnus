@@ -242,14 +242,15 @@ test('uses a wider center pane and a muted moss map field', async ({ page }) => 
   expect(Math.abs(widths.workspace - widths.left - widths.center - widths.right)).toBeLessThanOrEqual(2)
   await expect(page.locator('.road-stage')).toHaveCSS('background-color', 'rgb(79, 92, 72)')
   await expect(page.locator('.roadway-data-layer > rect')).toHaveAttribute('fill', '#56624d')
-  const stageBounds = await page.locator('.road-stage').boundingBox()
-  const truckBounds = await page.locator('[data-truck-id="ssp-truck-1"]').boundingBox()
-  expect(stageBounds).not.toBeNull()
-  expect(truckBounds).not.toBeNull()
-  expect(truckBounds!.x).toBeGreaterThan(stageBounds!.x)
-  expect(truckBounds!.x).toBeLessThan(stageBounds!.x + stageBounds!.width)
-  expect(truckBounds!.y).toBeGreaterThan(stageBounds!.y)
-  expect(truckBounds!.y).toBeLessThan(stageBounds!.y + stageBounds!.height)
+  await expect.poll(async () => {
+    const stageBounds = await page.locator('.road-stage').boundingBox()
+    const truckBounds = await page.locator('[data-truck-id="ssp-truck-1"]').boundingBox()
+    if (!stageBounds || !truckBounds) return false
+    return truckBounds.x > stageBounds.x
+      && truckBounds.x < stageBounds.x + stageBounds.width
+      && truckBounds.y > stageBounds.y
+      && truckBounds.y < stageBounds.y + stageBounds.height
+  }).toBe(true)
 })
 
 test('resolves a highway exit request into scaled interchange geometry', async ({ page }) => {
@@ -376,9 +377,11 @@ test('instantiates lane-specific geometry and signboards when adding a scene', a
   await page.locator('#mainline-surface').click({ force: true })
 
   await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(30 282)')
-  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(18 522)')
+  await expect(page.locator('[data-cone-id="buffer-2"]')).toHaveAttribute('transform', 'translate(30 362)')
+  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(18 562)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(24 260)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'right-arrow')
+  await expect(page.locator('.metric-grid > div').filter({ hasText: 'Taper length' }).locator('strong')).toContainText('200')
 
   await page.getByRole('button', { name: 'Remove scene' }).click()
   await page.getByRole('button', { name: /Two left lanes/ }).click()
@@ -386,9 +389,22 @@ test('instantiates lane-specific geometry and signboards when adding a scene', a
   await page.locator('#mainline-surface').click({ force: true })
 
   await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(42 282)')
-  await expect(page.locator('[data-cone-id="taper-7"]')).toHaveAttribute('transform', 'translate(18 602)')
+  await expect(page.locator('[data-cone-id="buffer-2"]')).toHaveAttribute('transform', 'translate(42 362)')
+  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(30 562)')
+  await expect(page.locator('[data-cone-id="taper-10"]')).toHaveAttribute('transform', 'translate(18 762)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(36 260)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'right-arrow')
+  await expect(page.locator('.metric-grid > div').filter({ hasText: 'Taper length' }).locator('strong')).toContainText('400')
+
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: /Two right lanes/ }).click()
+  await page.getByRole('button', { name: 'Add scene' }).click()
+  await page.locator('#mainline-surface').click({ force: true })
+
+  await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(30 282)')
+  await expect(page.locator('[data-cone-id="buffer-2"]')).toHaveAttribute('transform', 'translate(30 362)')
+  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(42 562)')
+  await expect(page.locator('[data-cone-id="taper-10"]')).toHaveAttribute('transform', 'translate(54 762)')
 
   await page.getByRole('button', { name: 'Remove scene' }).click()
   await page.getByRole('button', { name: /Shoulder closure/ }).click()
@@ -452,6 +468,63 @@ test('deploys assets and hazards with live scene counters and deletion', async (
   const cruiser = toolkit.getByRole('button', { name: /VSP cruiser/ })
   for (let count = 0; count < 5; count += 1) await cruiser.click()
   await expect(cruiser).toBeDisabled()
+})
+
+test('centers and rotates dropped response vehicles and exposes the expanded catalog', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.goto('/')
+  const stage = page.locator('.road-stage')
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+
+  await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
+  await stage.evaluate((element) => element.scrollTo(element.scrollWidth * .75, element.scrollHeight * .7))
+  await toolkit.getByRole('button', { name: /^Tow truck/ }).click()
+
+  const stageBounds = await stage.boundingBox()
+  const towTruck = page.locator('[data-definition-id="tow-truck"]')
+  const towBounds = await towTruck.boundingBox()
+  expect(stageBounds).not.toBeNull()
+  expect(towBounds).not.toBeNull()
+  expect(Math.abs(towBounds!.x + towBounds!.width / 2 - (stageBounds!.x + stageBounds!.width / 2))).toBeLessThan(20)
+  expect(Math.abs(towBounds!.y + towBounds!.height / 2 - (stageBounds!.y + stageBounds!.height / 2))).toBeLessThan(20)
+
+  const rotationHandle = page.getByLabel('Rotate Tow truck')
+  const handleBounds = await rotationHandle.boundingBox()
+  expect(handleBounds).not.toBeNull()
+  await rotationHandle.dispatchEvent('pointerdown', {
+    pointerId: 31,
+    pointerType: 'touch',
+    clientX: handleBounds!.x + handleBounds!.width / 2,
+    clientY: handleBounds!.y + handleBounds!.height / 2,
+  })
+  await page.locator('.road-canvas').dispatchEvent('pointermove', {
+    pointerId: 31,
+    pointerType: 'touch',
+    clientX: towBounds!.x - 30,
+    clientY: towBounds!.y + towBounds!.height / 2,
+  })
+  await page.locator('.road-canvas').dispatchEvent('pointerup', { pointerId: 31, pointerType: 'touch' })
+  await expect(towTruck).not.toHaveAttribute('transform', /rotate\(0\)/)
+
+  const barrel = toolkit.getByRole('button', { name: /Barrel \/ drum/ })
+  await expect(barrel).toBeDisabled()
+  await toolkit.getByRole('button', { name: /TMA cone truck/ }).click()
+  await expect(barrel).toBeEnabled()
+  await barrel.click()
+  await expect(page.locator('[data-definition-id="barrel"] circle')).toHaveCount(3)
+  await toolkit.getByRole('button', { name: /Heavy tow truck/ }).click()
+  await expect(page.locator('[data-definition-id="heavy-tow-truck"] .catalog-tow-rig')).toHaveCount(1)
+  await toolkit.getByRole('button', { name: /TMA crash truck/ }).click()
+  await expect(page.locator('[data-definition-id="tma-crash-truck"] .catalog-attenuator')).toHaveCount(1)
+  await toolkit.getByRole('button', { name: /VSP cruiser/ }).click()
+  await expect(page.locator('[data-definition-id="vsp-cruiser"] .catalog-police-stripe')).toHaveCount(1)
+  await expect(page.locator('[data-definition-id="vsp-cruiser"] rect[fill="#2d67ae"]')).toHaveCount(1)
+
+  await toolkit.getByRole('tab', { name: 'Hazards' }).click()
+  await toolkit.getByRole('button', { name: /Motorcycle on its side/ }).click()
+  await expect(page.locator('[data-definition-id="fallen-motorcycle"]')).toHaveCount(1)
+  await toolkit.getByRole('button', { name: /Injured person/ }).click()
+  await expect(page.locator('[data-definition-id="injured-person"] .catalog-blood')).toHaveCount(1)
 })
 
 test('shows map orientation and traffic direction only for an active scene', async ({ page }) => {

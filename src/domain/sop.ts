@@ -97,8 +97,8 @@ const templates: Record<ScenarioType, ScenePoint[]> = {
   ],
   'left-lane': createLaneClosureTemplate(30, 18),
   'center-lane': createLaneClosureTemplate(30, 42),
-  'two-right-lanes': createLaneClosureTemplate(30, 54, 7),
-  'two-left-lanes': createLaneClosureTemplate(42, 18, 7),
+  'two-right-lanes': createLaneClosureTemplate(30, 54, 10),
+  'two-left-lanes': createLaneClosureTemplate(42, 18, 10),
   'lane-shift': createLaneShiftTemplate(),
   'ramp-closure': createRampClosureTemplate(),
 }
@@ -109,13 +109,14 @@ function createLaneClosureTemplate(openBoundaryX: number, closedBoundaryX: numbe
     return {
       id: `taper-${index + 1}`,
       x: openBoundaryX + (closedBoundaryX - openBoundaryX) * progress,
-      y: 362 + index * RIGHT_LANE_STANDARD.coneSpacing,
+      y: 402 + index * RIGHT_LANE_STANDARD.coneSpacing,
       role: 'taper',
     }
   })
   return [
     { id: 'anchor', x: openBoundaryX, y: 282, role: 'anchor' },
     { id: 'buffer-1', x: openBoundaryX, y: 322, role: 'buffer' },
+    { id: 'buffer-2', x: openBoundaryX, y: 362, role: 'buffer' },
     ...taper,
     { id: 'lead', x: openBoundaryX, y: 238, role: 'perimeter' },
     { id: 'perimeter-1', x: openBoundaryX, y: 198, role: 'perimeter' },

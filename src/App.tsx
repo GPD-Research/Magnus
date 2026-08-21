@@ -46,6 +46,7 @@ import {
   deployedCount,
   deploymentLimit,
   equipmentDefinition,
+  isEquipmentRotatable,
   sceneCounts,
   type DeployedEquipment,
   type ToolkitCategory,
@@ -84,6 +85,7 @@ import {
   clampSceneZoom,
   clientToScenePoint,
   sceneZoomForVisibleWidth,
+  scenePointToLocal,
   visibleSceneWidth,
 } from './domain/sceneCamera'
 import {
@@ -273,6 +275,7 @@ function App() {
   const [deployedEquipment, setDeployedEquipment] = useState<DeployedEquipment[]>(savedScenario?.deployedEquipment ?? [])
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null)
   const [draggingEquipmentId, setDraggingEquipmentId] = useState<string | null>(null)
+  const rotatingEquipmentRef = useRef<{ id: string; startAngle: number; startRotation: number } | null>(null)
   const [activeToolkit, setActiveToolkit] = useState<ToolkitCategory>('asset')
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [sceneZoom, setSceneZoom] = useState(1)
@@ -309,7 +312,13 @@ function App() {
   const downstreamSpacing = orderedDownstream[1]
     ? orderedDownstream[0].y - orderedDownstream[1].y
     : RIGHT_LANE_STANDARD.coneSpacing
-  const taperLength = scenario === 'right-lane' ? taperCount * 40 : 120
+  const taperLength = [
+    'right-lane',
+    'left-lane',
+    'center-lane',
+    'two-right-lanes',
+    'two-left-lanes',
+  ].includes(scenario) ? taperCount * RIGHT_LANE_STANDARD.coneSpacing : 120
   const sceneViewBox = centeredSceneViewBox(roadScene.viewport, 1, sceneDisplaySize)
   const sceneViewBoxValue = `${sceneViewBox.x} ${sceneViewBox.y} ${sceneViewBox.width} ${sceneViewBox.height}`
   const defaultSceneZoom = sceneZoomForVisibleWidth(
@@ -340,6 +349,7 @@ function App() {
   const selectedEquipmentDefinition = selectedEquipment
     ? equipmentDefinition(selectedEquipment.definitionId)
     : null
+  const setupConeDefinition = equipmentDefinition('cone')
   const deployedCounts = sceneCounts(
     sceneVisible ? deployedEquipment : [],
     sceneVisible ? trucks.length : 0,
@@ -593,13 +603,34 @@ function App() {
       return
     }
     if (!canDeploy(definitionId, deployedEquipment, trucks.length, catalogBaselineCounts)) return
-    const sequence = deployedEquipment.length
-    const definition = equipmentDefinition(definitionId)
+    const stage = roadStageRef.current
+    const canvas = stage?.querySelector<SVGSVGElement>('.road-canvas')
+    const activeTransform = selectedSectionTransform ?? {
+      x: sceneOrigin.x + sceneAnchorX,
+      y: sceneOrigin.y + sceneAnchorY,
+      rotation: sceneRotation,
+    }
+    const stageBounds = stage?.getBoundingClientRect()
+    const visibleCenter = stage && stageBounds && canvas
+      ? clientToScenePoint(
+          {
+            x: stageBounds.left + stage.clientWidth / 2,
+            y: stageBounds.top + stage.clientHeight / 2,
+          },
+          canvas.getBoundingClientRect(),
+          sceneViewBox,
+        )
+      : { x: activeTransform.x, y: activeTransform.y }
+    const localCenter = scenePointToLocal(
+      visibleCenter,
+      activeTransform,
+      { x: sceneAnchorX, y: sceneAnchorY },
+    )
     const equipment: DeployedEquipment = {
       id: `${definitionId}-${crypto.randomUUID()}`,
       definitionId,
-      x: Math.max(definition.width / 2 + 2, Math.min(roadScene.viewport.width - definition.width / 2 - 2, 18 + (sequence % 4) * 14)),
-      y: 330 + (sequence % 8) * 42,
+      x: localCenter.x,
+      y: localCenter.y,
       rotation: 0,
     }
     setDeployedEquipment((current) => [...current, equipment])
@@ -617,7 +648,7 @@ function App() {
   }
 
   function moveCone(event: React.PointerEvent<SVGSVGElement>) {
-    if ((!dragging || mode === 'gospel') && !draggingEquipmentId && !draggingTruckId) return
+    if ((!dragging || mode === 'gospel') && !draggingEquipmentId && !draggingTruckId && !rotatingEquipmentRef.current) return
     const bounds = event.currentTarget.getBoundingClientRect()
     const scenePoint = clientToScenePoint(
       { x: event.clientX, y: event.clientY },
@@ -629,13 +660,7 @@ function App() {
       y: sceneOrigin.y + sceneAnchorY,
       rotation: sceneRotation,
     }
-    const radians = (-activeTransform.rotation * Math.PI) / 180
-    const translatedX = scenePoint.x - activeTransform.x
-    const translatedY = scenePoint.y - activeTransform.y
-    const localPoint = {
-      x: translatedX * Math.cos(radians) - translatedY * Math.sin(radians) + sceneAnchorX,
-      y: translatedX * Math.sin(radians) + translatedY * Math.cos(radians) + sceneAnchorY,
-    }
+    const localPoint = scenePointToLocal(scenePoint, activeTransform, { x: sceneAnchorX, y: sceneAnchorY })
     if (dragging && mode !== 'gospel') {
       const x = Math.max(6, Math.min(roadScene.viewport.width - 6, localPoint.x))
       const y = Math.max(30, Math.min(roadScene.viewport.height - 30, localPoint.y))
@@ -654,6 +679,40 @@ function App() {
       const y = Math.max(RIGHT_LANE_STANDARD.truck.halfLength, Math.min(roadScene.viewport.height - RIGHT_LANE_STANDARD.truck.halfLength, localPoint.y))
       setTrucks((current) => current.map((truck) => truck.id === draggingTruckId ? { ...truck, x, y } : truck))
     }
+    const rotating = rotatingEquipmentRef.current
+    if (rotating) {
+      const item = deployedEquipment.find((equipment) => equipment.id === rotating.id)
+      if (!item) return
+      const angle = Math.atan2(localPoint.y - item.y, localPoint.x - item.x) * 180 / Math.PI
+      updateDeployedEquipment(item.id, {
+        rotation: Math.round(rotating.startRotation + angle - rotating.startAngle),
+      })
+    }
+  }
+
+  function beginEquipmentRotation(event: React.PointerEvent<SVGCircleElement>, item: DeployedEquipment) {
+    event.stopPropagation()
+    const canvas = event.currentTarget.ownerSVGElement
+    if (!canvas) return
+    const scenePoint = clientToScenePoint(
+      { x: event.clientX, y: event.clientY },
+      canvas.getBoundingClientRect(),
+      sceneViewBox,
+    )
+    const activeTransform = selectedSectionTransform ?? {
+      x: sceneOrigin.x + sceneAnchorX,
+      y: sceneOrigin.y + sceneAnchorY,
+      rotation: sceneRotation,
+    }
+    const localPoint = scenePointToLocal(scenePoint, activeTransform, { x: sceneAnchorX, y: sceneAnchorY })
+    rotatingEquipmentRef.current = {
+      id: item.id,
+      startAngle: Math.atan2(localPoint.y - item.y, localPoint.x - item.x) * 180 / Math.PI,
+      startRotation: item.rotation,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setSelectedEquipmentId(item.id)
+    setSelectedTruckId('')
   }
 
   function addRadioEvent() {
@@ -936,7 +995,7 @@ function App() {
           </div>
           <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom} onPointerDown={startScenePointer} onPointerMove={moveScenePointer} onPointerUp={endScenePointer} onPointerCancel={endScenePointer} onWheel={zoomSceneWithTrackpad}>
             <div className="road-canvas-surface" style={sceneCanvasSize}>
-            <svg className={`road-canvas${scenePlacementActive ? ' placing-scene' : ''}`} viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-visible-width-feet={Math.round(sceneVisibleWidth)} data-zoom={sceneZoom} onPointerDown={placeScene} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }}>
+            <svg className={`road-canvas${scenePlacementActive ? ' placing-scene' : ''}`} viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-visible-width-feet={Math.round(sceneVisibleWidth)} data-zoom={sceneZoom} onPointerDown={placeScene} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null }}>
               <g className="map-world" transform={mapTransform}>
               <RoadwayLayer
                 scene={roadScene}
@@ -976,9 +1035,7 @@ function App() {
               {points.map((point) => (
                 <g className={`cone ${mode === 'gospel' ? 'locked' : ''}`} data-cone-id={point.id} key={point.id} transform={`translate(${point.x} ${point.y})`} onPointerDown={(event) => { if (mode === 'gospel') return; event.currentTarget.setPointerCapture(event.pointerId); setDragging(point.id) }}>
                   <rect className="cone-hit-area" x="-4" y="-4" width="8" height="8" />
-                  <path className="cone-body" d="M -.7 .8 L -.3 -1.3 H .3 L .7 .8 Z" />
-                  <path className="cone-band" d="M -.5 -.2 H .5" />
-                  <path className="cone-base" d="M -1 1 H 1" />
+                  <SceneEquipmentGlyph definition={setupConeDefinition} />
                 </g>
               ))}
               {deployedEquipment.map((item) => {
@@ -995,6 +1052,7 @@ function App() {
                 >
                   <SceneEquipmentGlyph definition={definition} />
                   <rect className="deployed-selection" x={-definition.width / 2 - 2} y={-definition.length / 2 - 2} width={definition.width + 4} height={definition.length + 4} />
+                  {item.id === selectedEquipmentId && isEquipmentRotatable(definition) && <circle className="equipment-rotation-handle" aria-label={`Rotate ${definition.label}`} cx={definition.width / 2 + 2} cy={-definition.length / 2 - 2} r="2.2" onPointerDown={(event) => beginEquipmentRotation(event, item)} />}
                 </g>
               })}
               </g>}

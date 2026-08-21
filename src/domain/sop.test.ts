@@ -49,16 +49,42 @@ describe('SOP scene audit', () => {
       'lane-shift',
       'ramp-closure',
     ])
-    expect(createScene('two-right-lanes').filter((point) => point.role === 'taper')).toHaveLength(7)
+    expect(createScene('two-right-lanes').filter((point) => point.role === 'taper')).toHaveLength(10)
     expect(createScene('lane-shift').length).toBeGreaterThan(createScene('right-lane').length)
     expect(createScene('left-lane').find((point) => point.id === 'anchor')?.x).toBe(30)
     expect(createScene('left-lane').find((point) => point.id === 'taper-5')?.x).toBe(18)
     expect(createScene('right-lane').find((point) => point.id === 'taper-5')?.x).toBe(54)
     expect(createScene('two-left-lanes').find((point) => point.id === 'anchor')?.x).toBe(42)
-    expect(createScene('two-left-lanes').find((point) => point.id === 'taper-7')?.x).toBe(18)
+    expect(createScene('two-left-lanes').find((point) => point.id === 'taper-5')?.x).toBe(30)
+    expect(createScene('two-left-lanes').find((point) => point.id === 'taper-10')?.x).toBe(18)
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'two-left-lanes')?.truckOffsetX).toBe(-12)
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'left-lane')?.signboard).toBe('right-arrow')
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'right-lane')?.signboard).toBe('left-arrow')
+  })
+
+  it('uses three straight cones followed by five taper cones per closed lane', () => {
+    for (const scenario of ['right-lane', 'left-lane', 'center-lane'] as const) {
+      const scene = createScene(scenario)
+      expect(scene.filter((point) => point.role === 'anchor' || point.role === 'buffer'))
+        .toMatchObject([
+          { id: 'anchor', y: 282 },
+          { id: 'buffer-1', y: 322 },
+          { id: 'buffer-2', y: 362 },
+        ])
+      expect(scene.filter((point) => point.role === 'taper')).toHaveLength(5)
+      expect(scene.find((point) => point.id === 'taper-1')?.y).toBe(402)
+      expect(scene.find((point) => point.id === 'taper-5')?.y).toBe(562)
+    }
+
+    const twoRight = createScene('two-right-lanes')
+    expect(twoRight.filter((point) => point.role === 'taper')).toHaveLength(10)
+    expect(twoRight.find((point) => point.id === 'taper-5')).toMatchObject({ x: 42, y: 562 })
+    expect(twoRight.find((point) => point.id === 'taper-10')).toMatchObject({ x: 54, y: 762 })
+
+    const twoLeft = createScene('two-left-lanes')
+    expect(twoLeft.filter((point) => point.role === 'taper')).toHaveLength(10)
+    expect(twoLeft.find((point) => point.id === 'taper-5')).toMatchObject({ x: 30, y: 562 })
+    expect(twoLeft.find((point) => point.id === 'taper-10')).toMatchObject({ x: 18, y: 762 })
   })
 
   it('rejects a cone moved into the emergency shoulder', () => {

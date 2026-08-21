@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canDeploy, deployedCount, deploymentLimit, equipmentDefinition, sceneCounts, type DeployedEquipment } from './equipmentCatalog'
+import { canDeploy, deployedCount, deploymentLimit, equipmentDefinition, isEquipmentRotatable, sceneCounts, type DeployedEquipment } from './equipmentCatalog'
 
 const deploy = (definitionId: string, index: number): DeployedEquipment => ({
   id: `${definitionId}-${index}`,
@@ -40,5 +40,26 @@ describe('equipment catalog', () => {
     expect(equipmentDefinition('vehicle-fire').glyph).toBe('vehicle-fire')
     expect(equipmentDefinition('hazmat-tanker').glyph).toBe('tanker')
     expect(sceneCounts([deploy('vehicle-fire', 1), deploy('hazmat-tanker', 1)], 0, 0).hazards).toBe(2)
+  })
+
+  it('includes towing, TMA, barrel, motorcycle, and injury scene items', () => {
+    const coneTruck = [deploy('tma-cone-truck', 1)]
+
+    expect(equipmentDefinition('tow-truck').glyph).toBe('tow-truck')
+    expect(equipmentDefinition('heavy-tow-truck').rotatable).toBe(true)
+    expect(equipmentDefinition('tma-crash-truck').glyph).toBe('tma-crash')
+    expect(equipmentDefinition('fallen-motorcycle').rotatable).toBe(true)
+    expect(equipmentDefinition('injured-person').glyph).toBe('injured-person')
+    expect(deploymentLimit(equipmentDefinition('barrel'), coneTruck, 0)).toBe(50)
+    expect(deploymentLimit(equipmentDefinition('barrel'), [...coneTruck, deploy('tma-cone-truck', 2)], 0)).toBe(100)
+  })
+
+  it('rotates dropped cars, cruisers, trucks, and motorcycles', () => {
+    for (const id of ['vsp-cruiser', 'ems-ambulance', 'tow-truck', 'sedan-grey', 'pickup-green', 'tractor-trailer', 'school-bus', 'fallen-motorcycle']) {
+      expect(isEquipmentRotatable(equipmentDefinition(id)), id).toBe(true)
+    }
+    for (const id of ['cone', 'barrel', 'injured-person', 'debris-grey']) {
+      expect(isEquipmentRotatable(equipmentDefinition(id)), id).toBe(false)
+    }
   })
 })
