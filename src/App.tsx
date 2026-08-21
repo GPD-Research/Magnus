@@ -7,7 +7,6 @@ import {
   Layers3,
   LoaderCircle,
   MapPinned,
-  Maximize2,
   Minus,
   MousePointer2,
   Navigation,
@@ -18,8 +17,6 @@ import {
   ShieldCheck,
   TrafficCone,
   Truck,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react'
 import './App.css'
 import { RoadwayLayer } from './components/RoadwayLayer'
@@ -94,6 +91,8 @@ function App() {
   const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
   const [designerOpen, setDesignerOpen] = useState(false)
   const roadStageRef = useRef<HTMLDivElement>(null)
+  const pinchPointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null)
   const [roadLayerVisibility, setRoadLayerVisibility] = useState<RoadLayerVisibility>({
     roadGeometry: true,
     barriers: true,
@@ -136,7 +135,7 @@ function App() {
     if (!stage) return
 
     const updateDisplaySize = () => {
-      const { width, height } = stage.getBoundingClientRect()
+      const { clientWidth: width, clientHeight: height } = stage
       if (width > 0 && height > 0) setSceneDisplaySize({ width, height })
     }
     const observer = new ResizeObserver(updateDisplaySize)
@@ -204,6 +203,40 @@ function App() {
 
   function changeSceneZoom(change: number) {
     setSceneZoom((current) => clampSceneZoom(current + change))
+  }
+
+  function scenePointerDistance() {
+    const [first, second] = [...pinchPointersRef.current.values()]
+    return first && second ? Math.hypot(second.x - first.x, second.y - first.y) : 0
+  }
+
+  function startScenePointer(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'mouse') return
+    pinchPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pinchPointersRef.current.size === 2) {
+      setDragging(null)
+      pinchStartRef.current = { distance: scenePointerDistance(), zoom: sceneZoom }
+    }
+  }
+
+  function moveScenePointer(event: React.PointerEvent<HTMLDivElement>) {
+    if (!pinchPointersRef.current.has(event.pointerId)) return
+    pinchPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const pinchStart = pinchStartRef.current
+    if (!pinchStart || pinchStart.distance === 0) return
+    event.preventDefault()
+    setSceneZoom(clampSceneZoom(pinchStart.zoom * scenePointerDistance() / pinchStart.distance))
+  }
+
+  function endScenePointer(event: React.PointerEvent<HTMLDivElement>) {
+    pinchPointersRef.current.delete(event.pointerId)
+    if (pinchPointersRef.current.size < 2) pinchStartRef.current = null
+  }
+
+  function zoomSceneWithTrackpad(event: React.WheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey) return
+    event.preventDefault()
+    setSceneZoom((current) => clampSceneZoom(current * Math.exp(-event.deltaY * 0.01)))
   }
 
   async function loadRoadLocation(event: React.FormEvent<HTMLFormElement>) {
@@ -311,16 +344,10 @@ function App() {
           <div className="canvas-toolbar">
             <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><h1>{scenario === 'right-lane' ? 'Single right lane closure' : 'Standard shoulder closure'}</h1><small className="scene-dataset">{roadScene.source.dataset}</small></div>
             <div className="canvas-tools">
-              <div className="zoom-controls" role="group" aria-label="Highway graphic zoom">
-                <button type="button" title="Zoom out" aria-label="Zoom out highway graphic" disabled={sceneZoom <= MIN_SCENE_ZOOM} onClick={() => changeSceneZoom(-SCENE_ZOOM_STEP)}><ZoomOut size={15} /></button>
-                <button className="zoom-value" type="button" title="Reset zoom" aria-label={`Reset highway graphic zoom, currently ${Math.round(sceneZoom * 100)} percent`} onClick={() => setSceneZoom(1)}>{Math.round(sceneZoom * 100)}%</button>
-                <button type="button" title="Zoom in" aria-label="Zoom in highway graphic" disabled={sceneZoom >= MAX_SCENE_ZOOM} onClick={() => changeSceneZoom(SCENE_ZOOM_STEP)}><ZoomIn size={15} /></button>
-                <button type="button" title="Fit highway graphic" aria-label="Fit highway graphic" onClick={() => setSceneZoom(1)}><Maximize2 size={14} /></button>
-              </div>
               <div className="scale-key"><span /> 40 FT</div>
             </div>
           </div>
-          <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom}>
+          <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom} onPointerDown={startScenePointer} onPointerMove={moveScenePointer} onPointerUp={endScenePointer} onPointerCancel={endScenePointer} onWheel={zoomSceneWithTrackpad}>
             <div className="road-canvas-surface" style={sceneCanvasSize}>
             <svg className="road-canvas" viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-zoom={sceneZoom} onPointerMove={moveCone} onPointerUp={() => setDragging(null)} onPointerLeave={() => setDragging(null)}>
               <RoadwayLayer
@@ -370,6 +397,14 @@ function App() {
 
         <aside className="panel audit-panel" aria-label="Compliance and communications">
           <div className="panel-heading"><span>02</span><div><p>Operations</p><h2>Mode & audit</h2></div></div>
+          <section className="scene-zoom-control" aria-label="Scene view controls">
+            <span>Scene zoom</span>
+            <div className="zoom-controls" role="group" aria-label="Scene zoom">
+              <button type="button" title="Zoom out" aria-label="Zoom out highway graphic" disabled={sceneZoom <= MIN_SCENE_ZOOM} onClick={() => changeSceneZoom(-SCENE_ZOOM_STEP)}><Minus size={17} /></button>
+              <button className="zoom-value" type="button" title="Reset zoom" aria-label={`Reset highway graphic zoom, currently ${Math.round(sceneZoom * 100)} percent`} onClick={() => setSceneZoom(1)}>{Math.round(sceneZoom * 100)}%</button>
+              <button type="button" title="Zoom in" aria-label="Zoom in highway graphic" disabled={sceneZoom >= MAX_SCENE_ZOOM} onClick={() => changeSceneZoom(SCENE_ZOOM_STEP)}><Plus size={17} /></button>
+            </div>
+          </section>
           {roadSections.length > 1 && (
             <section className={`section-control${sectionSelectionEnabled ? ' selecting' : ''}`} aria-label="Controlled roadway section">
               <div><span>Controlled sector</span><b>{selectedRoadSection ? roadSectionLabel(selectedRoadSection) : 'No section selected'}</b></div>

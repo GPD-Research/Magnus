@@ -95,15 +95,19 @@
 .canvas-toolbar h1 { margin: 3px 0 0; font: 600 21px/1 'Barlow Condensed', sans-serif; }
 .scene-dataset { display: block; max-width: 360px; margin-top: 3px; overflow: hidden; color: #7a8581; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-tools { display: flex; align-items: center; gap: 13px; }
-.zoom-controls { height: 30px; display: flex; align-items: stretch; border: 1px solid #c6cfcb; background: #fff; }
-.zoom-controls button { width: 30px; display: grid; place-items: center; padding: 0; color: #4b5853; background: transparent; border: 0; border-right: 1px solid #d7ddda; cursor: pointer; }
+.zoom-controls { height: 38px; display: flex; align-items: stretch; border: 1px solid #bfc9c5; background: #fff; }
+.zoom-controls button { width: 42px; display: grid; place-items: center; padding: 0; color: #364640; background: transparent; border: 0; border-right: 1px solid #d7ddda; cursor: pointer; touch-action: manipulation; }
 .zoom-controls button:last-child { border-right: 0; }
 .zoom-controls button:hover:not(:disabled) { color: #116445; background: #edf5f1; }
 .zoom-controls button:disabled { color: #b8c0bd; cursor: not-allowed; }
-.zoom-controls button.zoom-value { width: 44px; font-size: 8px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.zoom-controls button.zoom-value { width: 52px; font-size: 9px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .scale-key { display: flex; align-items: center; gap: 6px; color: #68736f; font: 600 9px 'Barlow Condensed', sans-serif; }
 .scale-key span { width: 38px; height: 5px; border-inline: 1px solid #697470; border-bottom: 1px solid #697470; }
-.road-stage { min-height: 0; position: relative; flex: 1; overflow: auto; overscroll-behavior: contain; background: radial-gradient(circle at 50% 45%, #fff 0, #edf0ed 65%); scrollbar-gutter: stable; }
+.road-stage { width: 100%; height: 0; min-height: 0; position: relative; flex: 1 1 0; contain: size layout paint; overflow: scroll; overscroll-behavior: contain; background: radial-gradient(circle at 50% 45%, #fff 0, #edf0ed 65%); scrollbar-color: #85918c #dce1de; scrollbar-width: auto; scrollbar-gutter: stable; touch-action: none; }
+.road-stage::-webkit-scrollbar { width: 14px; height: 14px; }
+.road-stage::-webkit-scrollbar-track { background: #dce1de; }
+.road-stage::-webkit-scrollbar-thumb { background: #85918c; border: 3px solid #dce1de; }
+.road-stage::-webkit-scrollbar-corner { background: #dce1de; }
 .road-canvas-surface { position: relative; flex: none; margin: 18px; }
 .road-canvas { width: 100%; height: 100%; display: block; box-shadow: 0 8px 22px rgba(27,38,36,.18); touch-action: none; }
 .road-feature { vector-effect: none; }
@@ -145,6 +149,8 @@
 .flow-label { fill: #eef1eb; font: 600 8px 'IBM Plex Sans', sans-serif; letter-spacing: 1px; opacity: .72; }
 .canvas-hint { position: sticky; z-index: 2; left: 50%; bottom: 11px; width: max-content; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; margin-top: -48px; padding: 7px 10px; color: #dfe6e2; background: rgba(19,27,26,.88); border: 1px solid rgba(255,255,255,.16); border-radius: 4px; font-size: 10px; white-space: nowrap; }
 
+.scene-zoom-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: #edf1ef; border-bottom: 1px solid var(--line); }
+.scene-zoom-control > span { color: #596560; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; }
 .mode-selector { display: grid; grid-template-columns: 1fr 1fr 1fr; margin: 14px; border: 1px solid #ccd4d1; border-radius: 4px; overflow: hidden; }
 .section-control { display: grid; gap: 9px; margin: 14px; padding: 11px; background: #edf1ef; border: 1px solid #c7d0cc; border-left: 3px solid #64736d; }
 .section-control.selecting { background: #fff6dd; border-color: #d8b65b; border-left-color: #d09a13; }
@@ -200,8 +206,8 @@
   .workspace { height: auto; display: flex; flex-direction: column; overflow: visible; }
   .panel { overflow: visible; }
   .config-panel, .audit-panel { border: 0; }
-  .canvas-panel { order: -1; min-height: calc(100svh - 64px); }
-  .road-stage { min-height: 620px; }
+  .canvas-panel { order: -1; height: calc(100svh - 64px); min-height: 620px; }
+  .road-stage { min-height: 0; }
   .config-panel, .audit-panel { display: grid; grid-template-columns: 1fr 1fr; }
   .panel-heading { grid-column: 1 / -1; }
   .control-row { border-right: 1px solid var(--line); }
@@ -217,7 +223,7 @@
   .canvas-toolbar h1 { font-size: 18px; }
   .scale-key { display: none; }
   .canvas-tools { gap: 0; }
-  .road-stage { min-height: 540px; padding: 10px; }
+  .canvas-panel { min-height: 540px; }
   .config-panel, .audit-panel { display: block; }
   .control-row { border-right: 0; }
 }

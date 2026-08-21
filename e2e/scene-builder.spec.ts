@@ -44,6 +44,36 @@ test('zooms the imported vector highway graphic', async ({ page }) => {
   }))).toEqual({ horizontal: false, vertical: false })
 })
 
+test('pinches the center scene to zoom on touch devices', async ({ page }) => {
+  await page.goto('/')
+  const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
+  const stage = page.locator('.road-stage')
+
+  await stage.dispatchEvent('pointerdown', {
+    pointerId: 1,
+    pointerType: 'touch',
+    clientX: 100,
+    clientY: 200,
+    isPrimary: true,
+  })
+  await stage.dispatchEvent('pointerdown', {
+    pointerId: 2,
+    pointerType: 'touch',
+    clientX: 200,
+    clientY: 200,
+  })
+  await stage.dispatchEvent('pointermove', {
+    pointerId: 2,
+    pointerType: 'touch',
+    clientX: 225,
+    clientY: 200,
+  })
+
+  await expect(canvas).toHaveAttribute('data-zoom', '1.25')
+  await stage.dispatchEvent('pointerup', { pointerId: 1, pointerType: 'touch' })
+  await stage.dispatchEvent('pointerup', { pointerId: 2, pointerType: 'touch' })
+})
+
 test('renders highway markings and the SSP vehicle to the same foot scale', async ({ page }) => {
   await page.goto('/')
 
@@ -61,7 +91,7 @@ test('renders highway markings and the SSP vehicle to the same foot scale', asyn
 test('resolves a highway exit request into scaled interchange geometry', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByLabel('Highway').fill('I 95')
+  await page.getByLabel('Highway', { exact: true }).fill('I 95')
   await page.getByLabel('Direction').selectOption('northbound')
   await page.getByLabel('Reference').selectOption('exit')
   await page.getByLabel('Exit', { exact: true }).fill('166')
@@ -77,7 +107,7 @@ test('resolves a highway exit request into scaled interchange geometry', async (
 test('selects a Mixing Bowl overpass as the controlled scene sector', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByLabel('Highway').fill('I-95')
+  await page.getByLabel('Highway', { exact: true }).fill('I-95')
   await page.getByLabel('Direction').selectOption('northbound')
   await page.getByLabel('Reference').selectOption('mile-marker')
   await page.getByLabel('Mile marker', { exact: true }).fill('170')
@@ -87,7 +117,7 @@ test('selects a Mixing Bowl overpass as the controlled scene sector', async ({ p
   await expect(page.getByLabel('Controlled roadway section')).toBeVisible()
   await page.getByRole('button', { name: 'Select section' }).click()
   await expect(page.getByText('Select a roadway section')).toBeVisible()
-  await connector.click()
+  await page.getByRole('button', { name: 'Northbound express connector' }).press('Enter')
 
   await expect(connector).toHaveClass(/section-selected/)
   await expect(page.getByLabel('Controlled roadway section')).toContainText('Northbound express connector')

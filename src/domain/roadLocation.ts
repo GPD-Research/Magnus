@@ -167,7 +167,11 @@ export async function resolveRoadLocation(
   loadScene: (path: string) => Promise<unknown> = async (path) => {
     const response = await fetch(path)
     if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Compiled scene is not available')
+      const body: unknown = await response.json().catch(() => null)
+      const message = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `Map service returned HTTP ${response.status}`
+      throw new Error(message)
     }
     return response.json()
   },
@@ -188,12 +192,13 @@ export async function resolveRoadLocation(
       source: 'live-map',
       message: 'Live OpenStreetMap geometry loaded.',
     }
-  } catch {
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Unknown map service error'
     return {
       request: normalizedRequest,
       scene: createLocationPreviewScene(normalizedRequest),
       source: 'development-preview',
-      message: 'Live map geometry is unavailable. Showing a scale-accurate development preview.',
+      message: `Live map geometry is unavailable: ${reason}. Showing a scale-accurate development preview.`,
     }
   }
 }

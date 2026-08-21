@@ -49,6 +49,8 @@ npm install
 npm run dev
 ```
 
+The development command starts both the Rust spatial API and the Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately.
+
 Quality checks:
 
 ```bash
@@ -85,12 +87,13 @@ The current on-screen roadway is explicitly identified as a development fixture 
 
 The **Roadway location** tool accepts a highway, travel direction, and either a mile marker or exit number. The Rust spatial service converts that request into an Overpass query against actual OpenStreetMap route, motorway-junction, milestone, bridge, tunnel, and layer tags. It returns a bounded feet-based `RoadScene` without maintaining a separate local catalog of locations.
 
-Run the API and Vite frontend in separate terminals during development:
+Run both the API and Vite frontend together during development:
 
 ```bash
-cargo run -p magnus-spatial-core --bin spatial_server
 npm run dev
 ```
+
+For separate process control, run `npm run dev:spatial` and `npm run dev:web` in different terminals.
 
 Vite proxies `/api` requests to `127.0.0.1:8787`. Set `OVERPASS_URL` to use another compatible Overpass endpoint and `MAGNUS_SPATIAL_ADDR` to change the API listener. If live geometry is unavailable, Magnus displays an explicit development-preview status rather than representing fixture geometry as map data.
 

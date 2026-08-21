@@ -55,6 +55,7 @@ describe('road location resolution', () => {
     const result = await resolveRoadLocation(request, () => Promise.reject(new Error('missing')))
 
     expect(result.source).toBe('development-preview')
+    expect(result.message).toContain('missing')
     expect(result.message).toContain('scale-accurate development preview')
   })
 
