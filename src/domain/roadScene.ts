@@ -10,6 +10,8 @@ export type RoadFeatureKind =
   | 'skip-line'
   | 'shoulder-edge'
   | 'traffic-flow'
+  | 'ramp-gore'
+  | 'direction-arrow'
 
 export interface RoadFeature {
   id: string

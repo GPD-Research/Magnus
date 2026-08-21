@@ -60,7 +60,7 @@ const lineColors: Record<RoadLineKind, string> = {
 
 const signboardPaths: Record<SignboardPattern, string> = {
   'left-arrow': 'M 10 0 H -10 M -10 0 L -4 -5 M -10 0 L -4 5',
-  'split-arrow': 'M 0 6 V -6 M 0 -1 L -7 -7 M 0 -1 L 7 -7',
+  'split-arrow': 'M -10 0 H 10 M -10 0 L -4 -5 M -10 0 L -4 5 M 10 0 L 4 -5 M 10 0 L 4 5',
   'right-arrow': 'M -10 0 H 10 M 10 0 L 4 -5 M 10 0 L 4 5',
   'double-diamonds': 'M -13 0 L -8 -5 L -3 0 L -8 5 Z M 3 0 L 8 -5 L 13 0 L 8 5 Z',
 }

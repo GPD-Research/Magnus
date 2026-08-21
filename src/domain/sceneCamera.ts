@@ -1,5 +1,5 @@
 export const MIN_SCENE_ZOOM = 0.5
-export const MAX_SCENE_ZOOM = 2.5
+export const MAX_SCENE_ZOOM = 12
 export const SCENE_ZOOM_STEP = 0.25
 
 export interface SceneViewport {

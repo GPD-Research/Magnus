@@ -56,41 +56,57 @@ export function RoadwayLayer({
         <marker id="flowArrow" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
           <path d="M 7 3.5 L 0 0 L 0 7 Z" fill="#dce3da" />
         </marker>
+        <marker id="mergeArrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+          <path d="M 8 4 L 0 0.5 L 2.2 4 L 0 7.5 Z" fill="#f5f6ee" />
+        </marker>
+        <pattern id="goreStripePattern" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
+          <rect width="4" height="8" fill="#f5f6ee" />
+          <rect x="4" width="4" height="8" fill="#343b3d" />
+        </pattern>
       </defs>
       <rect width={scene.viewport.width} height={scene.viewport.height} fill="#202728" />
       {orderedFeatures.map((feature) => {
         const selectable = selectionEnabled
           && feature.kind === 'road-surface'
           && feature.geometry.type === 'LineString'
+        const selected = selectedFeatureId === feature.id
+        const label = feature.properties.name ?? `${feature.properties.highway?.replaceAll('_', ' ') ?? 'Road'} section ${feature.properties.osmId ?? feature.id}`
         return (
-        <path
-          aria-label={selectable ? feature.properties.name ?? `Road section ${feature.properties.osmId ?? feature.id}` : undefined}
-          className={`road-feature road-feature-${feature.kind}${selectable ? ' section-selectable' : ''}${selectedFeatureId === feature.id ? ' section-selected' : ''}`}
-          d={featurePath(feature)}
-          id={feature.id}
-          data-layer={feature.layer}
-          data-geometry-type={feature.geometry.type}
-          data-osm-id={feature.properties.osmId}
-          key={feature.id}
-          onClick={selectable ? (event) => { event.stopPropagation(); onSelectFeature?.(feature) } : undefined}
-          onKeyDown={selectable ? (event) => {
-            if (event.key === 'Enter' || event.key === ' ') onSelectFeature?.(feature)
-          } : undefined}
-          role={selectable ? 'button' : undefined}
-          strokeWidth={feature.properties.renderWidthFeet}
-          strokeDasharray={feature.kind === 'skip-line'
-            ? `${ROADWAY_DIMENSIONS_FEET.skipStripeLength} ${ROADWAY_DIMENSIONS_FEET.skipGapLength}`
-            : undefined}
-          tabIndex={selectable ? 0 : undefined}
-        />
+          <g className={`road-feature-group${selectable ? ' section-selectable' : ''}`} key={feature.id}>
+            <path
+              className={`road-feature road-feature-${feature.kind}${selected ? ' section-selected' : ''}`}
+              d={featurePath(feature)}
+              id={feature.id}
+              data-bridge={feature.properties.bridge}
+              data-highway={feature.properties.highway}
+              data-layer={feature.layer}
+              data-geometry-type={feature.geometry.type}
+              data-osm-id={feature.properties.osmId}
+              strokeWidth={feature.properties.renderWidthFeet}
+              strokeDasharray={feature.kind === 'skip-line'
+                ? `${ROADWAY_DIMENSIONS_FEET.skipStripeLength} ${ROADWAY_DIMENSIONS_FEET.skipGapLength}`
+                : undefined}
+            />
+            {selectable && (
+              <path
+                aria-label={label}
+                className="road-section-hit-area"
+                d={featurePath(feature)}
+                onClick={(event) => { event.stopPropagation(); onSelectFeature?.(feature) }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onSelectFeature?.(feature)
+                  }
+                }}
+                role="button"
+                strokeWidth={Math.max(feature.properties.renderWidthFeet ?? 0, 24)}
+                tabIndex={0}
+              />
+            )}
+          </g>
         )
       })}
-      {visibility.trafficFlow && (
-        <>
-          <text className="flow-label" x="5" y="28">DOWNSTREAM</text>
-          <text className="flow-label" x="7" y="742">UPSTREAM</text>
-        </>
-      )}
     </g>
   )
 }

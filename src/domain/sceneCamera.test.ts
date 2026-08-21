@@ -25,7 +25,12 @@ describe('scene camera', () => {
       height: 1520,
     })
     expect(clampSceneZoom(0.1)).toBe(MIN_SCENE_ZOOM)
-    expect(clampSceneZoom(5)).toBe(MAX_SCENE_ZOOM)
+    expect(clampSceneZoom(20)).toBe(MAX_SCENE_ZOOM)
+  })
+
+  it('allows detailed inspection of large interchange scenes', () => {
+    expect(clampSceneZoom(8)).toBe(8)
+    expect(MAX_SCENE_ZOOM).toBe(12)
   })
 
   it('fits a tall road scene to a wide display before zooming', () => {

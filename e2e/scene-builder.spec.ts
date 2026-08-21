@@ -108,6 +108,7 @@ test('renders highway markings and the SSP vehicle to the same foot scale', asyn
   await expect(truck.locator('.truck-body')).toHaveAttribute('height', '24')
   await expect(skipLine).toHaveAttribute('stroke-dasharray', '10 30')
   await expect(skipLine).toHaveAttribute('stroke-width', '0.5')
+  await expect(page.locator('.road-canvas .cone-label, .road-canvas .distance-label, .road-canvas .flow-label, .road-canvas .north-arrow text')).toHaveCount(0)
 })
 
 test('resolves a highway exit request into scaled interchange geometry', async ({ page }) => {
@@ -158,7 +159,6 @@ test('toggles roadway display layers independently', async ({ page }) => {
 
   await page.getByRole('checkbox', { name: 'Traffic flow' }).uncheck()
   await expect(page.locator('.road-feature-traffic-flow')).toHaveCount(0)
-  await expect(page.getByText('DOWNSTREAM')).toHaveCount(0)
 })
 
 test('configures signboards independently for up to five SSP trucks', async ({ page }) => {
@@ -184,6 +184,36 @@ test('configures signboards independently for up to five SSP trucks', async ({ p
   await expect(page.getByLabel('Signboard message for SSP Truck 1')).toHaveValue('incident-ahead')
   await expect(page.getByRole('img', { name: 'SSP Truck 1 signboard: Incident Ahead' })).toBeVisible()
   await expect(page.locator('[data-truck-id="ssp-truck-2"]')).toHaveAttribute('data-signboard', 'high-water')
+})
+
+test('renders split arrow as one horizontal double-headed arrow', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByLabel('Signboard message for SSP Truck 1').selectOption('split-arrow')
+
+  await expect(page.getByRole('img', { name: 'SSP Truck 1 signboard: Split arrow' }).locator('.signboard-symbol')).toHaveAttribute(
+    'd',
+    'M -22 0 H 22 M -22 0 L -10 -8 M -22 0 L -10 8 M 22 0 L 10 -8 M 22 0 L 10 8',
+  )
+})
+
+test('removes the scene and places the selected scene on the next map tap', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await expect(page.locator('.scene-equipment')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Roadway only' })).toBeVisible()
+
+  await page.getByRole('button', { name: /Center lane closure/ }).click()
+  const addScene = page.getByRole('button', { name: 'Add scene' })
+  await addScene.click()
+  await expect(page.getByRole('button', { name: 'Tap roadway to place' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.scene-equipment')).toHaveCount(0)
+
+  await page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones').click({ position: { x: 200, y: 300 } })
+  await expect(page.locator('.scene-equipment')).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Center lane closure' })).toBeVisible()
+  await expect(page.locator('.scene-equipment')).toHaveAttribute('transform', /translate\(.+ .+\)/)
 })
 
 test('deploys assets and hazards with live scene counters and deletion', async ({ page }) => {

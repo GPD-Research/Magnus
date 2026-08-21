@@ -19,6 +19,8 @@ pub enum RoadFeatureKind {
     SkipLine,
     ShoulderEdge,
     TrafficFlow,
+    RampGore,
+    DirectionArrow,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   RIGHT_LANE_STANDARD,
+  SCENARIO_CATALOG,
   auditScene,
   createScene,
   setDownstreamSpacing,
@@ -24,6 +25,21 @@ describe('SOP scene audit', () => {
     const result = auditScene('right-lane', 'gospel', createScene('right-lane'))
 
     expect(result.status).toBe('compliant')
+  })
+
+  it('offers common MUTCD freeway scene configurations with independent templates', () => {
+    expect(SCENARIO_CATALOG.map((scenario) => scenario.id)).toEqual([
+      'shoulder',
+      'right-lane',
+      'left-lane',
+      'center-lane',
+      'two-right-lanes',
+      'two-left-lanes',
+      'lane-shift',
+      'ramp-closure',
+    ])
+    expect(createScene('two-right-lanes').filter((point) => point.role === 'taper')).toHaveLength(7)
+    expect(createScene('lane-shift').length).toBeGreaterThan(createScene('right-lane').length)
   })
 
   it('rejects a cone moved into the emergency shoulder', () => {

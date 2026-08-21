@@ -46,12 +46,12 @@ impl RoadLocationRequest {
                 "node(area.searchArea)[\"highway\"=\"motorway_junction\"][\"ref\"~\"^{reference}[A-Za-z]?$\",i]"
             ),
             RoadReferenceType::MileMarker => format!(
-                "node(area.searchArea)[\"highway\"=\"milestone\"][\"distance\"~\"^{reference}(\\.0)?$\",i]"
+                "(node(area.searchArea)[\"highway\"=\"milestone\"][\"distance\"~\"^{reference}(\\.0)?$\",i];node(area.searchArea)[\"highway\"=\"motorway_junction\"][\"ref\"~\"^{reference}[A-Za-z]?$\",i];)"
             ),
         };
 
         format!(
-            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\n{anchor_filter}->.candidateAnchors;\nway(around.candidateAnchors:250)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:2500)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link)$\"]->.nearbyWays;\n(.anchors;.routeWays;.nearbyWays;>;);\nout body;"
+            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\n{anchor_filter}->.candidateAnchors;\nway(around.candidateAnchors:250)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:850)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n(.anchors;.routeWays;.nearbyWays;>;);\nout body;"
         )
     }
 }
@@ -60,7 +60,7 @@ fn highway_ref_pattern(highway: &str) -> String {
     let normalized = highway.trim().to_uppercase().replace('.', "");
     let compact = normalized.replace([' ', '-'], "");
     if let Some(number) = compact.strip_prefix('I').filter(|value| is_route_number(value)) {
-        return format!("^I[ -]?{}$", overpass_regex_escape(number));
+        return format!("(^|;)[ ]*I[ -]?{}[ ]*(;|$)", overpass_regex_escape(number));
     }
     let route_number = compact
         .strip_prefix("ROUTE")
@@ -68,11 +68,11 @@ fn highway_ref_pattern(highway: &str) -> String {
         .filter(|value| is_route_number(value));
     if let Some(number) = route_number {
         return format!(
-            "^(VA|SR|ROUTE|RT)[ -]?{}$",
+            "(^|;)[ ]*(VA|SR|ROUTE|RT)[ -]?{}[ ]*(;|$)",
             overpass_regex_escape(number)
         );
     }
-    format!("^{}$", overpass_regex_escape(highway.trim()))
+    format!("(^|;)[ ]*{}[ ]*(;|$)", overpass_regex_escape(highway.trim()))
 }
 
 fn is_route_number(value: &str) -> bool {
@@ -117,10 +117,10 @@ mod tests {
 
         assert!(query.contains("[\"highway\"=\"motorway_junction\"]"));
         assert!(query.contains("[\"ref\"~\"^166[A-Za-z]?$\",i]"));
-        assert!(query.contains("[\"ref\"~\"^I[ -]?95$\",i]"));
+        assert!(query.contains("[\"ref\"~\"(^|;)[ ]*I[ -]?95[ ]*(;|$)\",i]"));
         assert!(query.contains("way(around.candidateAnchors:250)"));
         assert!(query.contains("node.candidateAnchors(around.routeWays:100)->.anchors"));
-        assert!(query.contains("way(around.anchors:2500)"));
+        assert!(query.contains("way(around.anchors:850)"));
     }
 
     #[test]
@@ -128,7 +128,9 @@ mod tests {
         let query = request("Rt 28", RoadReferenceType::MileMarker).overpass_query();
 
         assert!(query.contains("[\"highway\"=\"milestone\"]"));
-        assert!(query.contains("^(VA|SR|ROUTE|RT)[ -]?28$"));
+        assert!(query.contains("[\"highway\"=\"motorway_junction\"]"));
+        assert!(query.contains("[\"ref\"~\"^166[A-Za-z]?$\",i]"));
+        assert!(query.contains("(^|;)[ ]*(VA|SR|ROUTE|RT)[ -]?28[ ]*(;|$)"));
     }
 
     #[test]

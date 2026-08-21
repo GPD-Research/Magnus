@@ -1,5 +1,36 @@
-export type ScenarioType = 'shoulder' | 'right-lane'
+export type ScenarioType =
+  | 'shoulder'
+  | 'right-lane'
+  | 'left-lane'
+  | 'center-lane'
+  | 'two-right-lanes'
+  | 'two-left-lanes'
+  | 'lane-shift'
+  | 'ramp-closure'
 export type ComplianceMode = 'gospel' | 'modified' | 'violate'
+
+export interface ScenarioDefinition {
+  id: ScenarioType
+  label: string
+  heading: string
+  mutcdApplication: string
+  truckOffsetX: number
+}
+
+export const SCENARIO_CATALOG: ScenarioDefinition[] = [
+  { id: 'shoulder', label: 'Shoulder closure', heading: 'Standard shoulder closure', mutcdApplication: 'Shoulder work', truckOffsetX: 12 },
+  { id: 'right-lane', label: 'Right lane closure', heading: 'Single right lane closure', mutcdApplication: 'Right lane closed', truckOffsetX: 0 },
+  { id: 'left-lane', label: 'Left lane closure', heading: 'Single left lane closure', mutcdApplication: 'Left lane closed', truckOffsetX: -24 },
+  { id: 'center-lane', label: 'Center lane closure', heading: 'Center lane closure', mutcdApplication: 'Interior lane closed', truckOffsetX: -12 },
+  { id: 'two-right-lanes', label: 'Two right lanes', heading: 'Two right lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12 },
+  { id: 'two-left-lanes', label: 'Two left lanes', heading: 'Two left lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -24 },
+  { id: 'lane-shift', label: 'Lane shift', heading: 'Temporary lane shift', mutcdApplication: 'Temporary alignment', truckOffsetX: 0 },
+  { id: 'ramp-closure', label: 'Ramp closure', heading: 'Entrance or exit ramp closure', mutcdApplication: 'Ramp closed', truckOffsetX: 12 },
+]
+
+export function scenarioDefinition(scenario: ScenarioType): ScenarioDefinition {
+  return SCENARIO_CATALOG.find((definition) => definition.id === scenario) ?? SCENARIO_CATALOG[1]
+}
 
 export interface ScenePoint {
   id: string
@@ -50,6 +81,52 @@ const templates: Record<ScenarioType, ScenePoint[]> = {
     { id: 'perimeter-1', x: RIGHT_LANE_STANDARD.skipLineX, y: 198, role: 'perimeter' },
     { id: 'perimeter-2', x: RIGHT_LANE_STANDARD.skipLineX, y: 158, role: 'perimeter' },
   ],
+  'left-lane': createLaneClosureTemplate(18, 30),
+  'center-lane': createLaneClosureTemplate(30, 42),
+  'two-right-lanes': createLaneClosureTemplate(30, 54, 7),
+  'two-left-lanes': createLaneClosureTemplate(18, 42, 7),
+  'lane-shift': createLaneShiftTemplate(),
+  'ramp-closure': createRampClosureTemplate(),
+}
+
+function createLaneClosureTemplate(openBoundaryX: number, closedBoundaryX: number, taperCount = 5): ScenePoint[] {
+  const taper = Array.from({ length: taperCount }, (_, index): ScenePoint => {
+    const progress = (index + 1) / taperCount
+    return {
+      id: `taper-${index + 1}`,
+      x: openBoundaryX + (closedBoundaryX - openBoundaryX) * progress,
+      y: 362 + index * RIGHT_LANE_STANDARD.coneSpacing,
+      role: 'taper',
+    }
+  })
+  return [
+    { id: 'anchor', x: openBoundaryX, y: 282, role: 'anchor' },
+    { id: 'buffer-1', x: openBoundaryX, y: 322, role: 'buffer' },
+    ...taper,
+    { id: 'lead', x: openBoundaryX, y: 238, role: 'perimeter' },
+    { id: 'perimeter-1', x: openBoundaryX, y: 198, role: 'perimeter' },
+    { id: 'perimeter-2', x: openBoundaryX, y: 158, role: 'perimeter' },
+  ]
+}
+
+function createLaneShiftTemplate(): ScenePoint[] {
+  return [
+    ...createLaneClosureTemplate(42, 54).map((point) => ({ ...point, id: `right-${point.id}` })),
+    ...createLaneClosureTemplate(18, 30).map((point) => ({ ...point, id: `left-${point.id}`, y: point.y + 40 })),
+  ]
+}
+
+function createRampClosureTemplate(): ScenePoint[] {
+  return [
+    { id: 'anchor', x: 54, y: 282, role: 'anchor' },
+    { id: 'buffer-1', x: 58, y: 322, role: 'buffer' },
+    { id: 'taper-1', x: 62, y: 362, role: 'taper' },
+    { id: 'taper-2', x: 66, y: 402, role: 'taper' },
+    { id: 'taper-3', x: 70, y: 442, role: 'taper' },
+    { id: 'lead', x: 54, y: 238, role: 'perimeter' },
+    { id: 'perimeter-1', x: 58, y: 198, role: 'perimeter' },
+    { id: 'perimeter-2', x: 62, y: 158, role: 'perimeter' },
+  ]
 }
 
 export function setRightLaneTaperCount(points: ScenePoint[], count: number): ScenePoint[] {
