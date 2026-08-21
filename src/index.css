@@ -2,15 +2,16 @@
 
 :root {
   font-family: 'IBM Plex Sans', sans-serif;
-  color: #17201f;
-  background: #dce2df;
+  color: #e4ebe7;
+  background: #141a18;
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   letter-spacing: 0;
-  --ink: #17201f;
-  --muted: #66726f;
-  --line: #d7dedb;
-  --paper: #f7f8f5;
+  --ink: #e4ebe7;
+  --muted: #a3afaa;
+  --line: #3b4642;
+  --paper: #1d2522;
   --yellow: #f3c52b;
   --green: #187853;
   --amber: #c86c19;

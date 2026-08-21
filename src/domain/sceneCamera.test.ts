@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_VISIBLE_SCENE_WIDTH_FEET,
   MAX_SCENE_ZOOM,
+  MIN_VISIBLE_SCENE_WIDTH_FEET,
   MIN_SCENE_ZOOM,
   centeredSceneViewBox,
   clampSceneZoom,
   clientToScenePoint,
+  sceneZoomForVisibleWidth,
+  visibleSceneWidth,
 } from './sceneCamera'
 
 describe('scene camera', () => {
@@ -25,12 +29,30 @@ describe('scene camera', () => {
       height: 1520,
     })
     expect(clampSceneZoom(0.1)).toBe(MIN_SCENE_ZOOM)
-    expect(clampSceneZoom(20)).toBe(MAX_SCENE_ZOOM)
+    expect(clampSceneZoom(50_000)).toBe(MAX_SCENE_ZOOM)
   })
 
   it('allows detailed inspection of large interchange scenes', () => {
     expect(clampSceneZoom(8)).toBe(8)
-    expect(MAX_SCENE_ZOOM).toBe(12)
+    expect(MAX_SCENE_ZOOM).toBe(10_000)
+  })
+
+  it('derives zoom from a physical visible width', () => {
+    const scene = { width: 2_000, height: 4_000 }
+    const display = { width: 1_000, height: 800 }
+    const defaultZoom = sceneZoomForVisibleWidth(
+      scene,
+      display,
+      DEFAULT_VISIBLE_SCENE_WIDTH_FEET,
+    )
+    const maximumZoom = sceneZoomForVisibleWidth(
+      scene,
+      display,
+      MIN_VISIBLE_SCENE_WIDTH_FEET,
+    )
+
+    expect(visibleSceneWidth(scene, display, defaultZoom)).toBe(320)
+    expect(visibleSceneWidth(scene, display, maximumZoom)).toBe(40)
   })
 
   it('fits a tall road scene to a wide display before zooming', () => {

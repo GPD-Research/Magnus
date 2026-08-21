@@ -19,6 +19,7 @@ import {
   TrafficCone,
   Truck,
 } from 'lucide-react'
+import { ArrowUp } from 'lucide-react'
 import './App.css'
 import { RoadwayLayer } from './components/RoadwayLayer'
 import { SceneDesigner } from './components/SceneDesigner'
@@ -46,17 +47,21 @@ import {
   type RoadLocationRequest,
 } from './domain/roadLocation'
 import {
+  nearestRoadPlacement,
   roadSectionLabel,
   roadSectionTransform,
   selectableRoadSections,
 } from './domain/roadSection'
 import {
-  MAX_SCENE_ZOOM,
+  DEFAULT_VISIBLE_SCENE_WIDTH_FEET,
+  MIN_VISIBLE_SCENE_WIDTH_FEET,
   MIN_SCENE_ZOOM,
-  SCENE_ZOOM_STEP,
+  SCENE_ZOOM_FACTOR,
   centeredSceneViewBox,
   clampSceneZoom,
   clientToScenePoint,
+  sceneZoomForVisibleWidth,
+  visibleSceneWidth,
 } from './domain/sceneCamera'
 import {
   MAX_SSP_TRUCKS,
@@ -74,6 +79,7 @@ import {
   auditScene,
   createScene,
   scenarioDefinition,
+  scenarioLateralOffset,
   setDownstreamSpacing,
   setRightLaneTaperCount,
   type ComplianceMode,
@@ -90,11 +96,19 @@ const modes: { id: ComplianceMode; label: string; detail: string }[] = [
 type SpatialServiceStatus = 'checking' | 'connected' | 'unavailable'
 type SaveStatus = 'idle' | 'saved'
 
+const DEFAULT_LOCATION_REQUEST: RoadLocationRequest = {
+  highway: 'I-95',
+  direction: 'northbound',
+  referenceType: 'mile-marker',
+  reference: '170',
+}
+
 interface SavedScenario {
   version: 1
   scenario: ScenarioType
   sceneVisible?: boolean
   sceneOrigin?: { x: number; y: number }
+  sceneRotation?: number
   mode: ComplianceMode
   laneCount: number
   points: ScenePoint[]
@@ -157,24 +171,62 @@ function SignboardGraphic({ message }: { message: SignboardMessage }) {
   )
 }
 
+function MapCompass({ rotation }: { rotation: number }) {
+  return (
+    <div className="map-compass" role="img" aria-label={`Map compass, north rotated ${rotation} degrees`}>
+      <svg viewBox="0 0 64 64" style={{ transform: `rotate(${rotation}deg)` }} aria-hidden="true">
+        <path className="compass-axis" d="M 32 10 V 54 M 10 32 H 54" />
+        <path className="compass-north" d="M 32 5 L 27 17 L 32 14 L 37 17 Z" />
+        <path className="compass-arrow" d="M 32 59 L 27 47 L 32 50 L 37 47 Z M 5 32 L 17 27 L 14 32 L 17 37 Z M 59 32 L 47 27 L 50 32 L 47 37 Z" />
+        <text x="32" y="9" textAnchor="middle">N</text>
+        <text x="32" y="63" textAnchor="middle">S</text>
+        <text x="61" y="35" textAnchor="middle">E</text>
+        <text x="3" y="35" textAnchor="middle">W</text>
+      </svg>
+    </div>
+  )
+}
+
+function createScenarioTrucks(scenario: ScenarioType) {
+  const signboard = scenarioDefinition(scenario).signboard
+  return createSspTrucks().map((truck) => ({ ...truck, signboard }))
+}
+
+function centeredRoadPlacement(scene: RoadScene) {
+  return nearestRoadPlacement(scene, {
+    x: scene.viewport.width / 2,
+    y: scene.viewport.height / 2,
+  })
+}
+
+function laterallyAlignedPlacement(
+  placement: ReturnType<typeof nearestRoadPlacement>,
+  scenario: ScenarioType,
+) {
+  if (!placement) return null
+  const offset = scenarioLateralOffset(scenario, placement.lanes)
+  const radians = placement.rotation * Math.PI / 180
+  return {
+    ...placement,
+    x: placement.x + Math.cos(radians) * offset,
+    y: placement.y + Math.sin(radians) * offset,
+  }
+}
+
 function App() {
   const [savedScenario] = useState(loadSavedScenario)
   const [roadScene, setRoadScene] = useState<RoadScene>(createDevelopmentRoadScene)
-  const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>({
-    highway: 'I-95',
-    direction: 'northbound',
-    referenceType: 'exit',
-    reference: '166',
-  })
+  const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>(DEFAULT_LOCATION_REQUEST)
   const [resolvedLocation, setResolvedLocation] = useState<ResolvedRoadLocation | null>(null)
   const [locationErrors, setLocationErrors] = useState<string[]>([])
-  const [locationLoading, setLocationLoading] = useState(false)
+  const [locationLoading, setLocationLoading] = useState(true)
   const [sectionSelectionEnabled, setSectionSelectionEnabled] = useState(false)
   const [selectedRoadSectionId, setSelectedRoadSectionId] = useState<string | null>(null)
   const [scenario, setScenario] = useState<ScenarioType>(savedScenario?.scenario ?? 'right-lane')
   const [sceneVisible, setSceneVisible] = useState(savedScenario?.sceneVisible ?? true)
   const [scenePlacementActive, setScenePlacementActive] = useState(false)
   const [sceneOrigin, setSceneOrigin] = useState(savedScenario?.sceneOrigin ?? { x: 0, y: 0 })
+  const [sceneRotation, setSceneRotation] = useState(savedScenario?.sceneRotation ?? 0)
   const [mode, setMode] = useState<ComplianceMode>(savedScenario?.mode ?? 'gospel')
   const [laneCount, setLaneCount] = useState(savedScenario?.laneCount ?? 3)
   const [points, setPoints] = useState<ScenePoint[]>(() => savedScenario?.points ?? createScene('right-lane'))
@@ -192,8 +244,16 @@ function App() {
   const [designerOpen, setDesignerOpen] = useState(false)
   const [spatialServiceStatus, setSpatialServiceStatus] = useState<SpatialServiceStatus>('checking')
   const roadStageRef = useRef<HTMLDivElement>(null)
-  const pinchPointersRef = useRef(new Map<number, { x: number; y: number }>())
-  const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null)
+  const locationResolutionRef = useRef(0)
+  const panPointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const gestureFrameRef = useRef<number | null>(null)
+  const threeFingerPanStartRef = useRef<{
+    center: { x: number; y: number }
+    scrollLeft: number
+    scrollTop: number
+  } | null>(null)
+  const initializedZoomSceneRef = useRef<RoadScene | null>(null)
+  const pendingZoomCenterRef = useRef<{ x: number; y: number; zoom: number } | null>(null)
   const [roadLayerVisibility, setRoadLayerVisibility] = useState<RoadLayerVisibility>({
     roadGeometry: true,
     barriers: true,
@@ -216,6 +276,17 @@ function App() {
   const taperLength = scenario === 'right-lane' ? taperCount * 40 : 120
   const sceneViewBox = centeredSceneViewBox(roadScene.viewport, 1, sceneDisplaySize)
   const sceneViewBoxValue = `${sceneViewBox.x} ${sceneViewBox.y} ${sceneViewBox.width} ${sceneViewBox.height}`
+  const defaultSceneZoom = sceneZoomForVisibleWidth(
+    roadScene.viewport,
+    sceneDisplaySize,
+    DEFAULT_VISIBLE_SCENE_WIDTH_FEET,
+  )
+  const maximumSceneZoom = sceneZoomForVisibleWidth(
+    roadScene.viewport,
+    sceneDisplaySize,
+    MIN_VISIBLE_SCENE_WIDTH_FEET,
+  )
+  const sceneVisibleWidth = visibleSceneWidth(roadScene.viewport, sceneDisplaySize, sceneZoom)
   const sceneCanvasSize = {
     width: Math.max(1, sceneDisplaySize.width - 36) * sceneZoom,
     height: Math.max(1, sceneDisplaySize.height - 36) * sceneZoom,
@@ -226,7 +297,7 @@ function App() {
     ? roadSectionTransform(selectedRoadSection)
     : null
   const equipmentTransform = selectedSectionTransform
-    ? `translate(${selectedSectionTransform.x} ${selectedSectionTransform.y}) rotate(${selectedSectionTransform.rotation}) translate(${-RIGHT_LANE_STANDARD.truck.x} ${-RIGHT_LANE_STANDARD.truck.y})`
+    ? `translate(${selectedSectionTransform.x} ${selectedSectionTransform.y}) rotate(${selectedSectionTransform.rotation}) translate(${scenarioLateralOffset(scenario, selectedRoadSection?.properties.lanes)} ${0}) translate(${-RIGHT_LANE_STANDARD.roadCenterX} ${-RIGHT_LANE_STANDARD.truck.y})`
     : undefined
   const selectedTruck = trucks.find((truck) => truck.id === selectedTruckId) ?? trucks[0]
   const selectedEquipment = deployedEquipment.find((item) => item.id === selectedEquipmentId)
@@ -240,7 +311,18 @@ function App() {
   )
   const catalogBaselineCounts = { cone: sceneVisible ? points.length : 0, 'ssp-truck': sceneVisible ? trucks.length : 0 }
   const selectedScenario = scenarioDefinition(scenario)
-  const sceneTransform = `translate(${sceneOrigin.x} ${sceneOrigin.y})${equipmentTransform ? ` ${equipmentTransform}` : ''}`
+    const mapRotation = 0
+  const sceneAnchorX = RIGHT_LANE_STANDARD.roadCenterX
+  const sceneAnchorY = RIGHT_LANE_STANDARD.truck.y
+  const sceneFocusX = selectedSectionTransform?.x ?? sceneOrigin.x + sceneAnchorX
+  const sceneFocusY = selectedSectionTransform?.y ?? sceneOrigin.y + sceneAnchorY
+  const sceneTransform = equipmentTransform ?? [
+    `translate(${sceneOrigin.x + sceneAnchorX} ${sceneOrigin.y + sceneAnchorY})`,
+    `rotate(${sceneRotation})`,
+    `translate(${-sceneAnchorX} ${-sceneAnchorY})`,
+  ].join(' ')
+  const effectiveSceneRotation = selectedSectionTransform?.rotation ?? sceneRotation
+  const mapTransform = `rotate(${mapRotation} ${roadScene.viewport.width / 2} ${roadScene.viewport.height / 2})`
 
   useEffect(() => {
     const stage = roadStageRef.current
@@ -259,11 +341,27 @@ function App() {
   useEffect(() => {
     const stage = roadStageRef.current
     if (!stage) return
+    if (sceneDisplaySize.width <= 1 || sceneDisplaySize.height <= 1) return
+    if (initializedZoomSceneRef.current === roadScene) return
+    initializedZoomSceneRef.current = roadScene
+    pendingZoomCenterRef.current = {
+      x: Math.max(0, Math.min(1, (sceneFocusX - sceneViewBox.x) / sceneViewBox.width)),
+      y: Math.max(0, Math.min(1, (sceneFocusY - sceneViewBox.y) / sceneViewBox.height)),
+      zoom: defaultSceneZoom,
+    }
+    setSceneZoom(defaultSceneZoom)
+  }, [defaultSceneZoom, roadScene, sceneDisplaySize, sceneViewBox.x, sceneViewBox.y, sceneViewBox.width, sceneViewBox.height, sceneFocusX, sceneFocusY])
+
+  useEffect(() => {
+    const stage = roadStageRef.current
+    const pendingCenter = pendingZoomCenterRef.current
+    if (!stage || pendingCenter?.zoom !== sceneZoom) return
     const frame = requestAnimationFrame(() => {
       stage.scrollTo({
-        left: Math.max(0, (stage.scrollWidth - stage.clientWidth) / 2),
-        top: Math.max(0, (stage.scrollHeight - stage.clientHeight) / 2),
+        left: Math.max(0, pendingCenter.x * stage.scrollWidth - stage.clientWidth / 2),
+        top: Math.max(0, pendingCenter.y * stage.scrollHeight - stage.clientHeight / 2),
       })
+      pendingZoomCenterRef.current = null
     })
     return () => cancelAnimationFrame(frame)
   }, [roadScene, sceneZoom])
@@ -276,6 +374,27 @@ function App() {
     return () => { active = false }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    const resolution = ++locationResolutionRef.current
+    void resolveRoadLocation(DEFAULT_LOCATION_REQUEST).then((resolved) => {
+      if (!active || resolution !== locationResolutionRef.current) return
+      setRoadScene(resolved.scene)
+      const initialScenario = savedScenario?.scenario ?? 'right-lane'
+      const placement = laterallyAlignedPlacement(
+        centeredRoadPlacement(resolved.scene),
+        initialScenario,
+      )
+      if (!savedScenario && placement) {
+        setSceneOrigin({ x: placement.x - sceneAnchorX, y: placement.y - sceneAnchorY })
+        setSceneRotation(placement.rotation)
+      }
+      setResolvedLocation(resolved)
+      setLocationLoading(false)
+    })
+    return () => { active = false }
+  }, [savedScenario, sceneAnchorX, sceneAnchorY])
+
   async function retrySpatialService() {
     setSpatialServiceStatus('checking')
     const available = await probeSpatialService()
@@ -284,6 +403,12 @@ function App() {
 
   function changeScenario(nextScenario: ScenarioType) {
     setScenario(nextScenario)
+    setPoints(createScene(nextScenario))
+    setTrucks(createScenarioTrucks(nextScenario))
+    setSelectedTruckId('ssp-truck-1')
+    setDeployedEquipment([])
+    setSelectedEquipmentId(null)
+    setSaveStatus('idle')
   }
 
   function beginScenePlacement() {
@@ -308,20 +433,23 @@ function App() {
       bounds,
       sceneViewBox,
     )
+    const placement = laterallyAlignedPlacement(nearestRoadPlacement(roadScene, point), scenario)
+    const anchor = placement ?? { ...point, rotation: 0 }
     setPoints(createScene(scenario))
-    setTrucks(createSspTrucks())
+    setTrucks(createScenarioTrucks(scenario))
     setDeployedEquipment([])
     setSceneOrigin({
-      x: point.x - RIGHT_LANE_STANDARD.truck.x - selectedScenario.truckOffsetX,
-      y: point.y - RIGHT_LANE_STANDARD.truck.y,
+      x: anchor.x - sceneAnchorX,
+      y: anchor.y - sceneAnchorY,
     })
+    setSceneRotation(anchor.rotation)
     setSceneVisible(true)
     setScenePlacementActive(false)
   }
 
   function resetScenario() {
     setPoints(createScene(scenario))
-    setTrucks(createSspTrucks())
+    setTrucks(createScenarioTrucks(scenario))
     setSelectedTruckId('ssp-truck-1')
     setDeployedEquipment([])
     setSelectedEquipmentId(null)
@@ -329,6 +457,7 @@ function App() {
     setSceneVisible(true)
     setScenePlacementActive(false)
     setSceneOrigin({ x: 0, y: 0 })
+    setSceneRotation(0)
     setSaveStatus('idle')
     localStorage.removeItem('magnus.scenario')
   }
@@ -339,6 +468,7 @@ function App() {
       scenario,
       sceneVisible,
       sceneOrigin,
+      sceneRotation,
       mode,
       laneCount,
       points,
@@ -404,22 +534,34 @@ function App() {
       bounds,
       sceneViewBox,
     )
+    const activeTransform = selectedSectionTransform ?? {
+      x: sceneOrigin.x + sceneAnchorX,
+      y: sceneOrigin.y + sceneAnchorY,
+      rotation: sceneRotation,
+    }
+    const radians = (-activeTransform.rotation * Math.PI) / 180
+    const translatedX = scenePoint.x - activeTransform.x
+    const translatedY = scenePoint.y - activeTransform.y
+    const localPoint = {
+      x: translatedX * Math.cos(radians) - translatedY * Math.sin(radians) + sceneAnchorX,
+      y: translatedX * Math.sin(radians) + translatedY * Math.cos(radians) + sceneAnchorY,
+    }
     if (dragging && mode !== 'gospel') {
-      const x = Math.max(6, Math.min(roadScene.viewport.width - 6, scenePoint.x - sceneOrigin.x))
-      const y = Math.max(30, Math.min(roadScene.viewport.height - 30, scenePoint.y - sceneOrigin.y))
+      const x = Math.max(6, Math.min(roadScene.viewport.width - 6, localPoint.x))
+      const y = Math.max(30, Math.min(roadScene.viewport.height - 30, localPoint.y))
       setPoints((current) => current.map((point) => (point.id === dragging ? { ...point, x, y } : point)))
     }
     if (draggingEquipmentId) {
       const item = deployedEquipment.find((equipment) => equipment.id === draggingEquipmentId)
       if (!item) return
       const definition = equipmentDefinition(item.definitionId)
-      const x = Math.max(definition.width / 2, Math.min(roadScene.viewport.width - definition.width / 2, scenePoint.x - sceneOrigin.x))
-      const y = Math.max(definition.length / 2, Math.min(roadScene.viewport.height - definition.length / 2, scenePoint.y - sceneOrigin.y))
+      const x = Math.max(definition.width / 2, Math.min(roadScene.viewport.width - definition.width / 2, localPoint.x))
+      const y = Math.max(definition.length / 2, Math.min(roadScene.viewport.height - definition.length / 2, localPoint.y))
       updateDeployedEquipment(item.id, { x, y })
     }
     if (draggingTruckId) {
-      const x = Math.max(RIGHT_LANE_STANDARD.truck.width / 2, Math.min(roadScene.viewport.width - RIGHT_LANE_STANDARD.truck.width / 2, scenePoint.x - sceneOrigin.x))
-      const y = Math.max(RIGHT_LANE_STANDARD.truck.halfLength, Math.min(roadScene.viewport.height - RIGHT_LANE_STANDARD.truck.halfLength, scenePoint.y - sceneOrigin.y))
+      const x = Math.max(RIGHT_LANE_STANDARD.truck.width / 2, Math.min(roadScene.viewport.width - RIGHT_LANE_STANDARD.truck.width / 2, localPoint.x))
+      const y = Math.max(RIGHT_LANE_STANDARD.truck.halfLength, Math.min(roadScene.viewport.height - RIGHT_LANE_STANDARD.truck.halfLength, localPoint.y))
       setTrucks((current) => current.map((truck) => truck.id === draggingTruckId ? { ...truck, x, y } : truck))
     }
   }
@@ -449,42 +591,89 @@ function App() {
     setDesignerOpen(false)
   }
 
-  function changeSceneZoom(change: number) {
-    setSceneZoom((current) => clampSceneZoom(current + change))
+  function setCenteredSceneZoom(nextZoom: number) {
+    const stage = roadStageRef.current
+    const zoom = clampSceneZoom(nextZoom, maximumSceneZoom)
+    if (stage) {
+      pendingZoomCenterRef.current = {
+        x: (stage.scrollLeft + stage.clientWidth / 2) / stage.scrollWidth,
+        y: (stage.scrollTop + stage.clientHeight / 2) / stage.scrollHeight,
+        zoom,
+      }
+    }
+    setSceneZoom(zoom)
   }
 
-  function scenePointerDistance() {
-    const [first, second] = [...pinchPointersRef.current.values()]
-    return first && second ? Math.hypot(second.x - first.x, second.y - first.y) : 0
+  function changeSceneZoom(direction: -1 | 1) {
+    setCenteredSceneZoom(
+      sceneZoom * (direction > 0 ? SCENE_ZOOM_FACTOR : 1 / SCENE_ZOOM_FACTOR),
+    )
+  }
+
+  function scenePointerCenter() {
+    const pointers = [...panPointersRef.current.values()]
+    if (pointers.length === 0) return { x: 0, y: 0 }
+    return {
+      x: pointers.reduce((sum, pointer) => sum + pointer.x, 0) / pointers.length,
+      y: pointers.reduce((sum, pointer) => sum + pointer.y, 0) / pointers.length,
+    }
   }
 
   function startScenePointer(event: React.PointerEvent<HTMLDivElement>) {
     if (event.pointerType === 'mouse') return
-    pinchPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
-    if (pinchPointersRef.current.size === 2) {
+    panPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (panPointersRef.current.size === 3) {
       setDragging(null)
-      pinchStartRef.current = { distance: scenePointerDistance(), zoom: sceneZoom }
+      threeFingerPanStartRef.current = {
+        center: scenePointerCenter(),
+        scrollLeft: event.currentTarget.scrollLeft,
+        scrollTop: event.currentTarget.scrollTop,
+      }
+    } else if (panPointersRef.current.size > 3) {
+      threeFingerPanStartRef.current = null
     }
   }
 
   function moveScenePointer(event: React.PointerEvent<HTMLDivElement>) {
-    if (!pinchPointersRef.current.has(event.pointerId)) return
-    pinchPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
-    const pinchStart = pinchStartRef.current
-    if (!pinchStart || pinchStart.distance === 0) return
+    if (!panPointersRef.current.has(event.pointerId)) return
+    panPointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (!threeFingerPanStartRef.current || panPointersRef.current.size !== 3 || gestureFrameRef.current !== null) return
     event.preventDefault()
-    setSceneZoom(clampSceneZoom(pinchStart.zoom * scenePointerDistance() / pinchStart.distance))
+    const stage = event.currentTarget
+    gestureFrameRef.current = requestAnimationFrame(() => {
+      gestureFrameRef.current = null
+      const panStart = threeFingerPanStartRef.current
+      if (!panStart || panPointersRef.current.size !== 3) return
+      const center = scenePointerCenter()
+      stage.scrollTo({
+        left: panStart.scrollLeft + panStart.center.x - center.x,
+        top: panStart.scrollTop + panStart.center.y - center.y,
+      })
+    })
   }
 
   function endScenePointer(event: React.PointerEvent<HTMLDivElement>) {
-    pinchPointersRef.current.delete(event.pointerId)
-    if (pinchPointersRef.current.size < 2) pinchStartRef.current = null
+    panPointersRef.current.delete(event.pointerId)
+    if (panPointersRef.current.size === 3) {
+      threeFingerPanStartRef.current = {
+        center: scenePointerCenter(),
+        scrollLeft: event.currentTarget.scrollLeft,
+        scrollTop: event.currentTarget.scrollTop,
+      }
+    } else {
+      threeFingerPanStartRef.current = null
+      if (gestureFrameRef.current !== null) cancelAnimationFrame(gestureFrameRef.current)
+      gestureFrameRef.current = null
+    }
   }
 
   function zoomSceneWithTrackpad(event: React.WheelEvent<HTMLDivElement>) {
-    if (!event.ctrlKey) return
     event.preventDefault()
-    setSceneZoom((current) => clampSceneZoom(current * Math.exp(-event.deltaY * 0.01)))
+    if (event.ctrlKey) {
+      setCenteredSceneZoom(sceneZoom * Math.exp(-event.deltaY * 0.01))
+      return
+    }
+    event.currentTarget.scrollBy({ left: event.deltaX, top: event.deltaY })
   }
 
   async function loadRoadLocation(event: React.FormEvent<HTMLFormElement>) {
@@ -494,12 +683,18 @@ function App() {
     if (errors.length > 0) return
 
     setLocationLoading(true)
+    const resolution = ++locationResolutionRef.current
     const resolved = await resolveRoadLocation(locationRequest)
+    if (resolution !== locationResolutionRef.current) return
     setRoadScene(resolved.scene)
+    const placement = laterallyAlignedPlacement(centeredRoadPlacement(resolved.scene), scenario)
+    if (placement) {
+      setSceneOrigin({ x: placement.x - sceneAnchorX, y: placement.y - sceneAnchorY })
+      setSceneRotation(placement.rotation)
+    }
     setResolvedLocation(resolved)
     setSelectedRoadSectionId(null)
     setSectionSelectionEnabled(false)
-    setSceneZoom(1)
     setLocationLoading(false)
   }
 
@@ -516,6 +711,11 @@ function App() {
         <div className="brand-mark" aria-label={`Magnus version ${__APP_VERSION__}`}><span aria-hidden="true">M</span></div>
         <div className="brand-copy"><strong>MAGNUS</strong><span>SSP Scene Builder</span></div>
         <div className="session-status"><span className="live-dot" />Magnus <b>v{__APP_VERSION__}</b></div>
+        <div className="zoom-controls topbar-zoom" role="group" aria-label="Scene zoom">
+          <button type="button" title="Zoom out" aria-label="Zoom out highway graphic" disabled={sceneZoom <= MIN_SCENE_ZOOM} onClick={() => changeSceneZoom(-1)}><Minus size={17} /></button>
+          <button className="zoom-value" type="button" title="Reset to 320 foot view" aria-label={`Reset highway graphic zoom, currently ${Math.round(sceneVisibleWidth)} feet wide`} onClick={() => setCenteredSceneZoom(defaultSceneZoom)}>{Math.round(sceneVisibleWidth)} FT</button>
+          <button type="button" title="Zoom in" aria-label="Zoom in highway graphic" disabled={sceneZoom >= maximumSceneZoom} onClick={() => changeSceneZoom(1)}><Plus size={17} /></button>
+        </div>
         <button className="icon-button" type="button" title="Reset scene" onClick={resetScenario}><RotateCcw size={18} /></button>
         <button className="primary-button" type="button" onClick={saveScenario}><Check size={17} /> {saveStatus === 'saved' ? 'Scenario saved' : 'Save scenario'}</button>
       </header>
@@ -587,16 +787,6 @@ function App() {
               </div>
             </div>
           )}
-          <div className="control-row">
-            <div className="control-group compact"><label>Travel lanes</label><div className="stepper"><button type="button" title="Remove lane" onClick={() => setLaneCount((count) => Math.max(2, count - 1))}><Minus size={15} /></button><strong>{laneCount}</strong><button type="button" title="Add lane" onClick={() => setLaneCount((count) => Math.min(5, count + 1))}><Plus size={15} /></button></div></div>
-            <div className="control-group compact"><label htmlFor="speed">Speed limit</label><div className="unit-input"><input id="speed" type="number" defaultValue="65" /><span>MPH</span></div></div>
-          </div>
-          <div className="control-group map-layers">
-            <label>Map layers</label>
-            <label className="toggle-row"><span><Layers3 size={16} /> Road geometry</span><input type="checkbox" checked={roadLayerVisibility.roadGeometry} onChange={(event) => setRoadLayerVisibilityValue('roadGeometry', event.target.checked)} /></label>
-            <label className="toggle-row"><span><span className="barrier-symbol" /> Barriers</span><input type="checkbox" checked={roadLayerVisibility.barriers} onChange={(event) => setRoadLayerVisibilityValue('barriers', event.target.checked)} /></label>
-            <label className="toggle-row"><span><span className="flow-symbol">→</span> Traffic flow</span><input type="checkbox" checked={roadLayerVisibility.trafficFlow} onChange={(event) => setRoadLayerVisibilityValue('trafficFlow', event.target.checked)} /></label>
-          </div>
           {sceneVisible && <section className="scene-toolkit" aria-label="Scene equipment toolkit">
             <div className="toolkit-tabs" role="tablist" aria-label="Equipment toolkit">
               <button type="button" role="tab" aria-selected={activeToolkit === 'asset'} onClick={() => setActiveToolkit('asset')}>Assets</button>
@@ -614,14 +804,15 @@ function App() {
 
         <section className="canvas-panel" aria-label="Interactive scene canvas">
           <div className="canvas-toolbar">
-            <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><h1>{sceneVisible ? selectedScenario.heading : scenePlacementActive ? `Place ${selectedScenario.label.toLowerCase()}` : 'Roadway only'}</h1><small className="scene-dataset">{roadScene.source.dataset}</small></div>
+            <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><div className="scene-heading-row"><h1>{sceneVisible ? selectedScenario.heading : scenePlacementActive ? `Place ${selectedScenario.label.toLowerCase()}` : 'Roadway only'}</h1>{sceneVisible && <ArrowUp className="traffic-direction-arrow" style={{ transform: `rotate(${effectiveSceneRotation}deg)` }} size={19} aria-label="Traffic flow bearing" />}</div><small className="scene-dataset">{roadScene.source.dataset}</small></div>
             <div className="canvas-tools">
               <div className="scale-key"><span /> 40 FT</div>
             </div>
           </div>
           <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom} onPointerDown={startScenePointer} onPointerMove={moveScenePointer} onPointerUp={endScenePointer} onPointerCancel={endScenePointer} onWheel={zoomSceneWithTrackpad}>
             <div className="road-canvas-surface" style={sceneCanvasSize}>
-            <svg className={`road-canvas${scenePlacementActive ? ' placing-scene' : ''}`} viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-zoom={sceneZoom} onPointerDown={placeScene} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }}>
+            <svg className={`road-canvas${scenePlacementActive ? ' placing-scene' : ''}`} viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-visible-width-feet={Math.round(sceneVisibleWidth)} data-zoom={sceneZoom} onPointerDown={placeScene} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }}>
+              <g className="map-world" transform={mapTransform}>
               <RoadwayLayer
                 scene={roadScene}
                 visibility={roadLayerVisibility}
@@ -658,7 +849,7 @@ function App() {
                 <g transform="translate(0 10) scale(.1)"><SignboardGraphic message={truck.signboard} /></g>
               </g>)}
               {points.map((point) => (
-                <g className={`cone ${mode === 'gospel' ? 'locked' : ''}`} key={point.id} transform={`translate(${point.x} ${point.y})`} onPointerDown={(event) => { if (mode === 'gospel') return; event.currentTarget.setPointerCapture(event.pointerId); setDragging(point.id) }}>
+                <g className={`cone ${mode === 'gospel' ? 'locked' : ''}`} data-cone-id={point.id} key={point.id} transform={`translate(${point.x} ${point.y})`} onPointerDown={(event) => { if (mode === 'gospel') return; event.currentTarget.setPointerCapture(event.pointerId); setDragging(point.id) }}>
                   <rect className="cone-hit-area" x="-4" y="-4" width="8" height="8" />
                   <path className="cone-body" d="M -.7 .8 L -.3 -1.3 H .3 L .7 .8 Z" />
                   <path className="cone-band" d="M -.5 -.2 H .5" />
@@ -682,11 +873,12 @@ function App() {
                 </g>
               })}
               </g>}
-              <g className="north-arrow" transform="translate(10 695)"><path d="M 0 20 V 0 M 0 0 l -3 6 M 0 0 l 3 6" /></g>
+              </g>
             </svg>
             </div>
             <div className={`canvas-hint${scenePlacementActive ? ' placement-active' : ''}`}>{scenePlacementActive ? <><MousePointer2 size={15} /> Tap roadway to place {selectedScenario.label.toLowerCase()}</> : !sceneVisible ? <><Navigation size={15} /> Roadway only</> : sectionSelectionEnabled ? <><MousePointer2 size={15} /> Select a roadway section</> : mode === 'gospel' ? <><ShieldCheck size={15} /> Positions locked to Standard SOP</> : <><Navigation size={15} /> Drag cones to adapt the scene</>}</div>
           </div>
+          <MapCompass rotation={mapRotation} />
         </section>
 
         <aside className="panel audit-panel" aria-label="Compliance and communications">
@@ -700,12 +892,16 @@ function App() {
             <label htmlFor="signboard-message">Displayed message<select id="signboard-message" aria-label={`Signboard message for ${selectedTruck.label}`} value={selectedTruck.signboard} onChange={(event) => setSelectedTruckSignboard(event.target.value as SignboardMessage)}>{SIGNBOARD_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
             <div className="truck-actions"><button type="button" title="Remove selected SSP truck" disabled={trucks.length === 1} onClick={removeSelectedTruck}><Minus size={14} /> Remove</button><button type="button" title="Add SSP truck" disabled={trucks.length >= MAX_SSP_TRUCKS} onClick={addTruck}><Plus size={14} /> Add truck</button></div>
           </section>
-          <section className="scene-zoom-control" aria-label="Scene view controls">
-            <span>Scene zoom</span>
-            <div className="zoom-controls" role="group" aria-label="Scene zoom">
-              <button type="button" title="Zoom out" aria-label="Zoom out highway graphic" disabled={sceneZoom <= MIN_SCENE_ZOOM} onClick={() => changeSceneZoom(-SCENE_ZOOM_STEP)}><Minus size={17} /></button>
-              <button className="zoom-value" type="button" title="Reset zoom" aria-label={`Reset highway graphic zoom, currently ${Math.round(sceneZoom * 100)} percent`} onClick={() => setSceneZoom(1)}>{Math.round(sceneZoom * 100)}%</button>
-              <button type="button" title="Zoom in" aria-label="Zoom in highway graphic" disabled={sceneZoom >= MAX_SCENE_ZOOM} onClick={() => changeSceneZoom(SCENE_ZOOM_STEP)}><Plus size={17} /></button>
+          <section className="roadway-controls" aria-label="Roadway and map controls">
+            <div className="control-row">
+              <div className="control-group compact"><label>Travel lanes</label><div className="stepper"><button type="button" title="Remove lane" onClick={() => setLaneCount((count) => Math.max(2, count - 1))}><Minus size={15} /></button><strong>{laneCount}</strong><button type="button" title="Add lane" onClick={() => setLaneCount((count) => Math.min(5, count + 1))}><Plus size={15} /></button></div></div>
+              <div className="control-group compact"><label htmlFor="speed">Speed limit</label><div className="unit-input"><input id="speed" type="number" defaultValue="65" /><span>MPH</span></div></div>
+            </div>
+            <div className="control-group map-layers">
+              <label>Map layers</label>
+              <label className="toggle-row"><span><Layers3 size={16} /> Road geometry</span><input type="checkbox" checked={roadLayerVisibility.roadGeometry} onChange={(event) => setRoadLayerVisibilityValue('roadGeometry', event.target.checked)} /></label>
+              <label className="toggle-row"><span><span className="barrier-symbol" /> Barriers</span><input type="checkbox" checked={roadLayerVisibility.barriers} onChange={(event) => setRoadLayerVisibilityValue('barriers', event.target.checked)} /></label>
+              <label className="toggle-row"><span><span className="flow-symbol">→</span> Traffic flow</span><input type="checkbox" checked={roadLayerVisibility.trafficFlow} onChange={(event) => setRoadLayerVisibilityValue('trafficFlow', event.target.checked)} /></label>
             </div>
           </section>
           {roadSections.length > 1 && (

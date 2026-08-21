@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { roadSectionTransform, selectableRoadSections } from './roadSection'
+import { nearestRoadPlacement, roadSectionTransform, selectableRoadSections } from './roadSection'
 import type { RoadScene } from './roadScene'
 
 const scene: RoadScene = {
@@ -44,5 +44,16 @@ describe('road section selection', () => {
       rotation: 45,
     })
     expect(roadSectionTransform(scene.features[0])).toBeNull()
+  })
+
+  it('projects placement onto the nearest roadway segment and follows its tangent', () => {
+    expect(nearestRoadPlacement(scene, { x: 180, y: 360 })).toEqual({
+      featureId: 'way-170-surface',
+      x: 160,
+      y: 340,
+      rotation: 45,
+      distance: Math.sqrt(800),
+      lanes: 3,
+    })
   })
 })

@@ -39,6 +39,10 @@ pub struct FeatureProperties {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lanes: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_shoulder_width_feet: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub right_shoulder_width_feet: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub direction: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render_width_feet: Option<f64>,

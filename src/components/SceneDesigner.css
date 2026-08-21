@@ -1,3 +1,6 @@
+.designer-toolkit > div:first-child button { padding: 0; color: #65716c; background: #e9eeeb; border: 0; border-right: 1px solid #d3dad7; font-size: 10px; font-weight: 600; text-transform: uppercase; cursor: pointer; }
+.designer-toolkit > div:last-child button { width: 100%; min-height: 41px; display: grid; grid-template-columns: 10px 1fr 14px; align-items: center; gap: 7px; padding: 6px 7px; color: #47544f; text-align: left; background: #fff; border: 0; border-bottom: 1px solid #e2e7e4; cursor: pointer; }
+.designer-toolkit > div:last-child b { font-size: 10px; font-weight: 500; line-height: 1.3; }
 .designer-shell { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; color: #1a2321; background: #e7ebe8; }
 .designer-header { height: 62px; flex: 0 0 62px; display: flex; align-items: center; gap: 8px; padding: 0 14px; color: #e9eeeb; background: #192220; border-bottom: 2px solid #e8bd28; }
 .designer-header > div:first-child { display: flex; flex-direction: column; min-width: 260px; }

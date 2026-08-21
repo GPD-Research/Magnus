@@ -6,6 +6,12 @@ export interface RoadSectionTransform {
   rotation: number
 }
 
+export interface RoadPlacement extends RoadSectionTransform {
+  featureId: string
+  distance: number
+  lanes: number
+}
+
 export function selectableRoadSections(scene: RoadScene): RoadFeature[] {
   return scene.features.filter(
     (feature) => feature.kind === 'road-surface' && feature.geometry.type === 'LineString',
@@ -23,6 +29,42 @@ export function roadSectionLabel(feature: RoadFeature): string {
 export function roadSectionTransform(feature: RoadFeature): RoadSectionTransform | null {
   if (feature.kind !== 'road-surface' || feature.geometry.type !== 'LineString') return null
   return centerSegmentTransform(feature.geometry)
+}
+
+export function nearestRoadPlacement(
+  scene: RoadScene,
+  point: { x: number; y: number },
+): RoadPlacement | null {
+  let nearest: RoadPlacement | null = null
+  for (const feature of selectableRoadSections(scene)) {
+    if (feature.geometry.type !== 'LineString') continue
+    for (let index = 0; index < feature.geometry.coordinates.length - 1; index += 1) {
+      const start = feature.geometry.coordinates[index]
+      const end = feature.geometry.coordinates[index + 1]
+      if (!start || !end) continue
+      const deltaX = end[0] - start[0]
+      const deltaY = end[1] - start[1]
+      const lengthSquared = deltaX * deltaX + deltaY * deltaY
+      if (lengthSquared === 0) continue
+      const progress = Math.max(0, Math.min(1,
+        ((point.x - start[0]) * deltaX + (point.y - start[1]) * deltaY) / lengthSquared,
+      ))
+      const x = start[0] + deltaX * progress
+      const y = start[1] + deltaY * progress
+      const distance = Math.hypot(point.x - x, point.y - y)
+      if (!nearest || distance < nearest.distance) {
+        nearest = {
+          featureId: feature.id,
+          x,
+          y,
+          rotation: Math.atan2(deltaY, deltaX) * (180 / Math.PI) + 90,
+          distance,
+          lanes: feature.properties.lanes ?? 3,
+        }
+      }
+    }
+  }
+  return nearest
 }
 
 function centerSegmentTransform(geometry: LineGeometry): RoadSectionTransform | null {

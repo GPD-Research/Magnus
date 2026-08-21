@@ -25,6 +25,8 @@ export interface RoadFeature {
     bridge?: boolean
     tunnel?: boolean
     lanes?: number
+    leftShoulderWidthFeet?: number
+    rightShoulderWidthFeet?: number
     direction?: 'forward' | 'backward'
     renderWidthFeet?: number
   }

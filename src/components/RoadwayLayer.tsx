@@ -64,7 +64,7 @@ export function RoadwayLayer({
           <rect x="4" width="4" height="8" fill="#343b3d" />
         </pattern>
       </defs>
-      <rect width={scene.viewport.width} height={scene.viewport.height} fill="#202728" />
+      <rect width={scene.viewport.width} height={scene.viewport.height} fill="#56624d" />
       {orderedFeatures.map((feature) => {
         const selectable = selectionEnabled
           && feature.kind === 'road-surface'

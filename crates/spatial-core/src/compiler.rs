@@ -103,6 +103,8 @@ pub fn compile_pbf(
             bridge: Some(way.bridge),
             tunnel: Some(way.tunnel),
             lanes: Some(way.lanes),
+            left_shoulder_width_feet: None,
+            right_shoulder_width_feet: None,
             direction: Some(way.direction),
             render_width_feet: Some(width),
         };

@@ -15,21 +15,34 @@ export interface ScenarioDefinition {
   heading: string
   mutcdApplication: string
   truckOffsetX: number
+  signboard: 'left-arrow' | 'right-arrow' | 'split-arrow' | 'ramp-blocked'
 }
 
 export const SCENARIO_CATALOG: ScenarioDefinition[] = [
-  { id: 'shoulder', label: 'Shoulder closure', heading: 'Standard shoulder closure', mutcdApplication: 'Shoulder work', truckOffsetX: 12 },
-  { id: 'right-lane', label: 'Right lane closure', heading: 'Single right lane closure', mutcdApplication: 'Right lane closed', truckOffsetX: 0 },
-  { id: 'left-lane', label: 'Left lane closure', heading: 'Single left lane closure', mutcdApplication: 'Left lane closed', truckOffsetX: -24 },
-  { id: 'center-lane', label: 'Center lane closure', heading: 'Center lane closure', mutcdApplication: 'Interior lane closed', truckOffsetX: -12 },
-  { id: 'two-right-lanes', label: 'Two right lanes', heading: 'Two right lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12 },
-  { id: 'two-left-lanes', label: 'Two left lanes', heading: 'Two left lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -24 },
-  { id: 'lane-shift', label: 'Lane shift', heading: 'Temporary lane shift', mutcdApplication: 'Temporary alignment', truckOffsetX: 0 },
-  { id: 'ramp-closure', label: 'Ramp closure', heading: 'Entrance or exit ramp closure', mutcdApplication: 'Ramp closed', truckOffsetX: 12 },
+  { id: 'shoulder', label: 'Shoulder closure', heading: 'Standard shoulder closure', mutcdApplication: 'Shoulder work', truckOffsetX: 12, signboard: 'left-arrow' },
+  { id: 'right-lane', label: 'Right lane closure', heading: 'Single right lane closure', mutcdApplication: 'Right lane closed', truckOffsetX: 0, signboard: 'left-arrow' },
+  { id: 'left-lane', label: 'Left lane closure', heading: 'Single left lane closure', mutcdApplication: 'Left lane closed', truckOffsetX: -24, signboard: 'right-arrow' },
+  { id: 'center-lane', label: 'Center lane closure', heading: 'Center lane closure', mutcdApplication: 'Interior lane closed', truckOffsetX: -12, signboard: 'split-arrow' },
+  { id: 'two-right-lanes', label: 'Two right lanes', heading: 'Two right lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12, signboard: 'left-arrow' },
+  { id: 'two-left-lanes', label: 'Two left lanes', heading: 'Two left lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -24, signboard: 'right-arrow' },
+  { id: 'lane-shift', label: 'Lane shift', heading: 'Temporary lane shift', mutcdApplication: 'Temporary alignment', truckOffsetX: 0, signboard: 'split-arrow' },
+  { id: 'ramp-closure', label: 'Ramp closure', heading: 'Entrance or exit ramp closure', mutcdApplication: 'Ramp closed', truckOffsetX: 12, signboard: 'ramp-blocked' },
 ]
 
 export function scenarioDefinition(scenario: ScenarioType): ScenarioDefinition {
   return SCENARIO_CATALOG.find((definition) => definition.id === scenario) ?? SCENARIO_CATALOG[1]
+}
+
+export function scenarioLateralOffset(scenario: ScenarioType, lanes = 3): number {
+  const outerLaneOffset = Math.max(0, lanes - 3) * 6
+  if (scenario === 'left-lane' || scenario === 'two-left-lanes') return -outerLaneOffset
+  if (
+    scenario === 'shoulder'
+    || scenario === 'right-lane'
+    || scenario === 'two-right-lanes'
+    || scenario === 'ramp-closure'
+  ) return outerLaneOffset
+  return 0
 }
 
 export interface ScenePoint {
@@ -47,6 +60,7 @@ export interface AuditResult {
 
 export const RIGHT_LANE_STANDARD = {
   truck: { x: 48, y: 260, width: 8.5, length: 24, halfLength: 12, signboard: 'left-arrow' },
+  roadCenterX: 36,
   skipLineX: 42,
   rightFogLineX: 54,
   anchorGap: 10,

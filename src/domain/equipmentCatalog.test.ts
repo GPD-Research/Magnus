@@ -35,4 +35,10 @@ describe('equipment catalog', () => {
     expect(sceneCounts(deployed, 2, 11)).toEqual({ vehicles: 3, cones: 12, personnel: 1, hazards: 1 })
     expect(deployedCount('compact-cone', deployed, { 'compact-cone': 11 })).toBe(12)
   })
+
+  it('includes vehicle fire and hazmat tanker hazards', () => {
+    expect(equipmentDefinition('vehicle-fire').glyph).toBe('vehicle-fire')
+    expect(equipmentDefinition('hazmat-tanker').glyph).toBe('tanker')
+    expect(sceneCounts([deploy('vehicle-fire', 1), deploy('hazmat-tanker', 1)], 0, 0).hazards).toBe(2)
+  })
 })

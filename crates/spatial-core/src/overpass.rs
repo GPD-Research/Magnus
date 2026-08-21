@@ -11,7 +11,9 @@ use crate::{
 const FEET_PER_METER: f64 = 3.280_839_895;
 const SCENE_RADIUS_FEET: f64 = 2_640.0;
 const LANE_WIDTH_FEET: f64 = 12.0;
-const EDGE_LINE_INSET_FEET: f64 = 1.0;
+const EDGE_LINE_INSET_FEET: f64 = 0.0;
+const DEFAULT_FREEWAY_LEFT_SHOULDER_FEET: f64 = 4.0;
+const DEFAULT_FREEWAY_RIGHT_SHOULDER_FEET: f64 = 10.0;
 
 #[derive(Debug, Error)]
 pub enum OverpassSceneError {
@@ -142,7 +144,10 @@ pub fn compile_overpass_json(
             .get("lanes")
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or_else(|| if highway.ends_with("_link") { 1 } else { 2 });
-        let width = f64::from(lanes) * 12.0;
+        let (left_shoulder_width, right_shoulder_width) =
+            shoulder_widths(&way.tags, &highway);
+        let lane_width = f64::from(lanes) * LANE_WIDTH_FEET;
+        let width = lane_width + left_shoulder_width + right_shoulder_width;
         let layer = way
             .tags
             .get("layer")
@@ -155,6 +160,8 @@ pub fn compile_overpass_json(
             bridge: Some(way.tags.get("bridge").is_some_and(|value| value != "no")),
             tunnel: Some(way.tags.get("tunnel").is_some_and(|value| value != "no")),
             lanes: Some(lanes),
+            left_shoulder_width_feet: Some(left_shoulder_width),
+            right_shoulder_width_feet: Some(right_shoulder_width),
             direction: Some("forward".into()),
             render_width_feet: Some(width),
         };
@@ -181,7 +188,16 @@ pub fn compile_overpass_json(
                 geometry: Geometry::LineString(coordinates.clone()),
                 properties: properties.clone(),
             });
-            append_lane_markings(&mut features, &fragment_id, layer, &coordinates, lanes, &properties);
+            append_lane_markings(
+                &mut features,
+                &fragment_id,
+                layer,
+                &coordinates,
+                lanes,
+                left_shoulder_width,
+                right_shoulder_width,
+                &properties,
+            );
             if is_link {
                 append_direction_arrow(&mut features, &fragment_id, layer, &coordinates, &properties);
                 if fragment_index == 0 && start_has_gore {
@@ -371,6 +387,8 @@ fn append_lane_markings(
     layer: i16,
     coordinates: &[[f64; 2]],
     lanes: u16,
+    left_shoulder_width: f64,
+    right_shoulder_width: f64,
     properties: &FeatureProperties,
 ) {
     let half_width = f64::from(lanes) * LANE_WIDTH_FEET / 2.0;
@@ -402,6 +420,94 @@ fn append_lane_markings(
             },
         });
     }
+    for (suffix, offset, width) in [
+        ("left-shoulder-edge", -half_width - left_shoulder_width, left_shoulder_width),
+        ("right-shoulder-edge", half_width + right_shoulder_width, right_shoulder_width),
+    ] {
+        if width <= 0.0 {
+            continue;
+        }
+        features.push(RoadFeature {
+            id: format!("{feature_prefix}-{suffix}"),
+            kind: RoadFeatureKind::ShoulderEdge,
+            layer: layer + 1,
+            geometry: Geometry::LineString(offset_line(coordinates, offset)),
+            properties: FeatureProperties {
+                render_width_feet: Some(0.75),
+                ..properties.clone()
+            },
+        });
+    }
+}
+
+fn shoulder_widths(tags: &HashMap<String, String>, highway: &str) -> (f64, f64) {
+    let generic = tags.get("shoulder").map(String::as_str);
+    let default_present = matches!(highway, "motorway" | "trunk");
+    let left_present =
+        shoulder_side_present(tags.get("shoulder:left"), generic, "left", default_present);
+    let right_present =
+        shoulder_side_present(tags.get("shoulder:right"), generic, "right", default_present);
+    let left_width = shoulder_width(
+        tags,
+        "shoulder:left:width",
+        left_present,
+        DEFAULT_FREEWAY_LEFT_SHOULDER_FEET,
+    );
+    let right_width = shoulder_width(
+        tags,
+        "shoulder:right:width",
+        right_present,
+        DEFAULT_FREEWAY_RIGHT_SHOULDER_FEET,
+    );
+    (left_width, right_width)
+}
+
+fn shoulder_side_present(
+    side: Option<&String>,
+    generic: Option<&str>,
+    side_name: &str,
+    default_present: bool,
+) -> bool {
+    side.map(String::as_str)
+        .map(|value| !matches!(value, "no" | "none"))
+        .unwrap_or_else(|| match generic {
+            Some("no" | "none") => false,
+            Some("yes" | "both") => true,
+            Some(value) => value == side_name,
+            None => default_present,
+        })
+}
+
+fn shoulder_width(
+    tags: &HashMap<String, String>,
+    width_key: &str,
+    present: bool,
+    default_width: f64,
+) -> f64 {
+    if !present {
+        return 0.0;
+    }
+    tags.get(width_key)
+        .and_then(|value| parse_osm_width_feet(value))
+        .or_else(|| tags.get("shoulder:width").and_then(|value| parse_osm_width_feet(value)))
+        .unwrap_or(default_width)
+}
+
+fn parse_osm_width_feet(value: &str) -> Option<f64> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if let Some(feet) = normalized.strip_suffix("ft") {
+        return feet.trim().parse().ok();
+    }
+    if let Some(feet) = normalized.strip_suffix('\'') {
+        return feet.trim().parse().ok();
+    }
+    normalized
+        .strip_suffix('m')
+        .unwrap_or(&normalized)
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .map(|meters| meters * FEET_PER_METER)
 }
 
 fn append_direction_arrow(
@@ -544,14 +650,29 @@ mod tests {
         let scene = compile_overpass_json(response, &request).expect("scene should compile");
 
         assert_eq!(scene.source.source_type, SceneSourceType::OsmApi);
-        assert_eq!(scene.features.len(), 12);
+        assert_eq!(scene.features.len(), 14);
         assert_eq!(scene.features[1].properties.osm_id, Some(95));
-        assert_eq!(scene.features[1].properties.render_width_feet, Some(36.0));
+        assert_eq!(scene.features[1].properties.render_width_feet, Some(50.0));
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::SkipLine).count(), 2);
         assert_eq!(scene.features.iter().filter(|feature| matches!(feature.kind, RoadFeatureKind::LeftFogLine | RoadFeatureKind::RightFogLine)).count(), 4);
+        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::ShoulderEdge).count(), 2);
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampGore).count(), 1);
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::DirectionArrow).count(), 1);
         assert!(scene.viewport.height > 700.0);
+    }
+
+    #[test]
+    fn compiles_tagged_shoulder_widths_and_respects_explicit_absence() {
+        let tags = HashMap::from([
+            ("shoulder:left".into(), "no".into()),
+            ("shoulder:right".into(), "yes".into()),
+            ("shoulder:right:width".into(), "3 m".into()),
+        ]);
+
+        let (left, right) = shoulder_widths(&tags, "motorway");
+
+        assert_eq!(left, 0.0);
+        assert!((right - 9.842_519_685).abs() < 0.001);
     }
 
     #[test]

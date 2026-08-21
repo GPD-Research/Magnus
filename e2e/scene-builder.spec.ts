@@ -8,8 +8,14 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('loads the scene builder with a visible roadway and passing audit', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
   await page.goto('/')
 
+  await expect(page.getByLabel('Highway', { exact: true })).toHaveValue('I-95')
+  await expect(page.getByLabel('Direction')).toHaveValue('northbound')
+  await expect(page.getByLabel('Reference')).toHaveValue('mile-marker')
+  await expect(page.getByLabel('Mile marker', { exact: true })).toHaveValue('170')
+  await expect(page.getByText('I-95 Northbound MM 170 scale preview')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Single right lane closure' })).toBeVisible()
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
@@ -34,13 +40,17 @@ test('zooms the imported vector highway graphic', async ({ page }) => {
   await page.goto('/')
   const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
   const stage = page.locator('.road-stage')
+  const topbarZoom = page.locator('.topbar').getByRole('group', { name: 'Scene zoom' })
 
+  await expect(topbarZoom).toBeVisible()
+  await expect(page.locator('.audit-panel').getByRole('group', { name: 'Scene zoom' })).toHaveCount(0)
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', '320')
   const canvasBounds = await canvas.boundingBox()
   expect(canvasBounds).not.toBeNull()
   expect(canvasBounds!.width / canvasBounds!.height).toBeGreaterThan(0.5)
   const fittedViewBox = await canvas.getAttribute('viewBox')
   await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
-  await expect(canvas).toHaveAttribute('data-zoom', '1.25')
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', '256')
   await expect(canvas).toHaveAttribute('viewBox', fittedViewBox!)
   await expect.poll(() => stage.evaluate((element) => ({
     horizontal: element.scrollWidth > element.clientWidth,
@@ -59,14 +69,15 @@ test('zooms the imported vector highway graphic', async ({ page }) => {
   expect(await stage.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: /Reset highway graphic zoom/ }).click()
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', '320')
   await expect(canvas).toHaveAttribute('viewBox', fittedViewBox!)
-  await expect.poll(() => stage.evaluate((element) => ({
-    horizontal: element.scrollWidth > element.clientWidth,
-    vertical: element.scrollHeight > element.clientHeight,
-  }))).toEqual({ horizontal: false, vertical: false })
+
+  await stage.dispatchEvent('wheel', { deltaY: -1000, ctrlKey: true })
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', '40')
 })
 
-test('pinches the center scene to zoom on touch devices', async ({ page }) => {
+test('reserves two-finger touch input and pans with three touch contacts', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
   await page.goto('/')
   const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
   const stage = page.locator('.road-stage')
@@ -84,16 +95,65 @@ test('pinches the center scene to zoom on touch devices', async ({ page }) => {
     clientX: 200,
     clientY: 200,
   })
+  const initialZoom = await canvas.getAttribute('data-visible-width-feet')
+  const initialScroll = await stage.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }))
   await stage.dispatchEvent('pointermove', {
     pointerId: 2,
     pointerType: 'touch',
     clientX: 225,
     clientY: 200,
   })
-
-  await expect(canvas).toHaveAttribute('data-zoom', '1.25')
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', initialZoom!)
+  await expect.poll(() => stage.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }))).toEqual(initialScroll)
+  await stage.dispatchEvent('pointerdown', {
+    pointerId: 3,
+    pointerType: 'touch',
+    clientX: 300,
+    clientY: 200,
+  })
+  await stage.dispatchEvent('pointermove', {
+    pointerId: 1,
+    pointerType: 'touch',
+    clientX: 50,
+    clientY: 150,
+    isPrimary: true,
+  })
+  await stage.dispatchEvent('pointermove', {
+    pointerId: 2,
+    pointerType: 'touch',
+    clientX: 175,
+    clientY: 150,
+  })
+  await stage.dispatchEvent('pointermove', {
+    pointerId: 3,
+    pointerType: 'touch',
+    clientX: 250,
+    clientY: 150,
+  })
+  await expect.poll(() => stage.evaluate((element, start) => ({
+    horizontal: element.scrollLeft > start.left,
+    vertical: element.scrollTop > start.top,
+  }), initialScroll)).toEqual({ horizontal: true, vertical: true })
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', initialZoom!)
   await stage.dispatchEvent('pointerup', { pointerId: 1, pointerType: 'touch' })
   await stage.dispatchEvent('pointerup', { pointerId: 2, pointerType: 'touch' })
+  await stage.dispatchEvent('pointerup', { pointerId: 3, pointerType: 'touch' })
+})
+
+test('pans the zoomed scene with laptop touchpad wheel output', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.goto('/')
+  const stage = page.locator('.road-stage')
+  await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
+  await expect.poll(() => stage.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+
+  const initial = await stage.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }))
+  await stage.dispatchEvent('wheel', { deltaX: -30, deltaY: -30 })
+  await expect.poll(() => stage.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }))).toEqual({
+    left: initial.left - 30,
+    top: initial.top - 30,
+  })
+
 })
 
 test('renders highway markings and the SSP vehicle to the same foot scale', async ({ page }) => {
@@ -111,7 +171,39 @@ test('renders highway markings and the SSP vehicle to the same foot scale', asyn
   await expect(page.locator('.road-canvas .cone-label, .road-canvas .distance-label, .road-canvas .flow-label, .road-canvas .north-arrow text')).toHaveCount(0)
 })
 
+test('uses a wider center pane and a muted moss map field', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.setViewportSize({ width: 3840, height: 1080 })
+  await page.goto('/')
+
+  const widths = await page.locator('.workspace').evaluate((workspace) => {
+    const [left, center, right] = Array.from(workspace.children) as HTMLElement[]
+    return {
+      workspace: workspace.clientWidth,
+      left: left.clientWidth,
+      center: center.clientWidth,
+      right: right.clientWidth,
+    }
+  })
+
+  expect(widths.left).toBeLessThanOrEqual(360)
+  expect(widths.right).toBeLessThanOrEqual(360)
+  expect(widths.center).toBeGreaterThan(3_100)
+  expect(Math.abs(widths.workspace - widths.left - widths.center - widths.right)).toBeLessThanOrEqual(2)
+  await expect(page.locator('.road-stage')).toHaveCSS('background-color', 'rgb(79, 92, 72)')
+  await expect(page.locator('.roadway-data-layer > rect')).toHaveAttribute('fill', '#56624d')
+  const stageBounds = await page.locator('.road-stage').boundingBox()
+  const truckBounds = await page.locator('[data-truck-id="ssp-truck-1"]').boundingBox()
+  expect(stageBounds).not.toBeNull()
+  expect(truckBounds).not.toBeNull()
+  expect(truckBounds!.x).toBeGreaterThan(stageBounds!.x)
+  expect(truckBounds!.x).toBeLessThan(stageBounds!.x + stageBounds!.width)
+  expect(truckBounds!.y).toBeGreaterThan(stageBounds!.y)
+  expect(truckBounds!.y).toBeLessThan(stageBounds!.y + stageBounds!.height)
+})
+
 test('resolves a highway exit request into scaled interchange geometry', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
   await page.goto('/')
 
   await page.getByLabel('Highway', { exact: true }).fill('I 95')
@@ -122,12 +214,13 @@ test('resolves a highway exit request into scaled interchange geometry', async (
 
   await expect(page.locator('.location-result')).toContainText('scale-accurate development preview')
   await expect(page.getByText('I-95 Northbound Exit 166 scale preview')).toBeVisible()
-  await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('data-zoom', '1')
+  await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('data-visible-width-feet', '320')
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveCount(1)
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveAttribute('stroke-width', '12')
 })
 
 test('selects a Mixing Bowl overpass as the controlled scene sector', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
   await page.goto('/')
 
   await page.getByLabel('Highway', { exact: true }).fill('I-95')
@@ -148,6 +241,7 @@ test('selects a Mixing Bowl overpass as the controlled scene sector', async ({ p
 })
 
 test('toggles roadway display layers independently', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
   await page.goto('/')
 
   await page.getByRole('checkbox', { name: 'Road geometry' }).uncheck()
@@ -198,7 +292,13 @@ test('renders split arrow as one horizontal double-headed arrow', async ({ page 
 })
 
 test('removes the scene and places the selected scene on the next map tap', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
   await page.goto('/')
+
+  await page.getByLabel('Reference').selectOption('mile-marker')
+  await page.getByLabel('Mile marker', { exact: true }).fill('170')
+  await page.getByRole('button', { name: 'Render location' }).click()
+  await expect(page.locator('#preview-express-ramp-surface')).toHaveCount(1)
 
   await page.getByRole('button', { name: 'Remove scene' }).click()
   await expect(page.locator('.scene-equipment')).toHaveCount(0)
@@ -210,10 +310,59 @@ test('removes the scene and places the selected scene on the next map tap', asyn
   await expect(page.getByRole('button', { name: 'Tap roadway to place' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.scene-equipment')).toHaveCount(0)
 
-  await page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones').click({ position: { x: 200, y: 300 } })
+  await page.locator('#preview-express-ramp-surface').click({ force: true, position: { x: 20, y: 5 } })
   await expect(page.locator('.scene-equipment')).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Center lane closure' })).toBeVisible()
-  await expect(page.locator('.scene-equipment')).toHaveAttribute('transform', /translate\(.+ .+\)/)
+  await expect(page.locator('.scene-equipment')).toHaveAttribute('transform', /translate\(.+ .+\) rotate\((?!0\))/)
+})
+
+test('instantiates lane-specific geometry and signboards when adding a scene', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: /Left lane closure/ }).click()
+  await page.getByRole('button', { name: 'Add scene' }).click()
+  await page.locator('#mainline-surface').click({ force: true })
+
+  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(30 522)')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(24 260)')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'right-arrow')
+
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: /Shoulder closure/ }).click()
+  await page.getByRole('button', { name: 'Add scene' }).click()
+  await page.locator('#mainline-surface').click({ force: true })
+
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(60 260)')
+  await expect(page.locator('[data-cone-id="taper-3"]')).toHaveAttribute('transform', 'translate(66 402)')
+})
+
+test('aligns right-lane cones to skip and fog lines on a four-lane road', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: 1,
+      source: { type: 'osm-api', dataset: 'Four-lane alignment fixture', generatedAt: 'test', attribution: 'Test geometry' },
+      coordinateSystem: { worldCrs: 'LOCAL', displayUnits: 'feet', origin: 'top-left', trafficFlow: 'bottom-to-top' },
+      viewport: { width: 200, height: 400 },
+      features: [
+        { id: 'four-lane-surface', kind: 'road-surface', layer: 0, geometry: { type: 'LineString', coordinates: [[100, 350], [100, 50]] }, properties: { highway: 'motorway', lanes: 4, renderWidthFeet: 62 } },
+        { id: 'four-lane-right-skip', kind: 'skip-line', layer: 1, geometry: { type: 'LineString', coordinates: [[112, 350], [112, 50]] }, properties: { highway: 'motorway', lanes: 4, renderWidthFeet: 0.5 } },
+        { id: 'four-lane-right-fog', kind: 'right-fog-line', layer: 1, geometry: { type: 'LineString', coordinates: [[124, 350], [124, 50]] }, properties: { highway: 'motorway', lanes: 4, renderWidthFeet: 0.5 } },
+      ],
+    }),
+  }))
+  await page.goto('/')
+
+  await expect(page.locator('.scene-equipment')).toHaveAttribute(
+    'transform',
+    'translate(106 200) rotate(0) translate(-36 -260)',
+  )
+  await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(42 282)')
+  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(54 562)')
+  await expect(page.locator('#four-lane-right-skip')).toHaveAttribute('d', 'M 112 350 L 112 50')
+  await expect(page.locator('#four-lane-right-fog')).toHaveAttribute('d', 'M 124 350 L 124 50')
 })
 
 test('deploys assets and hazards with live scene counters and deletion', async ({ page }) => {
@@ -228,6 +377,10 @@ test('deploys assets and hazards with live scene counters and deletion', async (
   await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveAttribute('transform', /translate\(40 /)
 
   await toolkit.getByRole('tab', { name: 'Hazards' }).click()
+  await toolkit.getByRole('button', { name: /Vehicle fire/ }).click()
+  await expect(page.locator('[data-definition-id="vehicle-fire"] .catalog-flames')).toHaveCount(1)
+  await toolkit.getByRole('button', { name: /Hazmat tanker truck/ }).click()
+  await expect(page.locator('[data-definition-id="hazmat-tanker"] .catalog-hazmat')).toHaveCount(1)
   await toolkit.getByRole('button', { name: /Helicopter landing zone/ }).click()
   await expect(page.locator('[data-definition-id="helicopter-zone"]')).toHaveCount(1)
   await expect(page.getByRole('region', { name: 'Scene resource counts' })).toContainText('1')
@@ -238,6 +391,18 @@ test('deploys assets and hazards with live scene counters and deletion', async (
   const cruiser = toolkit.getByRole('button', { name: /VSP cruiser/ })
   for (let count = 0; count < 5; count += 1) await cruiser.click()
   await expect(cruiser).toBeDisabled()
+})
+
+test('shows map orientation and traffic direction only for an active scene', async ({ page }) => {
+  await page.goto('/')
+
+  await expect(page.getByRole('img', { name: /Map compass/ })).toBeVisible()
+  await expect(page.getByLabel('Traffic flow bearing')).toBeVisible()
+  await expect(page.getByLabel('Traffic flow bearing')).toHaveCSS('transform', /matrix/)
+
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await expect(page.getByLabel('Traffic flow bearing')).toHaveCount(0)
+  await expect(page.getByRole('img', { name: /Map compass/ })).toBeVisible()
 })
 
 test('uses the shared assets and hazards catalog in the grid designer', async ({ page }) => {

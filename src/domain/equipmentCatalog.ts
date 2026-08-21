@@ -5,7 +5,7 @@ export type EquipmentGlyph =
   | 'cone' | 'flare' | 'diamond-sign' | 'person' | 'ssp-truck' | 'cruiser' | 'ambulance'
   | 'ladder-truck' | 'pump-truck' | 'pickup' | 'tool' | 'suv' | 'sedan'
   | 'tractor-trailer' | 'jackknife' | 'tractor' | 'bus' | 'trailer'
-  | 'car-hauler' | 'debris' | 'deer' | 'airplane' | 'helipad'
+  | 'car-hauler' | 'vehicle-fire' | 'tanker' | 'debris' | 'deer' | 'airplane' | 'helipad'
 
 export interface EquipmentDefinition {
   id: string
@@ -49,10 +49,12 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'sedan-green', label: 'Green sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#477b58', width: 7, length: 16 },
   { id: 'sedan-grey', label: 'Grey sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#858c8d', width: 7, length: 16 },
   { id: 'sedan-black', label: 'Black sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#242827', width: 7, length: 16 },
+  { id: 'vehicle-fire', label: 'Vehicle fire', category: 'hazard', countClass: 'hazard', glyph: 'vehicle-fire', color: '#555d5b', width: 8, length: 18 },
   { id: 'pickup-green', label: 'Green pickup', category: 'hazard', countClass: 'hazard', glyph: 'pickup', color: '#477b58', width: 8, length: 19 },
   { id: 'pickup-grey', label: 'Grey pickup', category: 'hazard', countClass: 'hazard', glyph: 'pickup', color: '#858c8d', width: 8, length: 19 },
   { id: 'pickup-black', label: 'Black pickup', category: 'hazard', countClass: 'hazard', glyph: 'pickup', color: '#242827', width: 8, length: 19 },
   { id: 'tractor-trailer', label: 'Tractor trailer', category: 'hazard', countClass: 'hazard', glyph: 'tractor-trailer', color: '#d8dcda', width: 9, length: 55 },
+  { id: 'hazmat-tanker', label: 'Hazmat tanker truck', category: 'hazard', countClass: 'hazard', glyph: 'tanker', color: '#d8dcda', width: 10, length: 55 },
   { id: 'jackknife-left', label: 'Tractor trailer - jackknife left', category: 'hazard', countClass: 'hazard', glyph: 'jackknife', color: '#d8dcda', width: 38, length: 38 },
   { id: 'tractor-purple', label: 'Purple tractor without trailer', category: 'hazard', countClass: 'hazard', glyph: 'tractor', color: '#724a82', width: 9, length: 18 },
   { id: 'school-bus', label: 'School bus', category: 'hazard', countClass: 'hazard', glyph: 'bus', color: '#e6bb25', width: 9, length: 36 },

@@ -1,6 +1,8 @@
 export const MIN_SCENE_ZOOM = 0.5
-export const MAX_SCENE_ZOOM = 12
-export const SCENE_ZOOM_STEP = 0.25
+export const MAX_SCENE_ZOOM = 10_000
+export const SCENE_ZOOM_FACTOR = 1.25
+export const DEFAULT_VISIBLE_SCENE_WIDTH_FEET = 320
+export const MIN_VISIBLE_SCENE_WIDTH_FEET = 40
 
 export interface SceneViewport {
   width: number
@@ -12,8 +14,26 @@ export interface SceneViewBox extends SceneViewport {
   y: number
 }
 
-export function clampSceneZoom(zoom: number): number {
-  return Math.min(MAX_SCENE_ZOOM, Math.max(MIN_SCENE_ZOOM, zoom))
+export function clampSceneZoom(zoom: number, maximum = MAX_SCENE_ZOOM): number {
+  return Math.min(maximum, Math.max(MIN_SCENE_ZOOM, zoom))
+}
+
+export function sceneZoomForVisibleWidth(
+  viewport: SceneViewport,
+  displayViewport: SceneViewport,
+  visibleWidth: number,
+): number {
+  const fittedView = centeredSceneViewBox(viewport, 1, displayViewport)
+  return clampSceneZoom(fittedView.width / visibleWidth)
+}
+
+export function visibleSceneWidth(
+  viewport: SceneViewport,
+  displayViewport: SceneViewport,
+  zoom: number,
+): number {
+  const fittedView = centeredSceneViewBox(viewport, 1, displayViewport)
+  return fittedView.width / clampSceneZoom(zoom)
 }
 
 export function centeredSceneViewBox(

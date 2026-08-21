@@ -32,6 +32,16 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'tractor-trailer':
     case 'car-hauler':
       return <><rect {...common} x={-halfWidth} y={-halfLength} width={width} height={length * .7} rx="1" /><rect {...common} x={-halfWidth} y={length * .22} width={width} height={length * .28} rx="1" /><path d={`M ${-halfWidth} ${length * .2} H ${halfWidth}`} className="catalog-detail" /></>
+    case 'tanker':
+      return <>
+        <rect {...common} x={-halfWidth} y={length * .22} width={width} height={length * .28} rx="1" />
+        <rect {...common} x={-width * .42} y={-halfLength} width={width * .84} height={length * .7} rx={width * .42} />
+        <path d={`M ${-width * .42} ${-length * .15} H ${width * .42} M ${-width * .42} ${length * .18} H ${width * .42}`} className="catalog-detail" />
+        <g className="catalog-hazmat" transform={`translate(0 ${-length * .04}) rotate(45)`}>
+          <rect x={-width * .23} y={-width * .23} width={width * .46} height={width * .46} />
+          <text transform="rotate(-45)" textAnchor="middle" y={width * .09}>!</text>
+        </g>
+      </>
     case 'trailer':
       return <><rect {...common} x={-halfWidth} y={-halfLength} width={width} height={length} rx="1" /><path d={`M ${-halfWidth} ${-length * .22} H ${halfWidth} M ${-halfWidth} ${length * .22} H ${halfWidth}`} className="catalog-detail" /></>
     case 'ladder-truck':
@@ -51,6 +61,14 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'pump-truck':
     case 'sedan':
       return <VehicleBody width={width} length={length} color={definition.color} />
+    case 'vehicle-fire':
+      return <>
+        <VehicleBody width={width} length={length} color={definition.color} />
+        <g className="catalog-flames" transform={`translate(0 ${-length * .08})`}>
+          <path d={`M ${-width * .36} ${length * .23} C ${-width * .5} 0 ${-width * .12} ${-length * .08} ${-width * .2} ${-length * .34} C ${width * .02} ${-length * .2} ${width * .08} ${-length * .5} ${width * .28} ${-length * .62} C ${width * .48} ${-length * .22} ${width * .5} ${length * .08} ${width * .32} ${length * .23} Z`} />
+          <path className="catalog-flame-core" d={`M ${-width * .08} ${length * .18} C ${-width * .2} 0 ${width * .02} ${-length * .13} ${width * .08} ${-length * .3} C ${width * .28} ${-length * .02} ${width * .24} ${length * .12} ${width * .12} ${length * .18} Z`} />
+        </g>
+      </>
     case 'tool':
       return <><circle {...common} r={halfWidth} /><path d={`M ${-halfWidth * .6} ${halfLength * .6} L ${halfWidth * .6} ${-halfLength * .6} M ${-halfWidth * .6} ${-halfLength * .6} L ${halfWidth * .6} ${halfLength * .6}`} className="catalog-detail" /></>
   }

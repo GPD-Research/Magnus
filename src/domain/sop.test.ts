@@ -4,11 +4,21 @@ import {
   SCENARIO_CATALOG,
   auditScene,
   createScene,
+  scenarioLateralOffset,
   setDownstreamSpacing,
   setRightLaneTaperCount,
 } from './sop'
 
 describe('SOP scene audit', () => {
+  it('aligns outer-lane templates to wider roadway markings', () => {
+    expect(scenarioLateralOffset('right-lane', 3)).toBe(0)
+    expect(scenarioLateralOffset('right-lane', 4)).toBe(6)
+    expect(scenarioLateralOffset('shoulder', 5)).toBe(12)
+    expect(scenarioLateralOffset('left-lane', 4)).toBe(-6)
+    expect(scenarioLateralOffset('two-left-lanes', 5)).toBe(-12)
+    expect(scenarioLateralOffset('center-lane', 5)).toBe(0)
+  })
+
   it('places the SSP truck in the right lane with a left-arrow signboard', () => {
     expect(RIGHT_LANE_STANDARD.truck).toMatchObject({
       x: 48,
@@ -19,6 +29,7 @@ describe('SOP scene audit', () => {
     })
     expect(RIGHT_LANE_STANDARD.truck.x).toBeGreaterThan(RIGHT_LANE_STANDARD.skipLineX)
     expect(RIGHT_LANE_STANDARD.truck.x).toBeLessThan(RIGHT_LANE_STANDARD.rightFogLineX)
+    expect(RIGHT_LANE_STANDARD.roadCenterX).toBe(36)
   })
 
   it('accepts the standard right-lane closure template', () => {
@@ -40,6 +51,10 @@ describe('SOP scene audit', () => {
     ])
     expect(createScene('two-right-lanes').filter((point) => point.role === 'taper')).toHaveLength(7)
     expect(createScene('lane-shift').length).toBeGreaterThan(createScene('right-lane').length)
+    expect(createScene('left-lane').find((point) => point.id === 'taper-5')?.x).toBe(30)
+    expect(createScene('right-lane').find((point) => point.id === 'taper-5')?.x).toBe(54)
+    expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'left-lane')?.signboard).toBe('right-arrow')
+    expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'right-lane')?.signboard).toBe('left-arrow')
   })
 
   it('rejects a cone moved into the emergency shoulder', () => {
