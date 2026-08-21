@@ -375,8 +375,19 @@ test('instantiates lane-specific geometry and signboards when adding a scene', a
   await page.getByRole('button', { name: 'Add scene' }).click()
   await page.locator('#mainline-surface').click({ force: true })
 
-  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(30 522)')
+  await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(30 282)')
+  await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(18 522)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(24 260)')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'right-arrow')
+
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: /Two left lanes/ }).click()
+  await page.getByRole('button', { name: 'Add scene' }).click()
+  await page.locator('#mainline-surface').click({ force: true })
+
+  await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(42 282)')
+  await expect(page.locator('[data-cone-id="taper-7"]')).toHaveAttribute('transform', 'translate(18 602)')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(36 260)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'right-arrow')
 
   await page.getByRole('button', { name: 'Remove scene' }).click()

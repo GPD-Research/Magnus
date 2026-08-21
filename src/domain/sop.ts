@@ -24,7 +24,7 @@ export const SCENARIO_CATALOG: ScenarioDefinition[] = [
   { id: 'left-lane', label: 'Left lane closure', heading: 'Single left lane closure', mutcdApplication: 'Left lane closed', truckOffsetX: -24, signboard: 'right-arrow' },
   { id: 'center-lane', label: 'Center lane closure', heading: 'Center lane closure', mutcdApplication: 'Interior lane closed', truckOffsetX: -12, signboard: 'split-arrow' },
   { id: 'two-right-lanes', label: 'Two right lanes', heading: 'Two right lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12, signboard: 'left-arrow' },
-  { id: 'two-left-lanes', label: 'Two left lanes', heading: 'Two left lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -24, signboard: 'right-arrow' },
+  { id: 'two-left-lanes', label: 'Two left lanes', heading: 'Two left lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12, signboard: 'right-arrow' },
   { id: 'lane-shift', label: 'Lane shift', heading: 'Temporary lane shift', mutcdApplication: 'Temporary alignment', truckOffsetX: 0, signboard: 'split-arrow' },
   { id: 'ramp-closure', label: 'Ramp closure', heading: 'Entrance or exit ramp closure', mutcdApplication: 'Ramp closed', truckOffsetX: 12, signboard: 'ramp-blocked' },
 ]
@@ -95,10 +95,10 @@ const templates: Record<ScenarioType, ScenePoint[]> = {
     { id: 'perimeter-1', x: RIGHT_LANE_STANDARD.skipLineX, y: 198, role: 'perimeter' },
     { id: 'perimeter-2', x: RIGHT_LANE_STANDARD.skipLineX, y: 158, role: 'perimeter' },
   ],
-  'left-lane': createLaneClosureTemplate(18, 30),
+  'left-lane': createLaneClosureTemplate(30, 18),
   'center-lane': createLaneClosureTemplate(30, 42),
   'two-right-lanes': createLaneClosureTemplate(30, 54, 7),
-  'two-left-lanes': createLaneClosureTemplate(18, 42, 7),
+  'two-left-lanes': createLaneClosureTemplate(42, 18, 7),
   'lane-shift': createLaneShiftTemplate(),
   'ramp-closure': createRampClosureTemplate(),
 }
