@@ -9,6 +9,7 @@ use axum::{
 };
 use magnus_spatial_core::{RoadLocationRequest, RoadScene, compile_overpass_json};
 use serde::Serialize;
+use tower_http::services::{ServeDir, ServeFile};
 
 const DEFAULT_OVERPASS_URL: &str = "https://overpass-api.de/api/interpreter";
 
@@ -21,6 +22,12 @@ struct AppState {
 #[derive(Serialize)]
 struct ApiError {
     error: String,
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    service: &'static str,
 }
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiError>)>;
@@ -38,14 +45,21 @@ async fn main() -> Result<()> {
             .build()?,
         overpass_url: env::var("OVERPASS_URL").unwrap_or_else(|_| DEFAULT_OVERPASS_URL.into()),
     };
+    let web_directory = env::var("MAGNUS_WEB_DIR").unwrap_or_else(|_| "dist".into());
+    let index_file = format!("{web_directory}/index.html");
     let app = Router::new()
-        .route("/api/health", get(|| async { "ok" }))
+        .route("/api/health", get(health))
         .route("/api/road-scenes/resolve", get(resolve_road_scene))
-        .with_state(state);
+        .with_state(state)
+        .fallback_service(ServeDir::new(web_directory).not_found_service(ServeFile::new(index_file)));
     let listener = tokio::net::TcpListener::bind(address).await?;
-    println!("Magnus spatial API listening on http://{address}");
+    println!("Magnus listening on http://{address}");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn health() -> Json<HealthResponse> {
+    Json(HealthResponse { status: "ok", service: "magnus-spatial" })
 }
 
 async fn resolve_road_scene(

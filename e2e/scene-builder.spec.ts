@@ -1,11 +1,33 @@
 import { expect, test } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/health', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ status: 'ok', service: 'magnus-spatial' }),
+  }))
+})
+
 test('loads the scene builder with a visible roadway and passing audit', async ({ page }) => {
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: 'Single right lane closure' })).toBeVisible()
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
+  await expect(page.getByLabel('Magnus version 3.0.0')).toBeVisible()
+})
+
+test('saves and restores the complete scene configuration', async ({ page }) => {
+  await page.goto('/')
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
+  await page.getByRole('button', { name: 'Save scenario' }).click()
+  await expect(page.getByRole('button', { name: 'Scenario saved' })).toBeVisible()
+
+  await page.reload()
+  await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Reset scene' }).click()
+  await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(0)
 })
 
 test('zooms the imported vector highway graphic', async ({ page }) => {
@@ -97,7 +119,7 @@ test('resolves a highway exit request into scaled interchange geometry', async (
   await page.getByLabel('Exit', { exact: true }).fill('166')
   await page.getByRole('button', { name: 'Render location' }).click()
 
-  await expect(page.getByRole('status')).toContainText('scale-accurate development preview')
+  await expect(page.locator('.location-result')).toContainText('scale-accurate development preview')
   await expect(page.getByText('I-95 Northbound Exit 166 scale preview')).toBeVisible()
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('data-zoom', '1')
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveCount(1)
@@ -139,6 +161,71 @@ test('toggles roadway display layers independently', async ({ page }) => {
   await expect(page.getByText('DOWNSTREAM')).toHaveCount(0)
 })
 
+test('configures signboards independently for up to five SSP trucks', async ({ page }) => {
+  await page.goto('/')
+
+  const firstMessage = page.getByLabel('Signboard message for SSP Truck 1')
+  await expect(firstMessage).toHaveValue('double-diamonds')
+  await firstMessage.selectOption('incident-ahead')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'incident-ahead')
+
+  const addTruck = page.getByRole('button', { name: 'Add truck' })
+  await addTruck.click()
+  const secondMessage = page.getByLabel('Signboard message for SSP Truck 2')
+  await expect(secondMessage).toHaveValue('double-diamonds')
+  await secondMessage.selectOption('high-water')
+
+  await addTruck.click()
+  await addTruck.click()
+  await addTruck.click()
+  await expect(addTruck).toBeDisabled()
+
+  await page.getByRole('button', { name: 'SSP Truck 1, signboard Incident Ahead' }).press('Enter')
+  await expect(page.getByLabel('Signboard message for SSP Truck 1')).toHaveValue('incident-ahead')
+  await expect(page.getByRole('img', { name: 'SSP Truck 1 signboard: Incident Ahead' })).toBeVisible()
+  await expect(page.locator('[data-truck-id="ssp-truck-2"]')).toHaveAttribute('data-signboard', 'high-water')
+})
+
+test('deploys assets and hazards with live scene counters and deletion', async ({ page }) => {
+  await page.goto('/')
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
+  await expect(page.getByRole('region', { name: 'Scene resource counts' })).toContainText('2')
+  const inspector = page.getByRole('region', { name: 'Selected scene item' })
+  await expect(inspector).toContainText('EMS ambulance')
+  await inspector.getByLabel('X (ft)').fill('40')
+  await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveAttribute('transform', /translate\(40 /)
+
+  await toolkit.getByRole('tab', { name: 'Hazards' }).click()
+  await toolkit.getByRole('button', { name: /Helicopter landing zone/ }).click()
+  await expect(page.locator('[data-definition-id="helicopter-zone"]')).toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Scene resource counts' })).toContainText('1')
+  await page.getByRole('button', { name: 'Delete selected item' }).click()
+  await expect(page.locator('[data-definition-id="helicopter-zone"]')).toHaveCount(0)
+
+  await toolkit.getByRole('tab', { name: 'Assets' }).click()
+  const cruiser = toolkit.getByRole('button', { name: /VSP cruiser/ })
+  for (let count = 0; count < 5; count += 1) await cruiser.click()
+  await expect(cruiser).toBeDisabled()
+})
+
+test('uses the shared assets and hazards catalog in the grid designer', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Scene design tool/ }).click()
+
+  const toolkit = page.getByRole('region', { name: 'Designer equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'Hazards' }).click()
+  await toolkit.getByRole('button', { name: 'Grey debris' }).click()
+  await page.getByLabel('10 foot scene design grid').click({ position: { x: 300, y: 350 } })
+
+  await expect(page.getByRole('button', { name: 'Delete object' })).toBeVisible()
+  await page.getByLabel('X (ft)').fill('400')
+  await expect(page.locator('.designer-equipment.selected')).toHaveAttribute('transform', /translate\(400 /)
+  await page.getByRole('button', { name: 'Delete object' }).click()
+  await expect(page.getByRole('button', { name: 'Delete object' })).toHaveCount(0)
+})
+
 test('configures an enhanced safety scene', async ({ page }) => {
   await page.goto('/')
 
@@ -168,5 +255,5 @@ test('opens the grid-based scene template designer', async ({ page }) => {
 
   await expect(page.getByRole('region', { name: 'Scene template designer' })).toBeVisible()
   await expect(page.getByLabel('10 foot scene design grid')).toBeVisible()
-  await expect(page.getByLabel('Signboard')).toHaveValue('left-arrow')
+  await expect(page.getByLabel('Designer signboard')).toHaveValue('left-arrow')
 })

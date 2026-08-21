@@ -4,6 +4,7 @@ import {
   Download,
   Grid3X3,
   MousePointer2,
+  Plus,
   RectangleHorizontal,
   Save,
   Square,
@@ -12,6 +13,14 @@ import {
   Waypoints,
   X,
 } from 'lucide-react'
+import {
+  EQUIPMENT_CATALOG,
+  canDeploy,
+  equipmentDefinition,
+  sceneCounts,
+  type DeployedEquipment,
+  type ToolkitCategory,
+} from '../domain/equipmentCatalog'
 import {
   createRightLaneTemplate,
   snapToGrid,
@@ -22,6 +31,7 @@ import {
   type SignboardPattern,
   type Vector2,
 } from '../domain/sceneTemplate'
+import { SceneEquipmentGlyph } from './SceneEquipmentGlyph'
 import './SceneDesigner.css'
 
 type DesignerTool = 'select' | 'line' | 'cone' | EquipmentShape
@@ -74,6 +84,21 @@ function equipmentDefaults(shape: DesignerTool, position: Vector2): EquipmentPri
   }
 }
 
+function catalogEquipmentDefaults(definitionId: string, position: Vector2): EquipmentPrimitive {
+  const definition = equipmentDefinition(definitionId)
+  return {
+    id: `${definitionId}-${crypto.randomUUID()}`,
+    catalogId: definition.id,
+    label: definition.label,
+    shape: definition.glyph === 'cone' || definition.glyph === 'flare' ? 'circle' : 'rectangle',
+    position,
+    size: { x: definition.width, y: definition.length },
+    rotation: 0,
+    color: definition.color,
+    signboard: definition.id === 'ssp-truck' ? 'double-diamonds' : undefined,
+  }
+}
+
 export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
   const [template, setTemplate] = useState(createRightLaneTemplate)
   const [tool, setTool] = useState<DesignerTool>('select')
@@ -81,7 +106,13 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
   const [lineStart, setLineStart] = useState<Vector2 | null>(null)
   const [selectedId, setSelectedId] = useState<string>('ssp-truck')
   const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [activeToolkit, setActiveToolkit] = useState<ToolkitCategory>('asset')
+  const [placementDefinitionId, setPlacementDefinitionId] = useState<string | null>(null)
   const selected = template.equipment.find((item) => item.id === selectedId)
+  const catalogEquipment: DeployedEquipment[] = template.equipment
+    .filter((item): item is EquipmentPrimitive & { catalogId: string } => Boolean(item.catalogId))
+    .map((item) => ({ id: item.id, definitionId: item.catalogId, x: item.position.x, y: item.position.y, rotation: item.rotation }))
+  const counts = sceneCounts(catalogEquipment, 0, 0)
 
   function eventPoint(event: React.PointerEvent<SVGSVGElement>): Vector2 {
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -101,8 +132,17 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
   }
 
   function handleCanvasPointerDown(event: React.PointerEvent<SVGSVGElement>) {
-    if (event.target !== event.currentTarget && tool === 'select') return
+    if (event.target !== event.currentTarget && tool === 'select' && !placementDefinitionId) return
     const point = eventPoint(event)
+
+    if (placementDefinitionId) {
+      const equipment = catalogEquipmentDefaults(placementDefinitionId, point)
+      setTemplate((current) => ({ ...current, equipment: [...current.equipment, equipment] }))
+      setSelectedId(equipment.id)
+      setPlacementDefinitionId(null)
+      setTool('select')
+      return
+    }
 
     if (tool === 'line') {
       if (!lineStart) {
@@ -163,7 +203,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
       <div className="designer-body">
         <nav className="designer-tools" aria-label="Drawing tools">
           {tools.map(({ id, label, icon: Icon }) => (
-            <button className={tool === id ? 'active' : ''} type="button" title={label} key={id} onClick={() => { setTool(id); setLineStart(null) }}>
+            <button className={tool === id && !placementDefinitionId ? 'active' : ''} type="button" title={label} key={id} onClick={() => { setTool(id); setPlacementDefinitionId(null); setLineStart(null) }}>
               <Icon size={17} /><span>{label}</span>
             </button>
           ))}
@@ -179,6 +219,13 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
               <small>{lineStart ? 'Select end point' : 'Select start point'}</small>
             </label>
           )}
+          <section className="designer-toolkit" aria-label="Designer equipment toolkit">
+            <div role="tablist" aria-label="Designer toolkit"><button type="button" role="tab" aria-selected={activeToolkit === 'asset'} onClick={() => setActiveToolkit('asset')}>Assets</button><button type="button" role="tab" aria-selected={activeToolkit === 'hazard'} onClick={() => setActiveToolkit('hazard')}>Hazards</button></div>
+            <div>{EQUIPMENT_CATALOG.filter((definition) => definition.category === activeToolkit).map((definition) => {
+              const available = canDeploy(definition.id, catalogEquipment, 0)
+              return <button className={placementDefinitionId === definition.id ? 'active' : ''} type="button" disabled={!available} title={definition.label} key={definition.id} onClick={() => { setPlacementDefinitionId(definition.id); setTool('select'); setLineStart(null) }}><span style={{ background: definition.color }} /><b>{definition.label}</b><Plus size={12} /></button>
+            })}</div>
+          </section>
         </nav>
 
         <div className="designer-canvas-wrap">
@@ -219,6 +266,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
                   if (tool === 'select') setDraggingId(item.id)
                 }}
               >
+                {item.catalogId ? <SceneEquipmentGlyph definition={equipmentDefinition(item.catalogId)} /> : <>
                 {item.shape === 'circle' && <circle r={item.size.x / 2} fill={item.color} />}
                 {item.shape === 'square' && <rect x={-item.size.x / 2} y={-item.size.y / 2} width={item.size.x} height={item.size.y} fill={item.color} />}
                 {item.shape === 'rectangle' && <rect x={-item.size.x / 2} y={-item.size.y / 2} width={item.size.x} height={item.size.y} fill={item.color} />}
@@ -230,6 +278,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
                     {item.signboard && <path className="designer-sign-symbol" d={signboardPaths[item.signboard]} transform={`translate(0 ${item.size.y / 2 - 8.5}) scale(.75)`} />}
                   </g>
                 )}
+                </>}
                 <rect className="equipment-selection" x={-item.size.x / 2 - 4} y={-item.size.y / 2 - 4} width={item.size.x + 8} height={item.size.y + 8} />
               </g>
             ))}
@@ -239,6 +288,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
 
         <aside className="designer-inspector">
           <div className="inspector-heading"><span>Properties</span><b>{selected ? 'OBJECT' : 'SCENE'}</b></div>
+          <div className="designer-counts"><span>Vehicles <b>{counts.vehicles}</b></span><span>Cones <b>{counts.cones}</b></span><span>Personnel <b>{counts.personnel}</b></span><span>Hazards <b>{counts.hazards}</b></span></div>
           {selected ? (
             <>
               <label>Label<input value={selected.label} onChange={(event) => updateEquipment(selected.id, { label: event.target.value })} /></label>
@@ -249,7 +299,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
                 <label>Length<input type="number" step="10" value={selected.size.y} onChange={(event) => updateEquipment(selected.id, { size: { ...selected.size, y: Number(event.target.value) } })} /></label>
               </div>
               <label>Rotation<select value={selected.rotation} onChange={(event) => updateEquipment(selected.id, { rotation: Number(event.target.value) })}><option value="0">0°</option><option value="15">15°</option><option value="30">30°</option><option value="45">45°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
-              {selected.shape === 'truck' && <label>Signboard<select value={selected.signboard} onChange={(event) => updateEquipment(selected.id, { signboard: event.target.value as SignboardPattern })}><option value="left-arrow">Left arrow</option><option value="split-arrow">Split arrow</option><option value="right-arrow">Right arrow</option><option value="double-diamonds">Double diamonds</option></select></label>}
+              {selected.shape === 'truck' && <label>Signboard<select aria-label="Designer signboard" value={selected.signboard} onChange={(event) => updateEquipment(selected.id, { signboard: event.target.value as SignboardPattern })}><option value="left-arrow">Left arrow</option><option value="split-arrow">Split arrow</option><option value="right-arrow">Right arrow</option><option value="double-diamonds">Double diamonds</option></select></label>}
               <label>Color<input className="color-input" type="color" value={selected.color} onChange={(event) => updateEquipment(selected.id, { color: event.target.value })} /></label>
               <button className="delete-object" type="button" onClick={() => { setTemplate((current) => ({ ...current, equipment: current.equipment.filter((item) => item.id !== selected.id) })); setSelectedId('') }}>Delete object</button>
             </>

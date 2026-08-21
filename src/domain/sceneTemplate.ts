@@ -21,6 +21,7 @@ export interface RoadLine {
 
 export interface EquipmentPrimitive {
   id: string
+  catalogId?: string
   label: string
   shape: EquipmentShape
   position: Vector2
@@ -150,6 +151,7 @@ export function createRightLaneTemplate(): SceneTemplateDocument {
     equipment: [
       {
         id: 'ssp-truck',
+        catalogId: 'ssp-truck',
         label: 'SSP truck',
         shape: 'truck',
         position: { x: 380, y: 260 },
@@ -160,6 +162,7 @@ export function createRightLaneTemplate(): SceneTemplateDocument {
       },
       ...cones.map((position, index): EquipmentPrimitive => ({
         id: index === 0 ? 'anchor-cone' : `cone-${index + 1}`,
+        catalogId: 'cone',
         label: index === 0 ? 'Anchor cone' : index < 8 ? 'Upstream cone' : 'Downstream cone',
         shape: 'circle',
         position,

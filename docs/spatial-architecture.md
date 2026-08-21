@@ -1,5 +1,13 @@
 # Spatial architecture
 
+## Scene equipment catalog
+
+Assets and hazards are defined centrally in `src/domain/equipmentCatalog.ts`. Both the map scene and grid designer derive their toolkit groups, labels, dimensions, colors, limits, capacity rules, and scene counters from that catalog. A deployed object stores only its catalog identifier and scene transform, keeping scene documents compact and allowing catalog presentation to evolve independently.
+
+To add an item that uses an existing glyph, add one `EquipmentDefinition` record. To introduce a new silhouette, add the catalog record and one case to `SceneEquipmentGlyph`. Do not add item-specific conditions to `App` or `SceneDesigner`; those surfaces should remain consumers of catalog metadata.
+
+Capacity rules are declared with `limit` for fixed incident caps or `capacity` for inventory supplied by another vehicle class. Extend the capacity source union and the `sourceCounts` map only when introducing a genuinely new supplier relationship.
+
 ## Authority and ownership
 
 The locally stored Northern Virginia `.osm.pbf` is the runtime roadway source of truth. QGIS is an authoring and validation environment; it does not replace OSM identifiers or silently mutate the PBF. Supplemental geometry must retain its source and revision metadata.

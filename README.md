@@ -1,18 +1,47 @@
-# Magnus
+# Magnus 3.0.0
 
-Magnus is a visual scene builder for Virginia Department of Transportation Safety Service Patrol training. It combines open highway geometry with an interactive canvas for teaching and evaluating safe incident setups.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 3.0.0 combines live or preview roadway geometry, SOP evaluation, multi-agency scene resources, hazard modeling, and reusable template authoring in one application.
 
-## Current milestone
+## Version 3.0.0
 
-The first development slice includes:
+This release includes:
 
 - Responsive three-pane scene builder for desktop, tablet, and mobile
 - Standard shoulder and single right-lane closure templates
 - Standard SOP, Enhanced Safety, and SOP Violation training modes
-- Draggable cone placement outside strict Gospel mode
+- Draggable cones, SSP trucks, responder assets, personnel, and hazards
+- Per-truck signboard controls with eight arrow and message states
+- Expandable Assets and Hazards catalogs shared by the map view and 10 ft grid designer
+- Vehicle-supplied equipment limits and live vehicle, cone, personnel, and hazard counts
+- Selection, rotation, movement, and explicit deletion for deployed scene objects
+- Local scenario persistence through **Save scenario**, with complete scene reset support
 - Live SOP audit, scene metrics, and timestamped communications log
-- Unit-tested rules for cone placement, spacing, and shoulder access
 - Highway, direction, and mile-marker/exit location requests in the configuration pane
+- Single-process production launch serving the UI and spatial API from Rust
+
+## Launch
+
+Requires Node.js 20 or newer and a current Rust toolchain.
+
+Install dependencies once:
+
+```bash
+npm install
+```
+
+For active development with Vite hot reload:
+
+```bash
+npm run dev
+```
+
+For a production-style local launch from one process:
+
+```bash
+npm start
+```
+
+Open `http://127.0.0.1:8787`. In VS Code, `Ctrl+Shift+B` exposes equivalent development and production launch tasks.
 
 ## Single right-lane closure rules
 
@@ -40,16 +69,11 @@ Open **Scene design tool** from the left configuration pane to author MUTCD/VDOT
 
 Template coordinates use feet, an upper-left origin, and a bottom-to-top traffic vector so upstream appears at the bottom of every diagram. The seeded single right-lane template records the FHWA MUTCD as a public reference and marks the VDOT SSP procedure as an agency-controlled source requiring revision verification before approval.
 
-## Development
+## Development and validation
 
-Requires Node.js 20 or newer.
+The development command starts both the Rust spatial API and Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately. The left-pane service indicator reports whether live spatial resolution is connected; clearly labeled development-preview geometry remains available when it is not.
 
-```bash
-npm install
-npm run dev
-```
-
-The development command starts both the Rust spatial API and the Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately.
+To produce the optimized server binary and frontend assets without launching them, run `npm run build:release`. Keep the generated `dist/` directory beside the repository when running `target/release/spatial_server`, or set `MAGNUS_WEB_DIR` to its location.
 
 Quality checks:
 
@@ -57,6 +81,7 @@ Quality checks:
 npm run lint
 npm test
 npm run build
+cargo test --workspace
 ```
 
 ### Browser tests
@@ -81,7 +106,7 @@ ESLint uses TypeScript's project service with type-aware recommended and stylist
 
 The frontend now renders roadway features through an IPC-safe `RoadScene` vector contract rather than generating pavement directly in React. The standalone Rust spatial core streams OSM PBF data, extracts roadway tags and structural layers, serializes matching DTOs, and indexes features with `rstar`. See [docs/spatial-architecture.md](docs/spatial-architecture.md) for the NoVA PBF and QGIS workflow.
 
-The current on-screen roadway is explicitly identified as a development fixture until a local NoVA extract is prepared. It must not be treated as actual roadway geometry.
+Fallback roadway geometry is explicitly identified as a development fixture. It must not be treated as actual roadway geometry.
 
 ### Live location resolution
 

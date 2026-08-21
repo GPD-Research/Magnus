@@ -13,6 +13,7 @@ import {
   PencilRuler,
   Plus,
   Radio,
+  RefreshCw,
   RotateCcw,
   ShieldCheck,
   TrafficCone,
@@ -21,6 +22,17 @@ import {
 import './App.css'
 import { RoadwayLayer } from './components/RoadwayLayer'
 import { SceneDesigner } from './components/SceneDesigner'
+import { SceneEquipmentGlyph } from './components/SceneEquipmentGlyph'
+import {
+  EQUIPMENT_CATALOG,
+  canDeploy,
+  deployedCount,
+  deploymentLimit,
+  equipmentDefinition,
+  sceneCounts,
+  type DeployedEquipment,
+  type ToolkitCategory,
+} from './domain/equipmentCatalog'
 import {
   createDevelopmentRoadScene,
   type RoadScene,
@@ -46,6 +58,15 @@ import {
   clampSceneZoom,
   clientToScenePoint,
 } from './domain/sceneCamera'
+import {
+  MAX_SSP_TRUCKS,
+  SIGNBOARD_OPTIONS,
+  addSspTruck,
+  createSspTrucks,
+  signboardLabel,
+  updateTruckSignboard,
+  type SignboardMessage,
+} from './domain/signboard'
 import type { SceneTemplateDocument } from './domain/sceneTemplate'
 import {
   RIGHT_LANE_STANDARD,
@@ -69,7 +90,76 @@ const scenarios: { id: ScenarioType; label: string }[] = [
   { id: 'right-lane', label: 'Right lane closure' },
 ]
 
+type SpatialServiceStatus = 'checking' | 'connected' | 'unavailable'
+type SaveStatus = 'idle' | 'saved'
+
+interface SavedScenario {
+  version: 1
+  scenario: ScenarioType
+  mode: ComplianceMode
+  laneCount: number
+  points: ScenePoint[]
+  trucks: ReturnType<typeof createSspTrucks>
+  deployedEquipment: DeployedEquipment[]
+  radioEvents: { time: string; text: string; channel: string }[]
+}
+
+function loadSavedScenario(): SavedScenario | null {
+  try {
+    const stored = localStorage.getItem('magnus.scenario')
+    if (!stored) return null
+    const parsed: unknown = JSON.parse(stored)
+    if (!parsed || typeof parsed !== 'object' || !('version' in parsed) || parsed.version !== 1) return null
+    const scenario = parsed as Partial<SavedScenario>
+    return scenario.scenario && scenario.mode && typeof scenario.laneCount === 'number'
+      && Array.isArray(scenario.points) && Array.isArray(scenario.trucks)
+      && Array.isArray(scenario.deployedEquipment) && Array.isArray(scenario.radioEvents)
+      ? scenario as SavedScenario
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function probeSpatialService(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/health')
+    if (!response.ok) return false
+    const health: unknown = await response.json()
+    return Boolean(health && typeof health === 'object' && 'status' in health && health.status === 'ok')
+  } catch {
+    return false
+  }
+}
+
+const signboardSymbolPaths: Partial<Record<SignboardMessage, string>> = {
+  'left-arrow': 'M 22 0 H -22 M -22 0 L -10 -8 M -22 0 L -10 8',
+  'right-arrow': 'M -22 0 H 22 M 22 0 L 10 -8 M 22 0 L 10 8',
+  'split-arrow': 'M 0 8 V -5 M 0 -3 L -16 -9 M 0 -3 L 16 -9',
+  'double-diamonds': 'M -25 0 L -16 -9 L -7 0 L -16 9 Z M 7 0 L 16 -9 L 25 0 L 16 9 Z',
+}
+
+const signboardCopy: Partial<Record<SignboardMessage, [string, string]>> = {
+  'ramp-blocked': ['RAMP', 'BLOCKED'],
+  'slow-roll-do-not-pass': ['SLOW ROLL', 'DO NOT PASS'],
+  'incident-ahead': ['INCIDENT', 'AHEAD'],
+  'high-water': ['HIGH', 'WATER'],
+}
+
+function SignboardGraphic({ message }: { message: SignboardMessage }) {
+  const symbolPath = signboardSymbolPaths[message]
+  const copy = signboardCopy[message]
+  return (
+    <>
+      <rect className="signboard" x="-40" y="-12" width="80" height="24" />
+      {symbolPath && <path className="signboard-symbol" d={symbolPath} />}
+      {copy && <text className="signboard-copy" textAnchor="middle"><tspan x="0" y="-2">{copy[0]}</tspan><tspan x="0" y="8">{copy[1]}</tspan></text>}
+    </>
+  )
+}
+
 function App() {
+  const [savedScenario] = useState(loadSavedScenario)
   const [roadScene, setRoadScene] = useState<RoadScene>(createDevelopmentRoadScene)
   const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>({
     highway: 'I-95',
@@ -82,14 +172,23 @@ function App() {
   const [locationLoading, setLocationLoading] = useState(false)
   const [sectionSelectionEnabled, setSectionSelectionEnabled] = useState(false)
   const [selectedRoadSectionId, setSelectedRoadSectionId] = useState<string | null>(null)
-  const [scenario, setScenario] = useState<ScenarioType>('right-lane')
-  const [mode, setMode] = useState<ComplianceMode>('gospel')
-  const [laneCount, setLaneCount] = useState(3)
-  const [points, setPoints] = useState<ScenePoint[]>(() => createScene('right-lane'))
+  const [scenario, setScenario] = useState<ScenarioType>(savedScenario?.scenario ?? 'right-lane')
+  const [mode, setMode] = useState<ComplianceMode>(savedScenario?.mode ?? 'gospel')
+  const [laneCount, setLaneCount] = useState(savedScenario?.laneCount ?? 3)
+  const [points, setPoints] = useState<ScenePoint[]>(() => savedScenario?.points ?? createScene('right-lane'))
+  const [trucks, setTrucks] = useState(() => savedScenario?.trucks ?? createSspTrucks())
+  const [selectedTruckId, setSelectedTruckId] = useState('ssp-truck-1')
+  const [draggingTruckId, setDraggingTruckId] = useState<string | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
+  const [deployedEquipment, setDeployedEquipment] = useState<DeployedEquipment[]>(savedScenario?.deployedEquipment ?? [])
+  const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null)
+  const [draggingEquipmentId, setDraggingEquipmentId] = useState<string | null>(null)
+  const [activeToolkit, setActiveToolkit] = useState<ToolkitCategory>('asset')
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [sceneZoom, setSceneZoom] = useState(1)
   const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
   const [designerOpen, setDesignerOpen] = useState(false)
+  const [spatialServiceStatus, setSpatialServiceStatus] = useState<SpatialServiceStatus>('checking')
   const roadStageRef = useRef<HTMLDivElement>(null)
   const pinchPointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null)
@@ -98,9 +197,7 @@ function App() {
     barriers: true,
     trafficFlow: true,
   })
-  const [radioEvents, setRadioEvents] = useState([
-    { time: '14:32', text: 'Unit 214 on scene, right lane blocked', channel: 'TOC' },
-  ])
+  const [radioEvents, setRadioEvents] = useState(savedScenario?.radioEvents ?? [])
 
   const audit = auditScene(scenario, mode, points)
   const upstreamCount = points.filter((point) => point.role !== 'perimeter').length
@@ -129,6 +226,13 @@ function App() {
   const equipmentTransform = selectedSectionTransform
     ? `translate(${selectedSectionTransform.x} ${selectedSectionTransform.y}) rotate(${selectedSectionTransform.rotation}) translate(${-RIGHT_LANE_STANDARD.truck.x} ${-RIGHT_LANE_STANDARD.truck.y})`
     : undefined
+  const selectedTruck = trucks.find((truck) => truck.id === selectedTruckId) ?? trucks[0]
+  const selectedEquipment = deployedEquipment.find((item) => item.id === selectedEquipmentId)
+  const selectedEquipmentDefinition = selectedEquipment
+    ? equipmentDefinition(selectedEquipment.definitionId)
+    : null
+  const deployedCounts = sceneCounts(deployedEquipment, trucks.length, points.length)
+  const catalogBaselineCounts = { cone: points.length, 'ssp-truck': trucks.length }
 
   useEffect(() => {
     const stage = roadStageRef.current
@@ -156,24 +260,123 @@ function App() {
     return () => cancelAnimationFrame(frame)
   }, [roadScene, sceneZoom])
 
+  useEffect(() => {
+    let active = true
+    void probeSpatialService().then((available) => {
+      if (active) setSpatialServiceStatus(available ? 'connected' : 'unavailable')
+    })
+    return () => { active = false }
+  }, [])
+
+  async function retrySpatialService() {
+    setSpatialServiceStatus('checking')
+    const available = await probeSpatialService()
+    setSpatialServiceStatus(available ? 'connected' : 'unavailable')
+  }
+
   function changeScenario(nextScenario: ScenarioType) {
     setScenario(nextScenario)
     setPoints(createScene(nextScenario))
   }
 
+  function resetScenario() {
+    setPoints(createScene(scenario))
+    setTrucks(createSspTrucks())
+    setSelectedTruckId('ssp-truck-1')
+    setDeployedEquipment([])
+    setSelectedEquipmentId(null)
+    setRadioEvents([])
+    setSaveStatus('idle')
+    localStorage.removeItem('magnus.scenario')
+  }
+
+  function saveScenario() {
+    const saved: SavedScenario = {
+      version: 1,
+      scenario,
+      mode,
+      laneCount,
+      points,
+      trucks,
+      deployedEquipment,
+      radioEvents,
+    }
+    localStorage.setItem('magnus.scenario', JSON.stringify(saved))
+    setSaveStatus('saved')
+  }
+
+  function addTruck() {
+    const nextTrucks = addSspTruck(trucks)
+    setTrucks(nextTrucks)
+    setSelectedTruckId(nextTrucks.at(-1)?.id ?? selectedTruckId)
+  }
+
+  function removeSelectedTruck() {
+    if (trucks.length === 1) return
+    const nextTrucks = trucks.filter((truck) => truck.id !== selectedTruckId)
+    setTrucks(nextTrucks)
+    setSelectedTruckId(nextTrucks[0].id)
+  }
+
+  function setSelectedTruckSignboard(signboard: SignboardMessage) {
+    setTrucks((current) => updateTruckSignboard(current, selectedTruck.id, signboard))
+  }
+
+  function deployCatalogItem(definitionId: string) {
+    if (definitionId === 'ssp-truck') {
+      addTruck()
+      return
+    }
+    if (!canDeploy(definitionId, deployedEquipment, trucks.length, catalogBaselineCounts)) return
+    const sequence = deployedEquipment.length
+    const definition = equipmentDefinition(definitionId)
+    const equipment: DeployedEquipment = {
+      id: `${definitionId}-${crypto.randomUUID()}`,
+      definitionId,
+      x: Math.max(definition.width / 2 + 2, Math.min(roadScene.viewport.width - definition.width / 2 - 2, 18 + (sequence % 4) * 14)),
+      y: 330 + (sequence % 8) * 42,
+      rotation: 0,
+    }
+    setDeployedEquipment((current) => [...current, equipment])
+    setSelectedEquipmentId(equipment.id)
+  }
+
+  function updateDeployedEquipment(id: string, updates: Partial<DeployedEquipment>) {
+    setDeployedEquipment((current) => current.map((item) => item.id === id ? { ...item, ...updates } : item))
+  }
+
+  function deleteSelectedEquipment() {
+    if (!selectedEquipment) return
+    setDeployedEquipment((current) => current.filter((item) => item.id !== selectedEquipment.id))
+    setSelectedEquipmentId(null)
+  }
+
   function moveCone(event: React.PointerEvent<SVGSVGElement>) {
-    if (!dragging || mode === 'gospel') return
+    if ((!dragging || mode === 'gospel') && !draggingEquipmentId && !draggingTruckId) return
     const bounds = event.currentTarget.getBoundingClientRect()
     const scenePoint = clientToScenePoint(
       { x: event.clientX, y: event.clientY },
       bounds,
       sceneViewBox,
     )
-    const x = Math.max(6, Math.min(roadScene.viewport.width - 6, scenePoint.x))
-    const y = Math.max(30, Math.min(roadScene.viewport.height - 30, scenePoint.y))
-    setPoints((current) =>
-      current.map((point) => (point.id === dragging ? { ...point, x, y } : point)),
-    )
+    if (dragging && mode !== 'gospel') {
+      const x = Math.max(6, Math.min(roadScene.viewport.width - 6, scenePoint.x))
+      const y = Math.max(30, Math.min(roadScene.viewport.height - 30, scenePoint.y))
+      setPoints((current) => current.map((point) => (point.id === dragging ? { ...point, x, y } : point)))
+    }
+    if (draggingEquipmentId) {
+      const item = deployedEquipment.find((equipment) => equipment.id === draggingEquipmentId)
+      if (!item) return
+      const definition = equipmentDefinition(item.definitionId)
+      const x = Math.max(definition.width / 2, Math.min(roadScene.viewport.width - definition.width / 2, scenePoint.x))
+      const y = Math.max(definition.length / 2, Math.min(roadScene.viewport.height - definition.length / 2, scenePoint.y))
+      updateDeployedEquipment(item.id, { x, y })
+    }
+    if (draggingTruckId) {
+      const x = Math.max(RIGHT_LANE_STANDARD.truck.width / 2, Math.min(roadScene.viewport.width - RIGHT_LANE_STANDARD.truck.width / 2, scenePoint.x))
+      const y = Math.max(RIGHT_LANE_STANDARD.truck.halfLength, Math.min(roadScene.viewport.height - RIGHT_LANE_STANDARD.truck.halfLength, scenePoint.y))
+      setTrucks((current) => current.map((truck) => truck.id === draggingTruckId ? { ...truck, x, y } : truck))
+    }
   }
 
   function addRadioEvent() {
@@ -265,16 +468,21 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand-mark" aria-hidden="true"><span>M</span></div>
+        <div className="brand-mark" aria-label={`Magnus version ${__APP_VERSION__}`}><span aria-hidden="true">M</span></div>
         <div className="brand-copy"><strong>MAGNUS</strong><span>SSP Scene Builder</span></div>
-        <div className="session-status"><span className="live-dot" />Training session <b>24-081</b></div>
-        <button className="icon-button" type="button" title="Reset scene" onClick={() => setPoints(createScene(scenario))}><RotateCcw size={18} /></button>
-        <button className="primary-button" type="button"><Check size={17} /> Save scenario</button>
+        <div className="session-status"><span className="live-dot" />Magnus <b>v{__APP_VERSION__}</b></div>
+        <button className="icon-button" type="button" title="Reset scene" onClick={resetScenario}><RotateCcw size={18} /></button>
+        <button className="primary-button" type="button" onClick={saveScenario}><Check size={17} /> {saveStatus === 'saved' ? 'Scenario saved' : 'Save scenario'}</button>
       </header>
 
       <section className="workspace">
         <aside className="panel config-panel" aria-label="Scenario configuration">
           <div className="panel-heading"><span>01</span><div><p>Configuration</p><h2>Build the scene</h2></div></div>
+          <div className={`spatial-service-status ${spatialServiceStatus}`} role="status" aria-live="polite">
+            <span className="service-indicator" aria-hidden="true" />
+            <div><b>Spatial service</b><small>{spatialServiceStatus === 'connected' ? 'Connected' : spatialServiceStatus === 'checking' ? 'Checking connection' : 'Development preview available'}</small></div>
+            {spatialServiceStatus === 'unavailable' && <button type="button" title="Retry spatial service connection" aria-label="Retry spatial service connection" onClick={() => { void retrySpatialService() }}><RefreshCw size={14} /></button>}
+          </div>
           <div className="template-designer-launch">
             <button type="button" onClick={() => setDesignerOpen(true)}><PencilRuler size={16} /><span><b>Scene design tool</b><small>Author vector SOP templates</small></span></button>
           </div>
@@ -337,7 +545,19 @@ function App() {
             <label className="toggle-row"><span><span className="barrier-symbol" /> Barriers</span><input type="checkbox" checked={roadLayerVisibility.barriers} onChange={(event) => setRoadLayerVisibilityValue('barriers', event.target.checked)} /></label>
             <label className="toggle-row"><span><span className="flow-symbol">→</span> Traffic flow</span><input type="checkbox" checked={roadLayerVisibility.trafficFlow} onChange={(event) => setRoadLayerVisibilityValue('trafficFlow', event.target.checked)} /></label>
           </div>
-          <div className="asset-inventory"><div><span>Available assets</span><b>{points.length + 3}</b></div><div className="asset-icons"><span><Truck size={19} /> 1</span><span><TrafficCone size={19} /> {points.length}</span><span><Radio size={18} /> 2</span></div></div>
+          <section className="scene-toolkit" aria-label="Scene equipment toolkit">
+            <div className="toolkit-tabs" role="tablist" aria-label="Equipment toolkit">
+              <button type="button" role="tab" aria-selected={activeToolkit === 'asset'} onClick={() => setActiveToolkit('asset')}>Assets</button>
+              <button type="button" role="tab" aria-selected={activeToolkit === 'hazard'} onClick={() => setActiveToolkit('hazard')}>Hazards</button>
+            </div>
+            <div className="toolkit-list">{EQUIPMENT_CATALOG.filter((definition) => definition.category === activeToolkit).map((definition) => {
+              const currentCount = deployedCount(definition.id, deployedEquipment, catalogBaselineCounts)
+              const limit = definition.id === 'ssp-truck' ? MAX_SSP_TRUCKS : deploymentLimit(definition, deployedEquipment, trucks.length)
+              const available = definition.id === 'ssp-truck' ? trucks.length < MAX_SSP_TRUCKS : canDeploy(definition.id, deployedEquipment, trucks.length, catalogBaselineCounts)
+              return <button type="button" key={definition.id} disabled={!available} onClick={() => deployCatalogItem(definition.id)}><span className="toolkit-swatch" style={{ background: definition.color }} /><span>{definition.label}</span><small>{currentCount}{Number.isFinite(limit) ? ` / ${limit}` : ''}</small><Plus size={13} /></button>
+            })}</div>
+          </section>
+          <div className="asset-inventory"><div><span>Available assets</span><b>{points.length + trucks.length + 2}</b></div><div className="asset-icons"><span><Truck size={19} /> {trucks.length}</span><span><TrafficCone size={19} /> {points.length}</span><span><Radio size={18} /> 2</span></div></div>
         </aside>
 
         <section className="canvas-panel" aria-label="Interactive scene canvas">
@@ -349,7 +569,7 @@ function App() {
           </div>
           <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom} onPointerDown={startScenePointer} onPointerMove={moveScenePointer} onPointerUp={endScenePointer} onPointerCancel={endScenePointer} onWheel={zoomSceneWithTrackpad}>
             <div className="road-canvas-surface" style={sceneCanvasSize}>
-            <svg className="road-canvas" viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-zoom={sceneZoom} onPointerMove={moveCone} onPointerUp={() => setDragging(null)} onPointerLeave={() => setDragging(null)}>
+            <svg className="road-canvas" viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-zoom={sceneZoom} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null) }}>
               <RoadwayLayer
                 scene={roadScene}
                 visibility={roadLayerVisibility}
@@ -361,11 +581,20 @@ function App() {
                 }}
               />
               <g className={`scene-equipment${sectionSelectionEnabled ? ' selection-paused' : ''}`} transform={equipmentTransform}>
-              <g
-                className="ssp-truck"
-                data-width-feet={RIGHT_LANE_STANDARD.truck.width}
+              {trucks.map((truck) => <g
+                aria-label={`${truck.label}, signboard ${signboardLabel(truck.signboard)}`}
+                className={`ssp-truck${truck.id === selectedTruck.id ? ' selected' : ''}`}
                 data-length-feet={RIGHT_LANE_STANDARD.truck.length}
-                transform={`translate(${scenario === 'right-lane' ? RIGHT_LANE_STANDARD.truck.x : 60} ${RIGHT_LANE_STANDARD.truck.y})`}
+                data-signboard={truck.signboard}
+                data-truck-id={truck.id}
+                data-width-feet={RIGHT_LANE_STANDARD.truck.width}
+                key={truck.id}
+                onClick={(event) => { event.stopPropagation(); setSelectedTruckId(truck.id) }}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedTruckId(truck.id) }}
+                onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setSelectedTruckId(truck.id); setDraggingTruckId(truck.id) }}
+                role="button"
+                tabIndex={0}
+                transform={`translate(${scenario === 'right-lane' ? truck.x : truck.x + 12} ${truck.y})`}
               >
                 <rect className="truck-body" x="-4.25" y="-12" width="8.5" height="24" />
                 <path className="truck-panel-line" d="M -4.25 -1 H 4.25 M -4.25 -7 H 4.25 M -3 -7 V -1 M 3 -7 V -1" />
@@ -374,9 +603,8 @@ function App() {
                 <rect className="truck-lightbar" x="-4.5" y="-1" width="9" height="1.4" />
                 <rect className="strobe" x="-4" y="-11" width="0.8" height="0.8" />
                 <rect className="strobe delayed" x="3.2" y="-11" width="0.8" height="0.8" />
-                <rect className="signboard" x="-4" y="9" width="8" height="2.2" />
-                <path className="signboard-symbol" d={scenario === 'right-lane' ? 'M 2.4 10.1 H -2.2 M -2.2 10.1 L -1 9.4 M -2.2 10.1 L -1 10.8' : 'M -3 9.5 L -1.7 10.7 L -.4 9.5 M .6 9.5 L 1.9 10.7 L 3.2 9.5'} />
-              </g>
+                <g transform="translate(0 10) scale(.1)"><SignboardGraphic message={truck.signboard} /></g>
+              </g>)}
               {points.map((point, index) => (
                 <g className={`cone ${mode === 'gospel' ? 'locked' : ''}`} key={point.id} transform={`translate(${point.x} ${point.y})`} onPointerDown={(event) => { if (mode === 'gospel') return; event.currentTarget.setPointerCapture(event.pointerId); setDragging(point.id) }}>
                   <rect className="cone-hit-area" x="-4" y="-4" width="8" height="8" />
@@ -387,6 +615,22 @@ function App() {
                   {index === 1 && <g className="distance-label"><path d="M -18 18 V 54 M 18 18 V 54 M -18 47 H 18" /><text x="-13" y="43">40 FT</text></g>}
                 </g>
               ))}
+              {deployedEquipment.map((item) => {
+                const definition = equipmentDefinition(item.definitionId)
+                return <g
+                  aria-label={definition.label}
+                  className={`deployed-equipment${item.id === selectedEquipmentId ? ' selected' : ''}`}
+                  data-definition-id={definition.id}
+                  key={item.id}
+                  onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setSelectedEquipmentId(item.id); setSelectedTruckId(''); setDraggingEquipmentId(item.id) }}
+                  role="button"
+                  tabIndex={0}
+                  transform={`translate(${item.x} ${item.y}) rotate(${item.rotation})`}
+                >
+                  <SceneEquipmentGlyph definition={definition} />
+                  <rect className="deployed-selection" x={-definition.width / 2 - 2} y={-definition.length / 2 - 2} width={definition.width + 4} height={definition.length + 4} />
+                </g>
+              })}
               </g>
               <g className="north-arrow" transform="translate(10 695)"><path d="M 0 20 V 0 M 0 0 l -3 6 M 0 0 l 3 6" /><text x="-2" y="28">N</text></g>
             </svg>
@@ -397,6 +641,15 @@ function App() {
 
         <aside className="panel audit-panel" aria-label="Compliance and communications">
           <div className="panel-heading"><span>02</span><div><p>Operations</p><h2>Mode & audit</h2></div></div>
+          <section className="scene-resource-counts" aria-label="Scene resource counts"><div><span>Vehicles</span><b>{deployedCounts.vehicles}</b></div><div><span>Cones</span><b>{deployedCounts.cones}</b></div><div><span>Personnel</span><b>{deployedCounts.personnel}</b></div><div><span>Hazards</span><b>{deployedCounts.hazards}</b></div></section>
+          {selectedEquipment && selectedEquipmentDefinition && <section className="equipment-inspector" aria-label="Selected scene item"><div><span>Selected item</span><b>{selectedEquipmentDefinition.label}</b></div><div className="equipment-position"><label>X (ft)<input type="number" value={Math.round(selectedEquipment.x)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { x: Number(event.target.value) })} /></label><label>Y (ft)<input type="number" value={Math.round(selectedEquipment.y)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { y: Number(event.target.value) })} /></label><label>Rotation<select value={selectedEquipment.rotation} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { rotation: Number(event.target.value) })}><option value="0">0°</option><option value="45">45°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label></div><button type="button" onClick={deleteSelectedEquipment}>Delete selected item</button></section>}
+          <section className="signboard-control" aria-label="SSP truck signboard">
+            <div className="signboard-control-heading"><div><span>SSP truck signboard</span><b>{selectedTruck.label}</b></div><small>{trucks.length} / {MAX_SSP_TRUCKS}</small></div>
+            {trucks.length > 1 && <div className="truck-selector" role="tablist" aria-label="SSP trucks">{trucks.map((truck, index) => <button type="button" role="tab" aria-selected={truck.id === selectedTruck.id} key={truck.id} onClick={() => setSelectedTruckId(truck.id)}>{index + 1}</button>)}</div>}
+            <svg className="signboard-output" viewBox="-44 -16 88 32" role="img" aria-label={`${selectedTruck.label} signboard: ${signboardLabel(selectedTruck.signboard)}`}><SignboardGraphic message={selectedTruck.signboard} /></svg>
+            <label htmlFor="signboard-message">Displayed message<select id="signboard-message" aria-label={`Signboard message for ${selectedTruck.label}`} value={selectedTruck.signboard} onChange={(event) => setSelectedTruckSignboard(event.target.value as SignboardMessage)}>{SIGNBOARD_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+            <div className="truck-actions"><button type="button" title="Remove selected SSP truck" disabled={trucks.length === 1} onClick={removeSelectedTruck}><Minus size={14} /> Remove</button><button type="button" title="Add SSP truck" disabled={trucks.length >= MAX_SSP_TRUCKS} onClick={addTruck}><Plus size={14} /> Add truck</button></div>
+          </section>
           <section className="scene-zoom-control" aria-label="Scene view controls">
             <span>Scene zoom</span>
             <div className="zoom-controls" role="group" aria-label="Scene zoom">
