@@ -5,10 +5,21 @@ VIRGINIA_URL="${VIRGINIA_URL:-https://download.geofabrik.de/north-america/us/vir
 RAW_PBF="${RAW_PBF:-data/raw/virginia-latest.osm.pbf}"
 NOVA_PBF="${NOVA_PBF:-data/processed/nova-highways.osm.pbf}"
 NOVA_BBOX="${NOVA_BBOX:--77.55,38.55,-76.95,39.15}"
+REGION="${1:-northern-virginia}"
 
-if ! command -v osmium >/dev/null; then
+if [[ "$REGION" != "northern-virginia" && "$REGION" != "virginia" ]]; then
+  printf 'Usage: %s [northern-virginia|virginia]\n' "$0" >&2
+  exit 2
+fi
+
+if [[ "$REGION" == "northern-virginia" ]] && ! command -v osmium >/dev/null; then
   printf 'osmium-tool is required. Install it before preparing the NoVA extract.\n' >&2
   exit 1
+fi
+
+if [[ "$REGION" == "virginia" ]]; then
+  printf 'Prepared %s\n' "$RAW_PBF"
+  exit 0
 fi
 
 mkdir -p "$(dirname "$RAW_PBF")" "$(dirname "$NOVA_PBF")"

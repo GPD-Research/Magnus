@@ -48,7 +48,17 @@ describe('road location resolution', () => {
 
     expect(result.source).toBe('live-map')
     expect(result.scene.source.type).toBe('osm-pbf')
-    expect(requestedPath).toBe('/api/road-scenes/resolve?highway=I-95&direction=northbound&referenceType=exit&reference=166')
+    expect(requestedPath).toBe('/api/road-scenes/resolve?highway=I-95&direction=northbound&referenceType=exit&reference=166&source=online')
+  })
+
+  it('requests cache-only geometry in offline mode', async () => {
+    let requestedPath = ''
+    await resolveRoadLocation(request, (path) => {
+      requestedPath = path
+      return Promise.reject(new Error('not prepared'))
+    }, 'offline')
+
+    expect(requestedPath).toContain('source=offline')
   })
 
   it('falls back explicitly when compiled geometry is unavailable', async () => {

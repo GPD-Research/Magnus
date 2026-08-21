@@ -1,13 +1,23 @@
-# Magnus 3.0.0
+# Magnus 4.0.0-rc.1
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 3.0.0 combines live or preview roadway geometry, SOP evaluation, multi-agency scene resources, hazard modeling, and reusable template authoring in one application.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 4.0.0-rc.1 adds operator-controlled connectivity, offline preparation, resilient map caching, and locally saved themes to the roadway, SOP, resource, and hazard tools introduced in Version 3.
 
-## Version 3.0.0
+## Version 4 release candidate
 
 This release includes:
 
+- Online, LAN, and Offline map modes selected from the top bar or Settings
+- Cache-only local resolution in LAN and Offline modes, with no public provider attempt
+- Persistent roadway scene cache with provider failover in Online mode
+- In-app preparation and storage status for Northern Virginia and statewide Virginia OSM packages
+- Original light and default dark themes plus three locally saved color-derived custom themes
+- Fixed moss-green roadway field across every theme
+- Settings and connectivity preferences persisted on the local device
+- Improved interchange, ramp, bridge, lane-marking, and half-mile corridor rendering
+- Road-aligned scene placement, traffic-flow bearing, and four-way map compass
+- Vehicle fire and hazmat tanker hazards
 - Responsive three-pane scene builder for desktop, tablet, and mobile
-- Standard shoulder and single right-lane closure templates
+- Eight shoulder, lane, and ramp management templates
 - Standard SOP, Enhanced Safety, and SOP Violation training modes
 - Draggable cones, SSP trucks, responder assets, personnel, and hazards
 - Per-truck signboard controls with eight arrow and message states
@@ -18,6 +28,8 @@ This release includes:
 - Live SOP audit, scene metrics, and timestamped communications log
 - Highway, direction, and mile-marker/exit location requests in the configuration pane
 - Single-process production launch serving the UI and spatial API from Rust
+
+This is a release candidate. Prepared PBF packages are downloaded and inventoried by the app, while arbitrary offline highway/reference lookup still depends on a previously cached `RoadScene`. A cache miss is reported explicitly and never falls through to an internet provider in LAN or Offline mode.
 
 ## Launch
 
@@ -69,9 +81,21 @@ Open **Scene design tool** from the left configuration pane to author MUTCD/VDOT
 
 Template coordinates use feet, an upper-left origin, and a bottom-to-top traffic vector so upstream appears at the bottom of every diagram. The seeded single right-lane template records the FHWA MUTCD as a public reference and marks the VDOT SSP procedure as an agency-controlled source requiring revision verification before approval.
 
+## Connectivity and offline preparation
+
+Use the top-bar selector to choose how Magnus obtains roadway geometry:
+
+- **Online** reads local cached scenes first, then uses the configured Overpass provider pool when needed.
+- **LAN** reads only geometry already available to the Magnus spatial service on the local network.
+- **Offline** reads only geometry cached on the current Magnus device.
+
+Open **Settings** in the top bar to inspect local scene-cache storage or prepare a Northern Virginia highway package or Virginia statewide source package. Preparation requires an internet connection. The Northern Virginia filtered package also requires `osmium-tool` on the device running the spatial service. Packages are stored under `data/`, remain outside Git, and can be refreshed from the same panel.
+
+For dependable field use, open each required corridor in Online mode before disconnecting and confirm its scene appears in the prepared-scene count. Then select Offline mode and resolve the location again. A location not yet cached produces a clearly labeled development preview rather than unverified roadway geometry.
+
 ## Development and validation
 
-The development command starts both the Rust spatial API and Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately. The left-pane service indicator reports whether live spatial resolution is connected; clearly labeled development-preview geometry remains available when it is not.
+The development command starts both the Rust spatial API and Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately. The left-pane service indicator reports whether spatial resolution is connected; clearly labeled development-preview geometry remains available when it is not.
 
 To produce the optimized server binary and frontend assets without launching them, run `npm run build:release`. Keep the generated `dist/` directory beside the repository when running `target/release/spatial_server`, or set `MAGNUS_WEB_DIR` to its location.
 
@@ -108,9 +132,9 @@ The frontend now renders roadway features through an IPC-safe `RoadScene` vector
 
 Fallback roadway geometry is explicitly identified as a development fixture. It must not be treated as actual roadway geometry.
 
-### Live location resolution
+### Road location resolution
 
-The **Roadway location** tool accepts a highway, travel direction, and either a mile marker or exit number. The Rust spatial service converts that request into an Overpass query against actual OpenStreetMap route, motorway-junction, milestone, bridge, tunnel, and layer tags. It returns a bounded feet-based `RoadScene` without maintaining a separate local catalog of locations.
+The **Roadway location** tool accepts a highway, travel direction, and either a mile marker or exit number. In Online mode, the Rust spatial service converts that request into an Overpass query against actual OpenStreetMap route, motorway-junction, milestone, bridge, tunnel, and layer tags. Successful responses are compiled into bounded feet-based `RoadScene` documents and persisted under `target/magnus-road-cache`. LAN and Offline modes use those local documents only.
 
 Run both the API and Vite frontend together during development:
 
@@ -120,8 +144,8 @@ npm run dev
 
 For separate process control, run `npm run dev:spatial` and `npm run dev:web` in different terminals.
 
-Vite proxies `/api` requests to `127.0.0.1:8787`. Set `OVERPASS_URL` to use another compatible Overpass endpoint and `MAGNUS_SPATIAL_ADDR` to change the API listener. If live geometry is unavailable, Magnus displays an explicit development-preview status rather than representing fixture geometry as map data.
+Vite proxies `/api` requests to `127.0.0.1:8787`. Set `OVERPASS_URLS` to a comma-separated compatible provider pool, `OVERPASS_URL` to one provider, `MAGNUS_SPATIAL_ADDR` to change the API listener, or `MAGNUS_ROAD_CACHE_DIR` to relocate cached scenes. If requested geometry is unavailable under the selected connectivity policy, Magnus displays an explicit development-preview status rather than representing fixture geometry as map data.
 
 `I-95 / Northbound / Mile marker 170` is the complex-interchange acceptance case for the Springfield Interchange, commonly called the Mixing Bowl. When a scene contains multiple roadway surfaces, the right-pane **Select section** control lets the operator choose a rendered mainline, ramp, or flyover as the controlled sector. SSP equipment and cones are then aligned to that way's center tangent while retaining feet-based spacing.
 
-The central vector pane supports 50–250% zoom through toolbar controls or the mouse wheel/trackpad. Zoom changes the SVG camera view box, keeping compiled roadway geometry and interactive SSP equipment in the same projected coordinate space. The percentage button and fit control restore the imported scene viewport.
+The central vector pane supports a 320-foot default view down to a 40-foot close view through toolbar controls or a control-wheel/pinch gesture. Ordinary trackpad wheel output pans the scene, and a three-finger direct-touch drag pans on tablets. Zoom keeps compiled roadway geometry and interactive SSP equipment in the same projected coordinate space.

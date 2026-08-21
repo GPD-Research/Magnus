@@ -13,12 +13,12 @@ use axum::{
     Json, Router,
     extract::{Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
 };
 use magnus_spatial_core::{
     Geometry, RoadFeatureKind, RoadLocationRequest, RoadScene, compile_overpass_json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -49,6 +49,46 @@ struct HealthResponse {
     service: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum SceneSourceMode {
+    #[default]
+    Online,
+    Lan,
+    Offline,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResolveRoadSceneQuery {
+    #[serde(flatten)]
+    location: RoadLocationRequest,
+    #[serde(default)]
+    source: SceneSourceMode,
+}
+
+#[derive(Deserialize)]
+struct PrepareOfflineRequest {
+    region: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OfflineRegionStatus {
+    id: &'static str,
+    label: &'static str,
+    installed: bool,
+    bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OfflineStatus {
+    regions: Vec<OfflineRegionStatus>,
+    cached_scenes: usize,
+    cache_bytes: u64,
+}
+
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiError>)>;
 
 #[tokio::main]
@@ -61,7 +101,7 @@ async fn main() -> Result<()> {
         client: reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
-            .user_agent("Magnus SSP Scene Builder/3.0")
+            .user_agent("Magnus SSP Scene Builder/4.0-rc.1")
             .build()?,
         overpass_urls: configured_overpass_urls(),
         scene_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -74,6 +114,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/road-scenes/resolve", get(resolve_road_scene))
+        .route("/api/offline/status", get(offline_status))
+        .route("/api/offline/prepare", post(prepare_offline_region))
         .with_state(state)
         .fallback_service(
             ServeDir::new(web_directory).not_found_service(ServeFile::new(index_file)),
@@ -93,13 +135,15 @@ async fn health() -> Json<HealthResponse> {
 
 async fn resolve_road_scene(
     State(state): State<AppState>,
-    Query(request): Query<RoadLocationRequest>,
+    Query(query): Query<ResolveRoadSceneQuery>,
 ) -> ApiResult<RoadScene> {
+    let source_mode = query.source;
+    let request = query.location;
     request
         .validate()
         .map_err(|message| api_error(StatusCode::BAD_REQUEST, message))?;
-    let query = request.overpass_query();
-    let cache_key = scene_cache_key(&query);
+    let overpass_query = request.overpass_query();
+    let cache_key = scene_cache_key(&overpass_query);
     if let Some(scene) = state.scene_cache.read().await.get(&cache_key).cloned() {
         return Ok(Json(scene));
     }
@@ -111,7 +155,7 @@ async fn resolve_road_scene(
             .insert(cache_key, scene.clone());
         return Ok(Json(scene));
     }
-    if let Some(scene) = read_legacy_cached_scene(&state.cache_directory, &query).await {
+    if let Some(scene) = read_legacy_cached_scene(&state.cache_directory, &overpass_query).await {
         state
             .scene_cache
             .write()
@@ -119,6 +163,13 @@ async fn resolve_road_scene(
             .insert(cache_key.clone(), scene.clone());
         write_cached_scene(&state.cache_directory, &cache_key, &scene).await;
         return Ok(Json(scene));
+    }
+
+    if source_mode != SceneSourceMode::Online {
+        return Err(api_error(
+            StatusCode::PRECONDITION_FAILED,
+            "this location is not prepared for local use; switch to Online or prepare it while connected",
+        ));
     }
 
     let mut failures = Vec::new();
@@ -130,7 +181,7 @@ async fn resolve_road_scene(
         let response = match state
             .client
             .post(overpass_url)
-            .form(&[("data", query.as_str())])
+            .form(&[("data", overpass_query.as_str())])
             .send()
             .await
         {
@@ -175,6 +226,62 @@ async fn resolve_road_scene(
         StatusCode::BAD_GATEWAY,
         &format!("all map providers failed: {}", failures.join("; ")),
     ))
+}
+
+async fn offline_status(State(state): State<AppState>) -> Json<OfflineStatus> {
+    let regions = [
+        ("northern-virginia", "Northern Virginia highways", Path::new("data/processed/nova-highways.osm.pbf")),
+        ("virginia", "Virginia statewide source", Path::new("data/raw/virginia-latest.osm.pbf")),
+    ];
+    let mut statuses = Vec::new();
+    for (id, label, path) in regions {
+        let metadata = tokio::fs::metadata(path).await.ok();
+        statuses.push(OfflineRegionStatus {
+            id,
+            label,
+            installed: metadata.is_some(),
+            bytes: metadata.map_or(0, |value| value.len()),
+        });
+    }
+    let (cached_scenes, cache_bytes) = directory_inventory(&state.cache_directory).await;
+    Json(OfflineStatus { regions: statuses, cached_scenes, cache_bytes })
+}
+
+async fn prepare_offline_region(
+    State(state): State<AppState>,
+    Json(request): Json<PrepareOfflineRequest>,
+) -> Result<Json<OfflineStatus>, (StatusCode, Json<ApiError>)> {
+    if !matches!(request.region.as_str(), "northern-virginia" | "virginia") {
+        return Err(api_error(StatusCode::BAD_REQUEST, "unsupported offline region"));
+    }
+    let output = tokio::process::Command::new("scripts/prepare-nova-data.sh")
+        .arg(&request.region)
+        .output()
+        .await
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("offline preparation could not start: {error}")))?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr);
+        return Err(api_error(StatusCode::BAD_GATEWAY, message.trim()));
+    }
+    Ok(offline_status(State(state)).await)
+}
+
+async fn directory_inventory(directory: &Path) -> (usize, u64) {
+    let Ok(mut entries) = tokio::fs::read_dir(directory).await else {
+        return (0, 0);
+    };
+    let mut count = 0;
+    let mut bytes = 0;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(metadata) = entry.metadata().await {
+            count += 1;
+            bytes += metadata.len();
+        }
+    }
+    (count, bytes)
 }
 
 fn configured_overpass_urls() -> Vec<String> {
@@ -321,6 +428,12 @@ mod tests {
             scene_cache_key_for_version("road-scene-v3", "query one"),
             scene_cache_key("query one")
         );
+    }
+
+    #[test]
+    fn local_modes_are_distinct_from_online_resolution() {
+        assert_ne!(SceneSourceMode::Offline, SceneSourceMode::Online);
+        assert_ne!(SceneSourceMode::Lan, SceneSourceMode::Online);
     }
 
     #[test]

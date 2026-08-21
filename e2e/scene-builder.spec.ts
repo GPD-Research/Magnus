@@ -5,6 +5,10 @@ test.beforeEach(async ({ page }) => {
     contentType: 'application/json',
     body: JSON.stringify({ status: 'ok', service: 'magnus-spatial' }),
   }))
+  await page.route('**/api/offline/status', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ regions: [], cachedScenes: 0, cacheBytes: 0 }),
+  }))
 })
 
 test('loads the scene builder with a visible roadway and passing audit', async ({ page }) => {
@@ -20,7 +24,53 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  await expect(page.getByLabel('Magnus version 3.0.0')).toBeVisible()
+  await expect(page.getByLabel('Magnus version 4.0.0-rc.1')).toBeVisible()
+})
+
+test('persists offline mode and sends cache-only map requests', async ({ page }) => {
+  const requests: string[] = []
+  await page.route('**/api/road-scenes/resolve?**', (route) => {
+    requests.push(route.request().url())
+    return route.abort()
+  })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Open settings' }).click()
+  await page.getByRole('radiogroup', { name: 'Map connection mode' }).getByRole('radio', { name: 'Offline' }).click()
+  await expect.poll(() => requests.some((url) => url.includes('source=offline'))).toBe(true)
+  await page.reload()
+  await page.getByRole('button', { name: 'Open settings' }).click()
+  await expect(page.getByRole('radiogroup', { name: 'Map connection mode' }).getByRole('radio', { name: 'Offline' })).toHaveAttribute('aria-checked', 'true')
+})
+
+test('saves custom themes while keeping the roadway field green', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.route('**/api/offline/status', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      regions: [
+        { id: 'northern-virginia', label: 'Northern Virginia highways', installed: true, bytes: 12 * 1024 * 1024 },
+        { id: 'virginia', label: 'Virginia statewide source', installed: false, bytes: 0 },
+      ],
+      cachedScenes: 3,
+      cacheBytes: 2048,
+    }),
+  }))
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Open settings' }).click()
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await expect(settings).toContainText('3 prepared scenes')
+  await expect(settings).toContainText('Northern Virginia highways')
+  await settings.getByRole('button', { name: 'Custom 2' }).click()
+  await settings.getByLabel('Custom theme color').fill('#2468a0')
+  await settings.getByLabel('Custom theme name').fill('Blue operations')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'custom')
+  await expect(page.locator('.road-stage')).toHaveCSS('background-color', 'rgb(79, 92, 72)')
+
+  await page.reload()
+  await page.getByRole('button', { name: 'Open settings' }).click()
+  await expect(page.getByRole('region', { name: 'Settings' }).getByRole('button', { name: 'Blue operations' })).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('saves and restores the complete scene configuration', async ({ page }) => {

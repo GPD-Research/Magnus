@@ -4,9 +4,13 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  Download,
+  HardDrive,
   Layers3,
   LoaderCircle,
   MapPinned,
+    Network,
+    Palette,
   Minus,
   MousePointer2,
   Navigation,
@@ -15,12 +19,24 @@ import {
   Radio,
   RefreshCw,
   RotateCcw,
+  Settings,
   ShieldCheck,
   TrafficCone,
   Truck,
+  Wifi,
+  WifiOff,
+  X,
 } from 'lucide-react'
 import { ArrowUp } from 'lucide-react'
 import './App.css'
+import {
+  DEFAULT_APP_SETTINGS,
+  loadAppSettings,
+  saveAppSettings,
+  themeTokens,
+  type ConnectivityMode,
+  type ThemeId,
+} from './domain/appSettings'
 import { RoadwayLayer } from './components/RoadwayLayer'
 import { SceneDesigner } from './components/SceneDesigner'
 import { SceneEquipmentGlyph } from './components/SceneEquipmentGlyph'
@@ -46,6 +62,13 @@ import {
   type ResolvedRoadLocation,
   type RoadLocationRequest,
 } from './domain/roadLocation'
+import {
+  formatStorageSize,
+  loadOfflineStatus,
+  prepareOfflineRegion,
+  type OfflineRegionStatus,
+  type OfflineStatus,
+} from './domain/offlinePackages'
 import {
   nearestRoadPlacement,
   roadSectionLabel,
@@ -92,6 +115,14 @@ const modes: { id: ComplianceMode; label: string; detail: string }[] = [
   { id: 'modified', label: 'Enhanced Safety', detail: 'Expanded' },
   { id: 'violate', label: 'SOP Violation', detail: 'Training' },
 ]
+
+const connectivityModes: { id: ConnectivityMode; label: string; icon: typeof Wifi }[] = [
+  { id: 'online', label: 'Online', icon: Wifi },
+  { id: 'lan', label: 'LAN', icon: Network },
+  { id: 'offline', label: 'Offline', icon: WifiOff },
+]
+
+const themeIds: ThemeId[] = ['dark', 'light', 'custom-1', 'custom-2', 'custom-3']
 
 type SpatialServiceStatus = 'checking' | 'connected' | 'unavailable'
 type SaveStatus = 'idle' | 'saved'
@@ -215,6 +246,11 @@ function laterallyAlignedPlacement(
 
 function App() {
   const [savedScenario] = useState(loadSavedScenario)
+  const [appSettings, setAppSettings] = useState(() => loadAppSettings(localStorage))
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [offlineStatus, setOfflineStatus] = useState<OfflineStatus | null>(null)
+  const [offlineStatusMessage, setOfflineStatusMessage] = useState('')
+  const [offlinePreparing, setOfflinePreparing] = useState<OfflineRegionStatus['id'] | null>(null)
   const [roadScene, setRoadScene] = useState<RoadScene>(createDevelopmentRoadScene)
   const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>(DEFAULT_LOCATION_REQUEST)
   const [resolvedLocation, setResolvedLocation] = useState<ResolvedRoadLocation | null>(null)
@@ -325,6 +361,28 @@ function App() {
   const mapTransform = `rotate(${mapRotation} ${roadScene.viewport.width / 2} ${roadScene.viewport.height / 2})`
 
   useEffect(() => {
+    saveAppSettings(localStorage, appSettings)
+    const tokens = themeTokens(appSettings.theme, appSettings.customThemes)
+    document.documentElement.dataset.theme = tokens.scheme
+    document.documentElement.style.setProperty('--theme-accent', tokens.accent)
+  }, [appSettings])
+
+  useEffect(() => {
+    if (!settingsOpen) return
+    let active = true
+    void loadOfflineStatus()
+      .then((status) => {
+        if (!active) return
+        setOfflineStatus(status)
+        setOfflineStatusMessage('')
+      })
+      .catch((error: unknown) => {
+        if (active) setOfflineStatusMessage(error instanceof Error ? error.message : 'Offline package status is unavailable.')
+      })
+    return () => { active = false }
+  }, [settingsOpen])
+
+  useEffect(() => {
     const stage = roadStageRef.current
     if (!stage) return
 
@@ -377,7 +435,7 @@ function App() {
   useEffect(() => {
     let active = true
     const resolution = ++locationResolutionRef.current
-    void resolveRoadLocation(DEFAULT_LOCATION_REQUEST).then((resolved) => {
+    void resolveRoadLocation(DEFAULT_LOCATION_REQUEST, undefined, appSettings.connectivityMode).then((resolved) => {
       if (!active || resolution !== locationResolutionRef.current) return
       setRoadScene(resolved.scene)
       const initialScenario = savedScenario?.scenario ?? 'right-lane'
@@ -393,7 +451,39 @@ function App() {
       setLocationLoading(false)
     })
     return () => { active = false }
-  }, [savedScenario, sceneAnchorX, sceneAnchorY])
+  }, [appSettings.connectivityMode, savedScenario, sceneAnchorX, sceneAnchorY])
+
+  async function prepareRegion(region: OfflineRegionStatus['id']) {
+    setOfflinePreparing(region)
+    setOfflineStatusMessage('Preparing local map package...')
+    try {
+      setOfflineStatus(await prepareOfflineRegion(region))
+      setOfflineStatusMessage('Local map package is ready.')
+    } catch (error) {
+      setOfflineStatusMessage(error instanceof Error ? error.message : 'Offline preparation failed.')
+    } finally {
+      setOfflinePreparing(null)
+    }
+  }
+
+  function selectConnectivityMode(connectivityMode: ConnectivityMode) {
+    setAppSettings((current) => ({ ...current, connectivityMode }))
+  }
+
+  function selectTheme(theme: ThemeId) {
+    setAppSettings((current) => ({ ...current, theme }))
+  }
+
+  function updateCustomTheme(id: keyof typeof DEFAULT_APP_SETTINGS.customThemes, updates: { name?: string; color?: string }) {
+    setAppSettings((current) => ({
+      ...current,
+      theme: id,
+      customThemes: {
+        ...current.customThemes,
+        [id]: { ...current.customThemes[id], ...updates },
+      },
+    }))
+  }
 
   async function retrySpatialService() {
     setSpatialServiceStatus('checking')
@@ -684,7 +774,7 @@ function App() {
 
     setLocationLoading(true)
     const resolution = ++locationResolutionRef.current
-    const resolved = await resolveRoadLocation(locationRequest)
+    const resolved = await resolveRoadLocation(locationRequest, undefined, appSettings.connectivityMode)
     if (resolution !== locationResolutionRef.current) return
     setRoadScene(resolved.scene)
     const placement = laterallyAlignedPlacement(centeredRoadPlacement(resolved.scene), scenario)
@@ -711,10 +801,45 @@ function App() {
         <div className="brand-mark" aria-label={`Magnus version ${__APP_VERSION__}`}><span aria-hidden="true">M</span></div>
         <div className="brand-copy"><strong>MAGNUS</strong><span>SSP Scene Builder</span></div>
         <div className="session-status"><span className="live-dot" />Magnus <b>v{__APP_VERSION__}</b></div>
+        <div className="connectivity-switch" role="group" aria-label="Map connectivity">
+          {connectivityModes.map((item) => {
+            const Icon = item.icon
+            return <button type="button" aria-pressed={appSettings.connectivityMode === item.id} key={item.id} onClick={() => selectConnectivityMode(item.id)}><Icon size={14} /><span>{item.label}</span></button>
+          })}
+        </div>
         <div className="zoom-controls topbar-zoom" role="group" aria-label="Scene zoom">
           <button type="button" title="Zoom out" aria-label="Zoom out highway graphic" disabled={sceneZoom <= MIN_SCENE_ZOOM} onClick={() => changeSceneZoom(-1)}><Minus size={17} /></button>
           <button className="zoom-value" type="button" title="Reset to 320 foot view" aria-label={`Reset highway graphic zoom, currently ${Math.round(sceneVisibleWidth)} feet wide`} onClick={() => setCenteredSceneZoom(defaultSceneZoom)}>{Math.round(sceneVisibleWidth)} FT</button>
           <button type="button" title="Zoom in" aria-label="Zoom in highway graphic" disabled={sceneZoom >= maximumSceneZoom} onClick={() => changeSceneZoom(1)}><Plus size={17} /></button>
+        </div>
+        <div className="settings-anchor">
+          <button className="icon-button" type="button" title="Settings" aria-label="Open settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings size={18} /></button>
+          {settingsOpen && <section className="settings-popover" aria-label="Settings">
+            <div className="settings-heading"><div><span>Magnus preferences</span><h2>Settings</h2></div><button type="button" title="Close settings" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><X size={17} /></button></div>
+            <div className="settings-section">
+              <div className="settings-section-title"><Wifi size={15} /><span>Map connection</span></div>
+              <div className="settings-mode-options" role="radiogroup" aria-label="Map connection mode">{connectivityModes.map((item) => <button type="button" role="radio" aria-checked={appSettings.connectivityMode === item.id} key={item.id} onClick={() => selectConnectivityMode(item.id)}>{item.label}</button>)}</div>
+            </div>
+            <div className="settings-section">
+              <div className="settings-section-title"><Palette size={15} /><span>Theme</span></div>
+              <div className="theme-options">{themeIds.map((id) => {
+                const custom = id.startsWith('custom') ? appSettings.customThemes[id as keyof typeof appSettings.customThemes] : null
+                const label = id === 'dark' ? 'Dark' : id === 'light' ? 'Light' : custom?.name
+                const color = id === 'dark' ? '#1d2522' : id === 'light' ? '#eef2f0' : custom?.color
+                return <button type="button" aria-pressed={appSettings.theme === id} key={id} onClick={() => selectTheme(id)}><span className="theme-swatch" style={{ background: color }} /><span>{label}</span></button>
+              })}</div>
+              {appSettings.theme.startsWith('custom') && (() => {
+                const id = appSettings.theme as keyof typeof appSettings.customThemes
+                return <div className="theme-editor"><input aria-label="Custom theme color" type="color" value={appSettings.customThemes[id].color} onChange={(event) => updateCustomTheme(id, { color: event.target.value })} /><input aria-label="Custom theme name" maxLength={24} value={appSettings.customThemes[id].name} onChange={(event) => updateCustomTheme(id, { name: event.target.value })} /></div>
+              })()}
+            </div>
+            <div className="settings-section offline-preparation">
+              <div className="settings-section-title"><HardDrive size={15} /><span>Offline preparation</span></div>
+              <div className="offline-summary"><span>{offlineStatus?.cachedScenes ?? 0} prepared scenes</span><b>{formatStorageSize(offlineStatus?.cacheBytes ?? 0)}</b></div>
+              <div className="offline-regions">{offlineStatus?.regions.map((region) => <div key={region.id}><span><b>{region.label}</b><small>{region.installed ? formatStorageSize(region.bytes) : 'Not installed'}</small></span><button type="button" disabled={offlinePreparing !== null} onClick={() => { void prepareRegion(region.id) }}>{offlinePreparing === region.id ? <LoaderCircle className="location-spinner" size={14} /> : region.installed ? <RefreshCw size={14} /> : <Download size={14} />}<span>{region.installed ? 'Refresh' : 'Prepare'}</span></button></div>)}</div>
+              {offlineStatusMessage && <p className="offline-status-message" role="status">{offlineStatusMessage}</p>}
+            </div>
+          </section>}
         </div>
         <button className="icon-button" type="button" title="Reset scene" onClick={resetScenario}><RotateCcw size={18} /></button>
         <button className="primary-button" type="button" onClick={saveScenario}><Check size={17} /> {saveStatus === 'saved' ? 'Scenario saved' : 'Save scenario'}</button>

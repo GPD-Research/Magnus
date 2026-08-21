@@ -4,6 +4,7 @@ import {
   type RoadFeature,
   type RoadScene,
 } from './roadScene'
+import type { ConnectivityMode } from './appSettings'
 
 export type TravelDirection = 'northbound' | 'southbound' | 'eastbound' | 'westbound' | 'all'
 export type RoadReferenceType = 'mile-marker' | 'exit'
@@ -175,6 +176,7 @@ export async function resolveRoadLocation(
     }
     return response.json()
   },
+  sourceMode: ConnectivityMode = 'online',
 ): Promise<ResolvedRoadLocation> {
   const normalizedRequest = { ...request, highway: normalizeHighway(request.highway) }
   try {
@@ -183,6 +185,7 @@ export async function resolveRoadLocation(
       direction: normalizedRequest.direction,
       referenceType: normalizedRequest.referenceType,
       reference: normalizedRequest.reference.trim(),
+      source: sourceMode,
     })
     const scene = await loadScene(`/api/road-scenes/resolve?${query.toString()}`)
     if (!isRoadScene(scene)) throw new Error('Map service returned an invalid RoadScene contract')
@@ -190,7 +193,11 @@ export async function resolveRoadLocation(
       request: normalizedRequest,
       scene,
       source: 'live-map',
-      message: 'Live OpenStreetMap geometry loaded.',
+      message: sourceMode === 'online'
+        ? 'Online OpenStreetMap geometry loaded.'
+        : sourceMode === 'lan'
+          ? 'LAN spatial data loaded.'
+          : 'Prepared offline geometry loaded.',
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown map service error'
@@ -198,7 +205,7 @@ export async function resolveRoadLocation(
       request: normalizedRequest,
       scene: createLocationPreviewScene(normalizedRequest),
       source: 'development-preview',
-      message: `Live map geometry is unavailable: ${reason}. Showing a scale-accurate development preview.`,
+      message: `${sourceMode === 'online' ? 'Online' : sourceMode === 'lan' ? 'LAN' : 'Offline'} map geometry is unavailable: ${reason}. Showing a scale-accurate development preview.`,
     }
   }
 }

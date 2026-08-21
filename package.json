@@ -1,7 +1,7 @@
 {
   "name": "magnus",
   "private": true,
-  "version": "3.0.0",
+  "version": "4.0.0-rc.1",
   "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others --names spatial,web --prefix-colors yellow,cyan \"npm:dev:spatial\" \"npm:dev:web\"",

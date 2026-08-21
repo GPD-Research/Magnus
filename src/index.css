@@ -8,14 +8,50 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   letter-spacing: 0;
+  --theme-accent: #2d936b;
   --ink: #e4ebe7;
   --muted: #a3afaa;
   --line: #3b4642;
   --paper: #1d2522;
+  --chrome: #101614;
+  --panel-bg: #242c29;
+  --panel-raised: #202825;
+  --control-bg: #171e1c;
+  --control-hover: #263a31;
   --yellow: #f3c52b;
-  --green: #187853;
+  --green: var(--theme-accent);
   --amber: #c86c19;
   --red: #b54235;
+}
+
+:root[data-theme='light'] {
+  color: #26332e;
+  background: #eef2f0;
+  color-scheme: light;
+  --ink: #26332e;
+  --muted: #66736e;
+  --line: #c8d1cd;
+  --paper: #eef2f0;
+  --chrome: #183027;
+  --panel-bg: #f4f7f5;
+  --panel-raised: #e6ece9;
+  --control-bg: #fff;
+  --control-hover: #e4eee9;
+}
+
+:root[data-theme='custom'] {
+  color: #26312d;
+  background: color-mix(in srgb, var(--theme-accent) 8%, #f5f7f6);
+  color-scheme: light;
+  --ink: color-mix(in srgb, var(--theme-accent) 30%, #17201d);
+  --muted: color-mix(in srgb, var(--theme-accent) 28%, #64706b);
+  --line: color-mix(in srgb, var(--theme-accent) 22%, #c9d0cd);
+  --paper: color-mix(in srgb, var(--theme-accent) 8%, #f5f7f6);
+  --chrome: color-mix(in srgb, var(--theme-accent) 48%, #101614);
+  --panel-bg: color-mix(in srgb, var(--theme-accent) 10%, #f5f7f6);
+  --panel-raised: color-mix(in srgb, var(--theme-accent) 16%, #eef2f0);
+  --control-bg: #fff;
+  --control-hover: color-mix(in srgb, var(--theme-accent) 13%, #f5f7f6);
 }
 
 * { box-sizing: border-box; }
