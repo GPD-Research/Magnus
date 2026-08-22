@@ -1,14 +1,24 @@
-# Magnus 4.5.0
+# Magnus 5.0.0-rc.1
 
 <img src="public/favicon.svg" alt="Magnus arrow-M logo" width="96" height="96">
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 4.5.0 is a release candidate that stabilizes the Version 4 offline foundation and adds an expandable roadway workspace for classroom and presentation use.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 5.0.0-rc.1 is the release candidate built on the stable Version 4.5 foundation.
 
-Version 5 planning is tracked in [docs/version-5-roadmap.md](docs/version-5-roadmap.md).
+Version 5 planning and remaining work are tracked in [docs/version-5-roadmap.md](docs/version-5-roadmap.md).
 
-## Version 4.5
+## Version 5.0 release candidate
 
 This release includes:
+
+- Keyboard deletion for selected cones, SSP trucks, responder assets, and hazards
+- Accurate 40 ft map scale derived from the current SVG viewport and zoom
+- Center-toolbar traffic-flow bearing and map compass instruments
+- Whole-center-view rotation in 45-degree steps with north-up reset and inverse pointer mapping
+- Toggleable highway, ramp, and exit labels carried from OpenStreetMap references
+- Collapsible Scene Type controls
+- High-visibility **SAVE SCENE** and **LOAD SCENE** workflows
+- PNG, JPG, and vector SVG output with a companion rebuildable `.magnus.json` scene file
+- Portable scene recall including roadway geometry, location, layers, zoom, equipment, and communications
 
 - Independently collapsible configuration and operations panes on desktop and tablet
 - Persistent presentation layout with accessible 44 px edge restore grips
@@ -30,23 +40,23 @@ This release includes:
 - Responsive three-pane scene builder for desktop, tablet, and mobile
 - Eight shoulder, lane, and ramp management templates
 - Standard SOP, Enhanced Safety, and SOP Violation training modes
-- Draggable cones, SSP trucks, responder assets, personnel, and hazards
+- Draggable cones, SSP trucks, responder assets, personnel, hazards, and incidentals
 - Per-truck signboard controls with eight arrow and message states
-- Expandable Assets and Hazards catalogs shared by the map view and 10 ft grid designer
+- Diagonal SSP Assets, External Assets, Hazards, and Incidentals tabs shared by the map view and 10 ft grid designer
 - Vehicle-supplied equipment limits and live vehicle, cone, personnel, and hazard counts
 - Selection, rotation, movement, and explicit deletion for deployed scene objects
-- Local scenario persistence through **Save scenario**, with complete scene reset support
+- Local and portable scenario persistence, with complete scene reset support
 - Live SOP audit, scene metrics, and timestamped communications log
 - Highway, direction, and mile-marker/exit location requests in the configuration pane
 - Single-process production launch serving the UI and spatial API from Rust
 
-Roadway rotation is intentionally deferred beyond Version 4.5 because it requires a shared forward and inverse map-transform pipeline across placement, dragging, drawing, panning, zooming, and export.
+Center-view rotation now applies one shared map transform to roadway geometry, labels, and scene equipment. Placement and dragging use the inverse transform, the compass follows the selected orientation, and portable scene files retain the rotation value.
 
 Prepared PBF packages are downloaded and inventoried by the app, while arbitrary offline highway/reference lookup still depends on a previously cached `RoadScene`. A cache miss is reported explicitly and never falls through to an internet provider in LAN or Offline mode.
 
 ## Brand identity
 
-The Magnus mark uses a black M with downward arrow terminals on a high-visibility orange field. In the application header, the mark serves as the first letter of the `M`agnus wordmark and is followed by `AGNUS` and the current short release label. The label is derived from the package version: Version 4.5.0 displays as `v4.5`, and Version 5.0.0 will display as `v5`.
+The Magnus mark uses a black M with downward arrow terminals on a high-visibility orange field. In the application header, the mark serves as the first letter of the `M`agnus wordmark and is followed by `AGNUS` and the current short release label. The label is derived from the package version: Version 5.0.0 displays as `v5`, while this release candidate displays as `v5 RC1`.
 
 The same vector asset at `public/favicon.svg` is used for the application header, browser favicon, and installed Linux application icon.
 
@@ -183,4 +193,4 @@ Vite proxies `/api` requests to `127.0.0.1:8787`. Set `OVERPASS_URLS` to a comma
 
 `I-95 / Northbound / Mile marker 170` is the complex-interchange acceptance case for the Springfield Interchange, commonly called the Mixing Bowl. When a scene contains multiple roadway surfaces, the right-pane **Select section** control lets the operator choose a rendered mainline, ramp, or flyover as the controlled sector. SSP equipment and cones are then aligned to that way's center tangent while retaining feet-based spacing.
 
-The central vector pane supports a 320-foot default view down to a 40-foot close view through toolbar controls or a control-wheel/pinch gesture. Ordinary trackpad wheel output pans the scene, and a three-finger direct-touch drag pans on tablets. Zoom keeps compiled roadway geometry and interactive SSP equipment in the same projected coordinate space.
+The central vector pane opens at a centered 500-foot view with equal scroll travel in every direction and supports a 40-foot close view through toolbar controls or a control-wheel/pinch gesture. Ordinary trackpad wheel output pans the scene, and a three-finger direct-touch drag pans on tablets. Zoom keeps compiled roadway geometry and interactive SSP equipment in the same projected coordinate space.

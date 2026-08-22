@@ -1,8 +1,10 @@
 # Magnus Version 5 Roadmap
 
-Version 5 is focused on lecture-based demonstration, large-scene navigation, richer scene inventories, live annotation, and distributable output. Version 4.5 remains the operational baseline while these capabilities are developed and validated.
+Version 5 is focused on lecture-based demonstration, large-scene navigation, richer scene inventories, live annotation, and distributable output. Version 5.0.0-rc.1 builds on the released Version 4.5 operational baseline.
 
-The expandable center workspace shipped in Version 4.5. Roadway rotation is deferred until after the 4.5 release and branding work so its shared transform requirements can be evaluated as a separate high-risk change.
+The expandable center workspace shipped in Version 4.5. Roadway rotation followed in Version 5 after its shared transform requirements were isolated and regression-tested.
+
+The Version 5.0.0 release candidate adds keyboard deletion, a truthful map scale, center-toolbar compass and traffic-flow instruments, toggleable roadway labels, collapsible Scene Type controls, portable scene save/load with PNG, JPG, and SVG output, interactive center-view rotation, centered 500-foot startup framing, and the four-part scene catalog.
 
 ## Product goals
 
@@ -38,7 +40,7 @@ The left configuration pane and right operations pane will collapse independentl
 
 ## 2. Roadway rotation
 
-**Status: deferred.** Resume only after a dedicated transform design and regression plan is approved.
+**Status: delivered in Version 5.0.0-rc.1.**
 
 Add roadway rotation controls beside the existing zoom controls in the top bar.
 

@@ -66,7 +66,9 @@ describe('road location resolution', () => {
 
     expect(result.source).toBe('development-preview')
     expect(result.message).toContain('missing')
+    expect(result.message).toContain('I-95 northbound, exit 166')
     expect(result.message).toContain('scale-accurate development preview')
+    expect(result.message).toContain('without map-derived labels')
   })
 
   it('provides a layered Mixing Bowl acceptance preview for I-95 northbound MM 170', () => {

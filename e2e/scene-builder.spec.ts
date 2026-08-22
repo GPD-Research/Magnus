@@ -24,10 +24,10 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  const brand = page.getByLabel('Magnus version 4.5.0')
+  const brand = page.getByLabel('Magnus version 5.0.0')
   await expect(brand).toBeVisible()
   await expect(brand).toContainText('AGNUS')
-  await expect(brand).toContainText('v4.5')
+  await expect(brand).toContainText('v5')
 })
 
 test('persists offline mode and sends cache-only map requests', async ({ page }) => {
@@ -77,11 +77,14 @@ test('saves custom themes while keeping the roadway field green', async ({ page 
 })
 
 test('saves and restores the complete scene configuration', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(window, 'showDirectoryPicker', { value: undefined }))
   await page.goto('/')
   const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
   await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
-  await page.getByRole('button', { name: 'Save scenario' }).click()
-  await expect(page.getByRole('button', { name: 'Scenario saved' })).toBeVisible()
+  await page.getByRole('button', { name: 'SAVE SCENE' }).click()
+  await page.getByRole('menuitem', { name: 'SVG vector' }).click()
+  await expect(page.getByText('Scene ready', { exact: true })).toBeVisible()
 
   await page.reload()
   await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(1)
@@ -94,16 +97,35 @@ test('zooms the imported vector highway graphic', async ({ page }) => {
   const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
   const stage = page.locator('.road-stage')
   const topbarZoom = page.locator('.topbar').getByRole('group', { name: 'Scene zoom' })
+  const scaleKey = page.locator('.scale-key')
+  const initialScalePixels = Number(await scaleKey.getAttribute('data-scale-pixels'))
 
   await expect(topbarZoom).toBeVisible()
+  await expect(page.locator('.canvas-toolbar').getByRole('img', { name: /Map compass/ })).toBeVisible()
+  await expect(page.locator('.canvas-toolbar').getByText('Traffic flow', { exact: true })).toBeVisible()
   await expect(page.locator('.audit-panel').getByRole('group', { name: 'Scene zoom' })).toHaveCount(0)
-  await expect(canvas).toHaveAttribute('data-visible-width-feet', '320')
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', '500')
+  await expect.poll(() => stage.evaluate((element) => ({
+    horizontal: element.scrollLeft / (element.scrollWidth - element.clientWidth),
+    vertical: element.scrollTop / (element.scrollHeight - element.clientHeight),
+  }))).toEqual({
+    horizontal: expect.closeTo(.5, 2),
+    vertical: expect.closeTo(.5, 2),
+  })
   const canvasBounds = await canvas.boundingBox()
   expect(canvasBounds).not.toBeNull()
   expect(canvasBounds!.width / canvasBounds!.height).toBeGreaterThan(0.5)
+  const mapWorld = page.locator('.map-world')
+  await page.getByRole('button', { name: 'Rotate center view clockwise 45 degrees' }).click()
+  await expect(mapWorld).toHaveAttribute('transform', /^rotate\(45 /)
+  await expect(page.getByRole('img', { name: 'Map compass, north rotated 45 degrees' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reset center view rotation, currently 45 degrees' })).toHaveText('45°')
+  await page.getByRole('button', { name: 'Reset center view rotation, currently 45 degrees' }).click()
+  await expect(mapWorld).toHaveAttribute('transform', /^rotate\(0 /)
   const fittedViewBox = await canvas.getAttribute('viewBox')
   await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
-  await expect(canvas).toHaveAttribute('data-visible-width-feet', '256')
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', '400')
+  await expect.poll(async () => Number(await scaleKey.getAttribute('data-scale-pixels'))).toBeGreaterThan(initialScalePixels)
   await expect(canvas).toHaveAttribute('viewBox', fittedViewBox!)
   await expect.poll(() => stage.evaluate((element) => ({
     horizontal: element.scrollWidth > element.clientWidth,
@@ -122,7 +144,7 @@ test('zooms the imported vector highway graphic', async ({ page }) => {
   expect(await stage.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
 
   await page.getByRole('button', { name: /Reset highway graphic zoom/ }).click()
-  await expect(canvas).toHaveAttribute('data-visible-width-feet', '320')
+  await expect(canvas).toHaveAttribute('data-visible-width-feet', '500')
   await expect(canvas).toHaveAttribute('viewBox', fittedViewBox!)
 
   await stage.dispatchEvent('wheel', { deltaY: -1000, ctrlKey: true })
@@ -276,16 +298,24 @@ test('collapses, restores, and persists both workspace panes', async ({ page }) 
       y: viewBox.y + ((element.scrollTop + element.clientHeight / 2 - surface.offsetTop) / surface.clientHeight) * viewBox.height,
     }
   })
+  const centerDriftPixels = async (expected: { x: number; y: number }) => stage.evaluate((element, target) => {
+    const surface = element.querySelector<HTMLElement>('.road-canvas-surface')!
+    const canvas = element.querySelector<SVGSVGElement>('.road-canvas')!
+    const viewBox = canvas.viewBox.baseVal
+    const currentX = viewBox.x + ((element.scrollLeft + element.clientWidth / 2 - surface.offsetLeft) / surface.clientWidth) * viewBox.width
+    const currentY = viewBox.y + ((element.scrollTop + element.clientHeight / 2 - surface.offsetTop) / surface.clientHeight) * viewBox.height
+    return Math.max(
+      Math.abs(currentX - target.x) / (viewBox.width / surface.clientWidth),
+      Math.abs(currentY - target.y) / (viewBox.height / surface.clientHeight),
+    )
+  }, expected)
   const initialCenterWidth = (await center.boundingBox())!.width
   const initialZoom = await canvas.getAttribute('data-zoom')
   const initialTruckTransform = await page.locator('[data-truck-id="ssp-truck-1"]').getAttribute('transform')
   const initialViewedCenter = await viewedCenter()
   await page.getByRole('button', { name: 'Collapse configuration pane' }).press('Enter')
   await expect(page.getByRole('button', { name: 'Expand configuration pane' })).toBeFocused()
-  await expect.poll(viewedCenter).toEqual({
-    x: expect.closeTo(initialViewedCenter.x, 0),
-    y: expect.closeTo(initialViewedCenter.y, 0),
-  })
+  await expect.poll(() => centerDriftPixels(initialViewedCenter)).toBeLessThanOrEqual(1)
   await expect(page.getByRole('button', { name: 'Collapse operations pane' })).toBeVisible()
   await page.getByRole('button', { name: 'Collapse operations pane' }).click()
   await expect(workspace).toHaveClass(/left-pane-collapsed/)
@@ -293,10 +323,7 @@ test('collapses, restores, and persists both workspace panes', async ({ page }) 
   await expect(canvas).toHaveAttribute('data-zoom', initialZoom!)
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', initialTruckTransform!)
   await expect.poll(async () => (await center.boundingBox())!.width).toBeGreaterThan(initialCenterWidth)
-  await expect.poll(viewedCenter).toEqual({
-    x: expect.closeTo(initialViewedCenter.x, 0),
-    y: expect.closeTo(initialViewedCenter.y, 0),
-  })
+  await expect.poll(() => centerDriftPixels(initialViewedCenter)).toBeLessThanOrEqual(1)
   await expect(page.getByText('Mode & audit')).toHaveCount(0)
 
   const gripWidths = await workspace.evaluate((element) => ({
@@ -326,7 +353,7 @@ test('resolves a highway exit request into scaled interchange geometry', async (
 
   await expect(page.locator('.location-result')).toContainText('scale-accurate development preview')
   await expect(page.getByText('I-95 Northbound Exit 166 scale preview')).toBeVisible()
-  await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('data-visible-width-feet', '320')
+  await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('data-visible-width-feet', '500')
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveCount(1)
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveAttribute('stroke-width', '12')
 })
@@ -356,6 +383,9 @@ test('toggles roadway display layers independently', async ({ page }) => {
   await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
   await page.goto('/')
 
+  await expect(page.getByRole('checkbox', { name: 'Highway labels unavailable in preview' })).toBeDisabled()
+  await expect(page.locator('.roadway-label-layer')).toHaveCount(0)
+
   await page.getByRole('checkbox', { name: 'Road geometry' }).uncheck()
   await expect(page.locator('.road-feature-road-surface')).toHaveCount(0)
   await expect(page.locator('.road-feature-shoulder-edge')).toHaveCount(2)
@@ -365,6 +395,60 @@ test('toggles roadway display layers independently', async ({ page }) => {
 
   await page.getByRole('checkbox', { name: 'Traffic flow' }).uncheck()
   await expect(page.locator('.road-feature-traffic-flow')).toHaveCount(0)
+
+})
+
+test('renders compact highway labels from loaded map feature metadata only', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: 1,
+      source: { type: 'osm-api', dataset: 'OpenStreetMap I-395 Exit 8', generatedAt: 'resolved-live', attribution: 'OpenStreetMap contributors' },
+      coordinateSystem: { worldCrs: 'LOCAL_ENU_FT_FROM_EPSG:4326', displayUnits: 'feet', origin: 'top-left', trafficFlow: 'bottom-to-top' },
+      viewport: { width: 122, height: 760 },
+      features: [
+        { id: 'i395-casing', kind: 'road-casing', layer: 0, geometry: { type: 'LineString', coordinates: [[61, 0], [61, 760]] }, properties: { highway: 'motorway', reference: 'I-395', renderWidthFeet: 44 } },
+        { id: 'i395-surface', kind: 'road-surface', layer: 0, geometry: { type: 'LineString', coordinates: [[61, 0], [61, 760]] }, properties: { highway: 'motorway', reference: 'I-395', junctionReference: '8A', destinationReference: 'VA 27', lanes: 3, direction: 'forward', renderWidthFeet: 36 } },
+      ],
+    }),
+  }))
+  await page.goto('/')
+
+  const mapLabel = page.locator('.roadway-label', { hasText: 'I-395 · Exit 8A · to VA 27' })
+  await expect(mapLabel).toBeVisible()
+  await expect(mapLabel).toHaveCSS('font-size', '3px')
+  await expect(mapLabel).toHaveCSS('fill', 'rgb(17, 17, 17)')
+  await expect(mapLabel).toHaveCSS('stroke', 'rgb(255, 255, 255)')
+  await expect(page.locator('.roadway-label-layer')).toHaveCount(1)
+  expect(await page.evaluate(() => {
+    const equipment = document.querySelector('.scene-equipment')
+    const labels = document.querySelector('.roadway-label-layer')
+    return Boolean(equipment && labels && equipment.compareDocumentPosition(labels) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })).toBe(true)
+  await page.getByRole('checkbox', { name: 'Highway labels' }).uncheck()
+  await expect(page.locator('.roadway-label')).toHaveCount(0)
+})
+
+test('clears an incompatible reference when the requested highway changes', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByLabel('Mile marker', { exact: true })).toHaveValue('170')
+  await page.getByLabel('Highway', { exact: true }).fill('I-395')
+  await expect(page.getByLabel('Mile marker', { exact: true })).toHaveValue('')
+  await page.getByRole('button', { name: 'Render location' }).click()
+  await expect(page.getByText('Enter a mile marker.')).toBeVisible()
+})
+
+test('collapses and expands Scene Type controls downward', async ({ page }) => {
+  await page.goto('/')
+  const toggle = page.getByRole('button', { name: 'Scene type' })
+
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.locator('#scene-type-options')).toBeVisible()
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.locator('#scene-type-options')).toHaveCount(0)
+  await toggle.click()
+  await expect(page.locator('#scene-type-options')).toBeVisible()
 })
 
 test('configures signboards independently for up to five SSP trucks', async ({ page }) => {
@@ -375,7 +459,7 @@ test('configures signboards independently for up to five SSP trucks', async ({ p
   await firstMessage.selectOption('incident-ahead')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'incident-ahead')
 
-  const addTruck = page.getByRole('button', { name: 'Add truck' })
+  const addTruck = page.getByRole('region', { name: 'Scene equipment toolkit' }).getByRole('button', { name: /^SSP truck/ })
   await addTruck.click()
   const secondMessage = page.getByLabel('Signboard message for SSP Truck 2')
   await expect(secondMessage).toHaveValue('double-diamonds')
@@ -419,11 +503,13 @@ test('removes the scene and places the selected scene on the next map tap', asyn
   await page.getByRole('button', { name: /Center lane closure/ }).click()
   const addScene = page.getByRole('button', { name: 'Add scene' })
   await addScene.click()
+  await page.getByRole('button', { name: 'Rotate center view clockwise 45 degrees' }).click()
   await expect(page.getByRole('button', { name: 'Tap roadway to place' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.scene-equipment')).toHaveCount(0)
 
   await page.locator('#preview-express-ramp-surface').click({ force: true, position: { x: 20, y: 5 } })
   await expect(page.locator('.scene-equipment')).toHaveCount(1)
+  await expect(page.locator('.map-world')).toHaveAttribute('transform', /^rotate\(45 /)
   await expect(page.getByRole('heading', { name: 'Center lane closure' })).toBeVisible()
   await expect(page.locator('.scene-equipment')).toHaveAttribute('transform', /translate\(.+ .+\) rotate\((?!0\))/)
 })
@@ -507,6 +593,7 @@ test('deploys assets and hazards with live scene counters and deletion', async (
   await page.goto('/')
 
   const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
   await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
   await expect(page.getByRole('region', { name: 'Scene resource counts' })).toContainText('2')
   const inspector = page.getByRole('region', { name: 'Selected scene item' })
@@ -525,10 +612,116 @@ test('deploys assets and hazards with live scene counters and deletion', async (
   await page.getByRole('button', { name: 'Delete selected item' }).click()
   await expect(page.locator('[data-definition-id="helicopter-zone"]')).toHaveCount(0)
 
-  await toolkit.getByRole('tab', { name: 'Assets' }).click()
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
   const cruiser = toolkit.getByRole('button', { name: /VSP cruiser/ })
   for (let count = 0; count < 5; count += 1) await cruiser.click()
   await expect(cruiser).toBeDisabled()
+})
+
+test('organizes scene equipment into four diagonal catalog tabs', async ({ page }) => {
+  await page.goto('/')
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  const tabs = toolkit.getByRole('tab')
+  await expect(tabs).toHaveText(['SSP Assets', 'External Assets', 'Hazards', 'Incidentals'])
+  await expect(toolkit.getByRole('tab', { name: 'SSP Assets' })).toHaveAttribute('aria-selected', 'true')
+  await expect(toolkit.getByRole('tab', { name: 'SSP Assets' })).toHaveCSS('background-color', 'rgb(255, 106, 0)')
+  await expect(toolkit.locator('.toolkit-tabs')).toHaveCSS('height', '72px')
+  await expect(toolkit.getByRole('button', { name: /Gas can/ })).toBeVisible()
+  await expect(toolkit.getByRole('button', { name: /Floor jack/ })).toBeVisible()
+  await expect(toolkit.getByRole('button', { name: /Tool bag/ })).toBeVisible()
+  await expect(toolkit.getByRole('button', { name: /Portable compressor/ })).toBeVisible()
+
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
+  await expect(toolkit.getByRole('button', { name: /EMS ambulance/ })).toBeVisible()
+  await expect(toolkit.getByRole('button', { name: /Gas can/ })).toHaveCount(0)
+
+  await toolkit.getByRole('tab', { name: 'Incidentals' }).click()
+  await expect(toolkit.getByRole('button', { name: /Removed wheel/ })).toBeVisible()
+  await expect(toolkit.getByRole('button', { name: /Motorist/ })).toBeVisible()
+  await toolkit.getByRole('button', { name: /Crash debris area/ }).click()
+  const inspector = page.getByRole('region', { name: 'Selected scene item' })
+  await inspector.getByLabel('Width (ft)').fill('30')
+  await inspector.getByLabel('Length (ft)').fill('18')
+  const debris = page.locator('[data-definition-id="crash-debris-area"]')
+  await expect(debris.locator('.deployed-selection')).toHaveAttribute('width', '34')
+  await expect(debris.locator('.deployed-selection')).toHaveAttribute('height', '22')
+})
+
+test('deletes selected scene items from the keyboard and restores SSP trucks from SSP Assets', async ({ page }) => {
+  await page.goto('/')
+
+  await expect(page.getByTitle('Remove selected SSP truck')).toHaveCount(0)
+  await expect(page.getByTitle('Add SSP truck')).toHaveCount(0)
+
+  const cone = page.locator('[data-cone-id="anchor"]')
+  await cone.evaluate((element) => (element as HTMLElement).focus())
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Delete')
+  await expect(cone).toHaveCount(0)
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
+  await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
+  const ambulance = page.locator('[data-definition-id="ems-ambulance"]')
+  await page.keyboard.press('Delete')
+  await expect(ambulance).toHaveCount(0)
+
+  const truck = page.locator('[data-truck-id="ssp-truck-1"]')
+  await truck.evaluate((element) => (element as HTMLElement).focus())
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Delete')
+  await expect(truck).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'SSP truck signboard' })).toHaveCount(0)
+
+  await toolkit.getByRole('tab', { name: 'SSP Assets' }).click()
+  await toolkit.getByRole('button', { name: /^SSP truck/ }).click()
+  await expect(page.locator('[data-truck-id]')).toHaveCount(1)
+})
+
+test('exports image and portable scene files and loads the scene back', async ({ page }) => {
+  await page.addInitScript(() => {
+    const files: Record<string, string> = {}
+    Object.assign(window, {
+      __savedSceneFiles: files,
+      showDirectoryPicker: () => Promise.resolve({
+        getFileHandle: (name: string) => Promise.resolve({
+          createWritable: () => Promise.resolve({
+            write: async (data: Blob | string) => { files[name] = typeof data === 'string' ? data : await data.text() },
+            close: () => Promise.resolve(),
+          }),
+        }),
+      }),
+    })
+  })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'SAVE SCENE' }).click()
+  await page.getByRole('menuitem', { name: 'SVG vector' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys((window as unknown as { __savedSceneFiles: Record<string, string> }).__savedSceneFiles).length)).toBe(2)
+
+  const savedFiles = await page.evaluate(() => (window as unknown as { __savedSceneFiles: Record<string, string> }).__savedSceneFiles)
+  const scenarioName = Object.keys(savedFiles).find((name) => name.endsWith('.magnus.json'))
+  const svgName = Object.keys(savedFiles).find((name) => name.endsWith('.svg'))
+  expect(scenarioName).toBeTruthy()
+  expect(svgName).toBeTruthy()
+  expect(savedFiles[svgName!]).toContain('<svg')
+  expect(JSON.parse(savedFiles[scenarioName!])).toMatchObject({ kind: 'magnus-scene', version: 2 })
+
+  const truck = page.locator('[data-truck-id="ssp-truck-1"]')
+  await truck.click({ force: true })
+  await page.keyboard.press('Delete')
+  await expect(truck).toHaveCount(0)
+  await page.locator('.scene-file-input').setInputFiles({
+    name: scenarioName!,
+    mimeType: 'application/json',
+    buffer: Buffer.from(savedFiles[scenarioName!]),
+  })
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toBeVisible()
+
+  await page.getByRole('button', { name: 'SAVE SCENE' }).click()
+  await page.getByRole('menuitem', { name: 'PNG image' }).click()
+  await expect.poll(() => page.evaluate(() => Object.keys((window as unknown as { __savedSceneFiles: Record<string, string> }).__savedSceneFiles).some((name) => name.endsWith('.png')))).toBe(true)
 })
 
 test('allows scene items across the full map after repositioning the scene', async ({ page }) => {
@@ -574,6 +767,7 @@ test('allows scene items across the full map after repositioning the scene', asy
   )
 
   const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
   await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
   const ambulance = page.locator('[data-definition-id="ems-ambulance"]')
   const ambulanceBounds = await ambulance.boundingBox()
@@ -598,6 +792,7 @@ test('centers and rotates dropped response vehicles and exposes the expanded cat
   await page.goto('/')
   const stage = page.locator('.road-stage')
   const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
 
   await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
   await stage.evaluate((element) => element.scrollTo(element.scrollWidth * .75, element.scrollHeight * .7))
@@ -667,6 +862,8 @@ test('uses the shared assets and hazards catalog in the grid designer', async ({
   await page.getByRole('button', { name: /Scene design tool/ }).click()
 
   const toolkit = page.getByRole('region', { name: 'Designer equipment toolkit' })
+  await expect(toolkit.getByRole('tab')).toHaveText(['SSP Assets', 'External Assets', 'Hazards', 'Incidentals'])
+  await expect(toolkit.getByRole('tab', { name: 'SSP Assets' })).toHaveCSS('background-color', 'rgb(255, 106, 0)')
   await toolkit.getByRole('tab', { name: 'Hazards' }).click()
   await toolkit.getByRole('button', { name: 'Grey debris' }).click()
   await page.getByLabel('10 foot scene design grid').click({ position: { x: 300, y: 350 } })
@@ -674,7 +871,7 @@ test('uses the shared assets and hazards catalog in the grid designer', async ({
   await expect(page.getByRole('button', { name: 'Delete object' })).toBeVisible()
   await page.getByLabel('X (ft)').fill('400')
   await expect(page.locator('.designer-equipment.selected')).toHaveAttribute('transform', /translate\(400 /)
-  await page.getByRole('button', { name: 'Delete object' }).click()
+  await page.getByRole('button', { name: 'Delete object' }).press('Enter')
   await expect(page.getByRole('button', { name: 'Delete object' })).toHaveCount(0)
 })
 

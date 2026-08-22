@@ -10,6 +10,10 @@ describe('application version label', () => {
     expect(releaseVersionLabel('5.0.0')).toBe('v5')
   })
 
+  it('identifies release candidates', () => {
+    expect(releaseVersionLabel('5.0.0-rc.1')).toBe('v5 RC1')
+  })
+
   it('shows later Version 5 minor releases', () => {
     expect(releaseVersionLabel('5.1.0')).toBe('v5.1')
   })

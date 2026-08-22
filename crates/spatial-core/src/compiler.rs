@@ -30,6 +30,9 @@ struct WayRecord {
     refs: Vec<i64>,
     highway: String,
     name: Option<String>,
+    reference: Option<String>,
+    junction_reference: Option<String>,
+    destination_reference: Option<String>,
     layer: i16,
     bridge: bool,
     tunnel: bool,
@@ -68,6 +71,9 @@ pub fn compile_pbf(
                 refs: way.refs().collect(),
                 highway: (*highway).to_owned(),
                 name: tags.get("name").map(|value| (*value).to_owned()),
+                reference: tags.get("ref").map(|value| (*value).to_owned()),
+                junction_reference: tags.get("junction:ref").map(|value| (*value).to_owned()),
+                destination_reference: tags.get("destination:ref").map(|value| (*value).to_owned()),
                 layer: tags
                     .get("layer")
                     .and_then(|value| value.parse().ok())
@@ -100,6 +106,9 @@ pub fn compile_pbf(
             osm_id: Some(way.id),
             name: way.name,
             highway: Some(way.highway),
+            reference: way.reference,
+            junction_reference: way.junction_reference,
+            destination_reference: way.destination_reference,
             bridge: Some(way.bridge),
             tunnel: Some(way.tunnel),
             lanes: Some(way.lanes),

@@ -18,6 +18,18 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
       return <><circle r={halfWidth} fill="#161b1a" /><circle r={width * .38} fill="#c9cecc" /><circle r={width * .26} fill={definition.color} /></>
     case 'flare':
       return <><circle r={Math.max(width, 2)} fill="#d93528" className="catalog-flare" /><path d="M -1.5 0 H 1.5 M 0 -1.5 V 1.5" className="catalog-detail" /></>
+    case 'gas-can':
+      return <><path {...common} d={`M ${-halfWidth} ${halfLength} V ${-length * .25} Q ${-halfWidth} ${-halfLength} ${-width * .2} ${-halfLength} H ${width * .25} Q ${halfWidth} ${-halfLength} ${halfWidth} ${-length * .22} V ${halfLength} Z`} /><path d={`M ${-width * .18} ${-halfLength} V ${-length * .28} H ${width * .18} V ${-halfLength} M ${width * .3} ${-length * .3} L ${halfWidth} ${-length * .48}`} className="catalog-detail" /></>
+    case 'floor-jack':
+      return <><path {...common} d={`M ${-halfWidth} ${halfLength} L ${-width * .3} ${-halfLength * .35} H ${width * .3} L ${halfWidth} ${halfLength} Z`} /><circle cx={-width * .34} cy={halfLength * .72} r={width * .12} fill="#252b29" /><circle cx={width * .34} cy={halfLength * .72} r={width * .12} fill="#252b29" /><path d={`M 0 ${-halfLength * .2} L ${width * .42} ${-halfLength}`} className="catalog-detail" /></>
+    case 'tool-bag':
+      return <><rect {...common} x={-halfWidth} y={-length * .28} width={width} height={length * .78} rx={width * .12} /><path d={`M ${-width * .24} ${-length * .28} V ${-halfLength} H ${width * .24} V ${-length * .28}`} className="catalog-detail" /></>
+    case 'compressor':
+      return <><rect {...common} x={-width * .36} y={-length * .28} width={width * .72} height={length * .62} rx={width * .3} /><circle cx={-width * .3} cy={halfLength * .42} r={width * .15} fill="#252b29" /><circle cx={width * .3} cy={halfLength * .42} r={width * .15} fill="#252b29" /><path d={`M ${-width * .2} ${-length * .28} V ${-halfLength} H ${width * .2} V ${-length * .28}`} className="catalog-detail" /></>
+    case 'tire':
+      return <><circle r={halfWidth} fill="#202524" stroke="#111817" strokeWidth=".7" /><circle r={width * .24} fill="#737b78" stroke="#111817" strokeWidth=".5" /></>
+    case 'debris-area':
+      return <><rect x={-halfWidth} y={-halfLength} width={width} height={length} fill="rgba(155,161,159,.28)" stroke="#343b39" strokeWidth=".7" strokeDasharray="2 1" /><path d={`M ${-halfWidth} ${-halfLength * .35} L ${-width * .15} ${halfLength} M ${-width * .12} ${-halfLength} L ${width * .22} ${halfLength} M ${width * .24} ${-halfLength} L ${halfWidth} ${halfLength * .35}`} className="catalog-detail" /></>
     case 'diamond-sign':
     case 'debris':
       return <><rect {...common} x={-halfWidth} y={-halfLength} width={width} height={length} transform="rotate(45) scale(.7)" /><text className="catalog-label" textAnchor="middle" y="1.5">{definition.glyph === 'debris' ? 'DEBRIS' : 'SCENE'}</text></>

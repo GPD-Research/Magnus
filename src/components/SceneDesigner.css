@@ -20,10 +20,11 @@
 .line-kind-control select { height: 31px; color: #27322f; background: #fff; border: 1px solid #cbd3cf; font-size: 9px; }
 .line-kind-control small { color: #187853; font-size: 8px; font-weight: 500; text-transform: none; }
 .designer-toolkit { margin-top: 12px; border-top: 1px solid #d8dedb; }
-.designer-toolkit > div:first-child { height: 32px; display: grid; grid-template-columns: 1fr 1fr; }
-.designer-toolkit > div:first-child button { padding: 0; color: #65716c; background: #e9eeeb; border: 0; border-right: 1px solid #d3dad7; font-size: 7px; font-weight: 600; text-transform: uppercase; cursor: pointer; }
+.designer-toolkit > div:first-child { height: 72px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; background: #d9dfdc; }
+.designer-toolkit > div:first-child button { min-width: 0; position: relative; display: grid; place-items: center; padding: 0; color: #65716c; background: #e9eeeb; border: 0; border-right: 1px solid #d3dad7; clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%); font-size: 7px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+.designer-toolkit > div:first-child button span { width: 74px; position: absolute; left: calc(50% + 4px); bottom: 4px; line-height: 1; text-align: left; white-space: nowrap; transform: translateX(-32%) rotate(-58deg); transform-origin: left center; }
 .designer-toolkit > div:first-child button:last-child { border-right: 0; }
-.designer-toolkit > div:first-child button[aria-selected='true'] { color: #fff; background: #246249; }
+.designer-toolkit > div:first-child button[aria-selected='true'] { z-index: 1; color: #111817; background: #ff6a00; }
 .designer-toolkit > div:last-child { max-height: 330px; overflow-y: auto; }
 .designer-toolkit > div:last-child button { width: 100%; min-height: 33px; display: grid; grid-template-columns: 9px 1fr 14px; align-items: center; gap: 6px; padding: 4px 7px; color: #47544f; text-align: left; background: #fff; border: 0; border-bottom: 1px solid #e2e7e4; cursor: pointer; }
 .designer-toolkit > div:last-child button.active { color: #155e43; background: #e4f1eb; box-shadow: inset 2px 0 #187853; }

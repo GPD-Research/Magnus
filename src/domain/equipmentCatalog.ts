@@ -1,5 +1,12 @@
-export type ToolkitCategory = 'asset' | 'hazard'
+export type ToolkitCategory = 'ssp-asset' | 'external-asset' | 'hazard' | 'incidental'
 export type SceneCountClass = 'vehicle' | 'cone' | 'personnel' | 'equipment' | 'hazard'
+
+export const TOOLKIT_CATEGORIES: { id: ToolkitCategory; label: string }[] = [
+  { id: 'ssp-asset', label: 'SSP Assets' },
+  { id: 'external-asset', label: 'External Assets' },
+  { id: 'hazard', label: 'Hazards' },
+  { id: 'incidental', label: 'Incidentals' },
+]
 
 export type EquipmentGlyph =
   | 'cone' | 'flare' | 'diamond-sign' | 'person' | 'ssp-truck' | 'cruiser' | 'ambulance'
@@ -7,6 +14,7 @@ export type EquipmentGlyph =
   | 'tractor-trailer' | 'jackknife' | 'tractor' | 'bus' | 'trailer'
   | 'car-hauler' | 'vehicle-fire' | 'tanker' | 'debris' | 'deer' | 'airplane' | 'helipad'
   | 'tow-truck' | 'heavy-tow' | 'tma-crash' | 'tma-cone' | 'barrel' | 'motorcycle' | 'injured-person'
+  | 'gas-can' | 'floor-jack' | 'tool-bag' | 'compressor' | 'tire' | 'debris-area'
 
 export interface EquipmentDefinition {
   id: string
@@ -19,6 +27,7 @@ export interface EquipmentDefinition {
   length: number
   limit?: number
   rotatable?: boolean
+  resizable?: boolean
   capacity?: { per: 'ssp-truck' | 'vsp-cruiser' | 'fire-response' | 'incident-command' | 'tma-cone-truck'; quantity: number }
 }
 
@@ -28,31 +37,37 @@ export interface DeployedEquipment {
   x: number
   y: number
   rotation: number
+  width?: number
+  length?: number
 }
 
 // Add new scene items here. Existing glyphs need no component changes; genuinely
 // new silhouettes require one additional case in SceneEquipmentGlyph.
 export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
-  { id: 'ssp-truck', label: 'SSP truck', category: 'asset', countClass: 'vehicle', glyph: 'ssp-truck', color: '#eef1ed', width: 8.5, length: 24, limit: 5 },
-  { id: 'cone', label: 'Full-size cone', category: 'asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 20 } },
-  { id: 'flare', label: 'Road flare', category: 'asset', countClass: 'equipment', glyph: 'flare', color: '#e24631', width: 2, length: 2, capacity: { per: 'ssp-truck', quantity: 80 } },
-  { id: 'emergency-sign', label: 'Emergency Scene Ahead sign', category: 'asset', countClass: 'equipment', glyph: 'diamond-sign', color: '#ed5ca8', width: 6, length: 6, capacity: { per: 'ssp-truck', quantity: 2 } },
-  { id: 'ssp-patroller', label: 'SSP patroller', category: 'asset', countClass: 'personnel', glyph: 'person', color: '#e7d62e', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 1 } },
-  { id: 'vsp-cruiser', label: 'VSP cruiser', category: 'asset', countClass: 'vehicle', glyph: 'cruiser', color: '#c9ced0', width: 8, length: 20, limit: 5, rotatable: true },
-  { id: 'vsp-officer', label: 'VSP officer', category: 'asset', countClass: 'personnel', glyph: 'person', color: '#777b7e', width: 3, length: 3, capacity: { per: 'vsp-cruiser', quantity: 1 } },
-  { id: 'ems-ambulance', label: 'EMS ambulance', category: 'asset', countClass: 'vehicle', glyph: 'ambulance', color: '#f2f3ef', width: 9, length: 24 },
-  { id: 'ladder-truck', label: 'Fire & rescue ladder truck', category: 'asset', countClass: 'vehicle', glyph: 'ladder-truck', color: '#c83b31', width: 10, length: 42 },
-  { id: 'pump-truck', label: 'Fire & rescue pump truck', category: 'asset', countClass: 'vehicle', glyph: 'pump-truck', color: '#c83b31', width: 10, length: 30 },
-  { id: 'fire-chief', label: 'Fire chief pickup', category: 'asset', countClass: 'vehicle', glyph: 'pickup', color: '#c83b31', width: 8, length: 20 },
-  { id: 'hurst', label: 'Hurst rescue tool', category: 'asset', countClass: 'equipment', glyph: 'tool', color: '#e8c62f', width: 4, length: 4 },
-  { id: 'compact-cone', label: 'Compact cone', category: 'asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 2, length: 2, capacity: { per: 'fire-response', quantity: 10 } },
-  { id: 'incident-command', label: 'Incident commander SUV', category: 'asset', countClass: 'vehicle', glyph: 'suv', color: '#f3f4ef', width: 8, length: 20, limit: 2 },
-  { id: 'command-cone', label: 'Incident command cone', category: 'asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'incident-command', quantity: 10 } },
-  { id: 'tow-truck', label: 'Tow truck', category: 'asset', countClass: 'vehicle', glyph: 'tow-truck', color: '#e6e9e7', width: 9, length: 24, rotatable: true },
-  { id: 'heavy-tow-truck', label: 'Heavy tow truck', category: 'asset', countClass: 'vehicle', glyph: 'heavy-tow', color: '#d8dcda', width: 10, length: 38, rotatable: true },
-  { id: 'tma-crash-truck', label: 'TMA crash truck', category: 'asset', countClass: 'vehicle', glyph: 'tma-crash', color: '#e3e6e2', width: 11, length: 36, rotatable: true },
-  { id: 'tma-cone-truck', label: 'TMA cone truck', category: 'asset', countClass: 'vehicle', glyph: 'tma-cone', color: '#e3e6e2', width: 11, length: 32, rotatable: true },
-  { id: 'barrel', label: 'Barrel / drum', category: 'asset', countClass: 'equipment', glyph: 'barrel', color: '#ed6a24', width: 6, length: 6, capacity: { per: 'tma-cone-truck', quantity: 50 } },
+  { id: 'ssp-truck', label: 'SSP truck', category: 'ssp-asset', countClass: 'vehicle', glyph: 'ssp-truck', color: '#eef1ed', width: 8.5, length: 24, limit: 5 },
+  { id: 'cone', label: 'Full-size cone', category: 'ssp-asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 20 } },
+  { id: 'flare', label: 'Road flare', category: 'ssp-asset', countClass: 'equipment', glyph: 'flare', color: '#e24631', width: 2, length: 2, capacity: { per: 'ssp-truck', quantity: 80 } },
+  { id: 'emergency-sign', label: 'Emergency Scene Ahead sign', category: 'ssp-asset', countClass: 'equipment', glyph: 'diamond-sign', color: '#ed5ca8', width: 6, length: 6, capacity: { per: 'ssp-truck', quantity: 2 } },
+  { id: 'ssp-patroller', label: 'SSP patroller', category: 'ssp-asset', countClass: 'personnel', glyph: 'person', color: '#e7d62e', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 1 } },
+  { id: 'gas-can', label: 'Gas can', category: 'ssp-asset', countClass: 'equipment', glyph: 'gas-can', color: '#d74731', width: 3, length: 4, capacity: { per: 'ssp-truck', quantity: 3 } },
+  { id: 'floor-jack', label: 'Floor jack', category: 'ssp-asset', countClass: 'equipment', glyph: 'floor-jack', color: '#d8a52d', width: 4, length: 6, capacity: { per: 'ssp-truck', quantity: 1 } },
+  { id: 'tool-bag', label: 'Tool bag', category: 'ssp-asset', countClass: 'equipment', glyph: 'tool-bag', color: '#304a3f', width: 4, length: 3, capacity: { per: 'ssp-truck', quantity: 1 } },
+  { id: 'portable-compressor', label: 'Portable compressor', category: 'ssp-asset', countClass: 'equipment', glyph: 'compressor', color: '#d3aa32', width: 4, length: 5, capacity: { per: 'ssp-truck', quantity: 1 } },
+  { id: 'vsp-cruiser', label: 'VSP cruiser', category: 'external-asset', countClass: 'vehicle', glyph: 'cruiser', color: '#c9ced0', width: 8, length: 20, limit: 5, rotatable: true },
+  { id: 'vsp-officer', label: 'VSP officer', category: 'external-asset', countClass: 'personnel', glyph: 'person', color: '#777b7e', width: 3, length: 3, capacity: { per: 'vsp-cruiser', quantity: 1 } },
+  { id: 'ems-ambulance', label: 'EMS ambulance', category: 'external-asset', countClass: 'vehicle', glyph: 'ambulance', color: '#f2f3ef', width: 9, length: 24 },
+  { id: 'ladder-truck', label: 'Fire & rescue ladder truck', category: 'external-asset', countClass: 'vehicle', glyph: 'ladder-truck', color: '#c83b31', width: 10, length: 42 },
+  { id: 'pump-truck', label: 'Fire & rescue pump truck', category: 'external-asset', countClass: 'vehicle', glyph: 'pump-truck', color: '#c83b31', width: 10, length: 30 },
+  { id: 'fire-chief', label: 'Fire chief pickup', category: 'external-asset', countClass: 'vehicle', glyph: 'pickup', color: '#c83b31', width: 8, length: 20 },
+  { id: 'hurst', label: 'Hurst rescue tool', category: 'external-asset', countClass: 'equipment', glyph: 'tool', color: '#e8c62f', width: 4, length: 4 },
+  { id: 'compact-cone', label: 'Compact cone', category: 'external-asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 2, length: 2, capacity: { per: 'fire-response', quantity: 10 } },
+  { id: 'incident-command', label: 'Incident commander SUV', category: 'external-asset', countClass: 'vehicle', glyph: 'suv', color: '#f3f4ef', width: 8, length: 20, limit: 2 },
+  { id: 'command-cone', label: 'Incident command cone', category: 'external-asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'incident-command', quantity: 10 } },
+  { id: 'tow-truck', label: 'Tow truck', category: 'external-asset', countClass: 'vehicle', glyph: 'tow-truck', color: '#e6e9e7', width: 9, length: 24, rotatable: true },
+  { id: 'heavy-tow-truck', label: 'Heavy tow truck', category: 'external-asset', countClass: 'vehicle', glyph: 'heavy-tow', color: '#d8dcda', width: 10, length: 38, rotatable: true },
+  { id: 'tma-crash-truck', label: 'TMA crash truck', category: 'external-asset', countClass: 'vehicle', glyph: 'tma-crash', color: '#e3e6e2', width: 11, length: 36, rotatable: true },
+  { id: 'tma-cone-truck', label: 'TMA cone truck', category: 'external-asset', countClass: 'vehicle', glyph: 'tma-cone', color: '#e3e6e2', width: 11, length: 32, rotatable: true },
+  { id: 'barrel', label: 'Barrel / drum', category: 'external-asset', countClass: 'equipment', glyph: 'barrel', color: '#ed6a24', width: 6, length: 6, capacity: { per: 'tma-cone-truck', quantity: 50 } },
   { id: 'sedan-green', label: 'Green sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#477b58', width: 7, length: 16, rotatable: true },
   { id: 'sedan-grey', label: 'Grey sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#858c8d', width: 7, length: 16, rotatable: true },
   { id: 'sedan-black', label: 'Black sedan', category: 'hazard', countClass: 'hazard', glyph: 'sedan', color: '#242827', width: 7, length: 16, rotatable: true },
@@ -75,6 +90,9 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'deer', label: 'Deer debris', category: 'hazard', countClass: 'hazard', glyph: 'deer', color: '#8a674b', width: 6, length: 9 },
   { id: 'airplane', label: 'Damaged single-prop airplane', category: 'hazard', countClass: 'hazard', glyph: 'airplane', color: '#d9dddb', width: 34, length: 28 },
   { id: 'helicopter-zone', label: 'Helicopter landing zone', category: 'hazard', countClass: 'hazard', glyph: 'helipad', color: '#d24035', width: 36, length: 36 },
+  { id: 'removed-wheel', label: 'Removed wheel / tire', category: 'incidental', countClass: 'equipment', glyph: 'tire', color: '#282d2c', width: 4, length: 4, rotatable: true },
+  { id: 'crash-debris-area', label: 'Crash debris area', category: 'incidental', countClass: 'equipment', glyph: 'debris-area', color: '#9ba19f', width: 20, length: 12, rotatable: true, resizable: true },
+  { id: 'motorist', label: 'Motorist / passenger', category: 'incidental', countClass: 'personnel', glyph: 'person', color: '#4f82ad', width: 3, length: 3 },
 ]
 
 export const equipmentDefinition = (id: string): EquipmentDefinition => {

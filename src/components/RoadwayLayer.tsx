@@ -34,6 +34,106 @@ function featurePath(feature: RoadFeature): string {
     : linePath(feature.geometry)
 }
 
+function featureMidpoint(feature: RoadFeature): readonly [number, number] {
+  const points = feature.geometry.type === 'Polygon'
+    ? feature.geometry.coordinates[0]
+    : feature.geometry.coordinates
+  if (points.length === 0) return [0, 0]
+  if (feature.geometry.type === 'Polygon') {
+    const xs = points.map(([x]) => x)
+    const ys = points.map(([, y]) => y)
+    return [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]
+  }
+  const segmentLengths = points.slice(1).map(([x, y], index) => Math.hypot(x - points[index][0], y - points[index][1]))
+  const halfway = segmentLengths.reduce((sum, length) => sum + length, 0) / 2
+  let travelled = 0
+  for (let index = 0; index < segmentLengths.length; index += 1) {
+    const length = segmentLengths[index]
+    if (travelled + length >= halfway) {
+      const ratio = length === 0 ? 0 : (halfway - travelled) / length
+      return [
+        points[index][0] + (points[index + 1][0] - points[index][0]) * ratio,
+        points[index][1] + (points[index + 1][1] - points[index][1]) * ratio,
+      ]
+    }
+    travelled += length
+  }
+  return points.at(-1) ?? [0, 0]
+}
+
+function labelAnchor(feature: RoadFeature, focus: { x: number; y: number }): readonly [number, number] {
+  const points = feature.geometry.type === 'Polygon'
+    ? feature.geometry.coordinates[0]
+    : feature.geometry.coordinates
+  if (points.length === 0) return [focus.x, focus.y]
+  if (feature.geometry.type === 'Polygon') {
+    const xs = points.map(([x]) => x)
+    const ys = points.map(([, y]) => y)
+    return [
+      Math.min(Math.max(focus.x, Math.min(...xs)), Math.max(...xs)),
+      Math.min(Math.max(focus.y - 35, Math.min(...ys)), Math.max(...ys)),
+    ]
+  }
+  let nearest = featureMidpoint(feature)
+  let nearestDistance = Number.POSITIVE_INFINITY
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const [startX, startY] = points[index]
+    const [endX, endY] = points[index + 1]
+    const deltaX = endX - startX
+    const deltaY = endY - startY
+    const lengthSquared = deltaX * deltaX + deltaY * deltaY
+    const ratio = lengthSquared === 0 ? 0 : Math.min(1, Math.max(0,
+      ((focus.x - startX) * deltaX + (focus.y - startY) * deltaY) / lengthSquared,
+    ))
+    const candidate: readonly [number, number] = [startX + deltaX * ratio, startY + deltaY * ratio]
+    const distance = Math.hypot(focus.x - candidate[0], focus.y - candidate[1])
+    if (distance < nearestDistance) {
+      nearest = candidate
+      nearestDistance = distance
+    }
+  }
+  return [nearest[0], nearest[1] - 24]
+}
+
+function roadwayLabel(feature: RoadFeature): string | null {
+  const properties = feature.properties
+  const formatReference = (value: string) => value.split(';').map((part) => part.trim()).filter(Boolean).join(' / ')
+  const exit = properties.junctionReference ? `Exit ${formatReference(properties.junctionReference)}` : null
+  const destination = properties.destinationReference ? `to ${formatReference(properties.destinationReference)}` : null
+  const primary = properties.reference ? formatReference(properties.reference) : properties.name
+  return [primary, exit, destination].filter(Boolean).join(' · ') || null
+}
+
+function labelFeatures(scene: RoadScene, focus: { x: number; y: number }): RoadFeature[] {
+  const nearestByLabel = new Map<string, { feature: RoadFeature; distance: number }>()
+  for (const feature of scene.features) {
+    const label = roadwayLabel(feature)
+    if (feature.kind !== 'road-surface' || label === null) continue
+    const [x, y] = labelAnchor(feature, focus)
+    const distance = Math.hypot(focus.x - x, focus.y - y)
+    const current = nearestByLabel.get(label)
+    if (!current || distance < current.distance) nearestByLabel.set(label, { feature, distance })
+  }
+  return [...nearestByLabel.values()].map(({ feature }) => feature)
+}
+
+export function RoadwayLabels({
+  scene,
+  focus,
+}: {
+  scene: RoadScene
+  focus: { x: number; y: number }
+}) {
+  return (
+    <g className="roadway-label-layer" aria-label="Highway labels">
+      {labelFeatures(scene, focus).map((feature) => {
+        const [x, y] = labelAnchor(feature, focus)
+        return <text className="roadway-label" x={x} y={y} key={`label-${feature.id}`} textAnchor="middle">{roadwayLabel(feature)}</text>
+      })}
+    </g>
+  )
+}
+
 export function RoadwayLayer({
   scene,
   visibility,

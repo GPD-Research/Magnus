@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canDeploy, deployedCount, deploymentLimit, equipmentDefinition, isEquipmentRotatable, sceneCounts, type DeployedEquipment } from './equipmentCatalog'
+import { EQUIPMENT_CATALOG, TOOLKIT_CATEGORIES, canDeploy, deployedCount, deploymentLimit, equipmentDefinition, isEquipmentRotatable, sceneCounts, type DeployedEquipment } from './equipmentCatalog'
 
 const deploy = (definitionId: string, index: number): DeployedEquipment => ({
   id: `${definitionId}-${index}`,
@@ -15,6 +15,19 @@ describe('equipment catalog', () => {
     expect(deploymentLimit(equipmentDefinition('flare'), [], 2)).toBe(160)
     expect(deploymentLimit(equipmentDefinition('emergency-sign'), [], 2)).toBe(4)
     expect(deploymentLimit(equipmentDefinition('ssp-patroller'), [], 2)).toBe(2)
+    expect(deploymentLimit(equipmentDefinition('gas-can'), [], 2)).toBe(6)
+    expect(deploymentLimit(equipmentDefinition('floor-jack'), [], 2)).toBe(2)
+    expect(deploymentLimit(equipmentDefinition('tool-bag'), [], 2)).toBe(2)
+    expect(deploymentLimit(equipmentDefinition('portable-compressor'), [], 2)).toBe(2)
+  })
+
+  it('organizes the scene catalog into the four planned categories', () => {
+    expect(TOOLKIT_CATEGORIES.map(({ label }) => label)).toEqual(['SSP Assets', 'External Assets', 'Hazards', 'Incidentals'])
+    expect(equipmentDefinition('ssp-truck').category).toBe('ssp-asset')
+    expect(equipmentDefinition('ems-ambulance').category).toBe('external-asset')
+    expect(equipmentDefinition('vehicle-fire').category).toBe('hazard')
+    expect(equipmentDefinition('crash-debris-area')).toMatchObject({ category: 'incidental', resizable: true })
+    expect(new Set(EQUIPMENT_CATALOG.map(({ category }) => category))).toEqual(new Set(TOOLKIT_CATEGORIES.map(({ id }) => id)))
   })
 
   it('caps VSP cruisers and officers at five', () => {

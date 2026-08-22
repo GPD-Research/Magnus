@@ -22,6 +22,9 @@ export interface RoadFeature {
     osmId?: number
     name?: string
     highway?: string
+    reference?: string
+    junctionReference?: string
+    destinationReference?: string
     bridge?: boolean
     tunnel?: boolean
     lanes?: number
@@ -61,7 +64,7 @@ export const ROADWAY_DIMENSIONS_FEET = {
   skipGapLength: 30,
 } as const
 
-export type RoadLayer = 'roadGeometry' | 'barriers' | 'trafficFlow'
+export type RoadLayer = 'roadGeometry' | 'barriers' | 'trafficFlow' | 'highwayLabels'
 export type RoadLayerVisibility = Record<RoadLayer, boolean>
 
 export function roadLayerForFeature(feature: RoadFeature): RoadLayer {
@@ -112,14 +115,14 @@ export function createDevelopmentRoadScene(): RoadScene {
         kind: 'road-casing',
         layer: 0,
         geometry: { type: 'Polygon', coordinates: [[[4, 0], [68, 0], [68, 760], [4, 760], [4, 0]]] },
-        properties: { name: 'I-95 Northbound', highway: 'motorway', lanes: 3, direction: 'forward' },
+        properties: { name: 'I-95 Northbound', highway: 'motorway', reference: 'I-95', lanes: 3, direction: 'forward' },
       },
       {
         id: 'mainline-surface',
         kind: 'road-surface',
         layer: 0,
         geometry: { type: 'Polygon', coordinates: [[[6, 0], [66, 0], [66, 760], [6, 760], [6, 0]]] },
-        properties: { name: 'I-95 Northbound', highway: 'motorway', lanes: 3, direction: 'forward' },
+        properties: { name: 'I-95 Northbound', highway: 'motorway', reference: 'I-95', lanes: 3, direction: 'forward' },
       },
       verticalLine('left-shoulder-edge', 'shoulder-edge', 6, 1, 1),
       verticalLine('left-fog-line', 'left-fog-line', 18, 2, ROADWAY_DIMENSIONS_FEET.edgeLineWidth),

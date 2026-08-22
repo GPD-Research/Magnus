@@ -33,6 +33,12 @@ pub struct FeatureProperties {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub highway: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub junction_reference: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_reference: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bridge: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tunnel: Option<bool>,

@@ -59,7 +59,7 @@ describe('scene camera', () => {
       MIN_VISIBLE_SCENE_WIDTH_FEET,
     )
 
-    expect(visibleSceneWidth(scene, display, defaultZoom)).toBe(320)
+    expect(visibleSceneWidth(scene, display, defaultZoom)).toBe(500)
     expect(visibleSceneWidth(scene, display, maximumZoom)).toBe(40)
   })
 

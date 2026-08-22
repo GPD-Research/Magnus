@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import {
   EQUIPMENT_CATALOG,
+  TOOLKIT_CATEGORIES,
   canDeploy,
   equipmentDefinition,
   sceneCounts,
@@ -106,7 +107,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
   const [lineStart, setLineStart] = useState<Vector2 | null>(null)
   const [selectedId, setSelectedId] = useState<string>('ssp-truck')
   const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [activeToolkit, setActiveToolkit] = useState<ToolkitCategory>('asset')
+  const [activeToolkit, setActiveToolkit] = useState<ToolkitCategory>('ssp-asset')
   const [placementDefinitionId, setPlacementDefinitionId] = useState<string | null>(null)
   const selected = template.equipment.find((item) => item.id === selectedId)
   const catalogEquipment: DeployedEquipment[] = template.equipment
@@ -220,7 +221,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
             </label>
           )}
           <section className="designer-toolkit" aria-label="Designer equipment toolkit">
-            <div role="tablist" aria-label="Designer toolkit"><button type="button" role="tab" aria-selected={activeToolkit === 'asset'} onClick={() => setActiveToolkit('asset')}>Assets</button><button type="button" role="tab" aria-selected={activeToolkit === 'hazard'} onClick={() => setActiveToolkit('hazard')}>Hazards</button></div>
+            <div role="tablist" aria-label="Designer toolkit">{TOOLKIT_CATEGORIES.map((category) => <button type="button" role="tab" aria-selected={activeToolkit === category.id} key={category.id} onClick={() => setActiveToolkit(category.id)}><span>{category.label}</span></button>)}</div>
             <div>{EQUIPMENT_CATALOG.filter((definition) => definition.category === activeToolkit).map((definition) => {
               const available = canDeploy(definition.id, catalogEquipment, 0)
               return <button className={placementDefinitionId === definition.id ? 'active' : ''} type="button" disabled={!available} title={definition.label} key={definition.id} onClick={() => { setPlacementDefinitionId(definition.id); setTool('select'); setLineStart(null) }}><span style={{ background: definition.color }} /><b>{definition.label}</b><Plus size={12} /></button>

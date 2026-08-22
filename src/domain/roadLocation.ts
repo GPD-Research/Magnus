@@ -201,11 +201,12 @@ export async function resolveRoadLocation(
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Unknown map service error'
+    const referenceLabel = normalizedRequest.referenceType === 'exit' ? 'exit' : 'mile marker'
     return {
       request: normalizedRequest,
       scene: createLocationPreviewScene(normalizedRequest),
       source: 'development-preview',
-      message: `${sourceMode === 'online' ? 'Online' : sourceMode === 'lan' ? 'LAN' : 'Offline'} map geometry is unavailable: ${reason}. Showing a scale-accurate development preview.`,
+      message: `${sourceMode === 'online' ? 'Online' : sourceMode === 'lan' ? 'LAN' : 'Offline'} map geometry is unavailable for ${normalizedRequest.highway} ${normalizedRequest.direction}, ${referenceLabel} ${normalizedRequest.reference}: ${reason}. Showing a scale-accurate development preview without map-derived labels.`,
     }
   }
 }
