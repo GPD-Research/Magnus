@@ -92,6 +92,34 @@ test('saves and restores the complete scene configuration', async ({ page }) => 
   await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(0)
 })
 
+test('warns about unsaved changes before exiting and allows them to be discarded', async ({ page }) => {
+  let exitRequests = 0
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.route('**/api/exit', (route) => {
+    exitRequests += 1
+    return route.fulfill({ status: 202 })
+  })
+  await page.goto('/')
+  await expect(page.getByText('scale-accurate development preview', { exact: false })).toBeVisible()
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
+  await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm')
+    expect(dialog.message()).toContain('unsaved changes')
+    await dialog.dismiss()
+  })
+  await page.getByRole('button', { name: 'Exit Magnus' }).click()
+  expect(exitRequests).toBe(0)
+  await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(1)
+
+  page.once('dialog', async (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Exit Magnus' }).click()
+  await expect.poll(() => exitRequests).toBe(1)
+})
+
 test('zooms the imported vector highway graphic', async ({ page }) => {
   await page.goto('/')
   const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
@@ -149,6 +177,44 @@ test('zooms the imported vector highway graphic', async ({ page }) => {
 
   await stage.dispatchEvent('wheel', { deltaY: -1000, ctrlKey: true })
   await expect(canvas).toHaveAttribute('data-visible-width-feet', '40')
+})
+
+test('draws sampled freehand vectors and controls their layer', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Draw' }).click()
+  const drawingTools = page.getByRole('dialog', { name: 'Freehand drawing tools' })
+  await drawingTools.getByRole('button', { name: 'Pen off' }).click()
+  await drawingTools.getByLabel('Drawing width').fill('10')
+  await page.getByRole('button', { name: 'Draw' }).click()
+
+  const drawingSurface = page.locator('.drawing-hit-area')
+  const bounds = await drawingSurface.boundingBox()
+  expect(bounds).not.toBeNull()
+  const startX = bounds!.x + bounds!.width / 2
+  const startY = bounds!.y + bounds!.height * .3
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(startX + Math.min(20, bounds!.width * .2), startY + 140, { steps: 2 })
+  await page.mouse.up()
+
+  const stroke = page.locator('.drawing-stroke')
+  await expect(stroke).toHaveCount(1)
+  await expect(stroke).toHaveAttribute('stroke-width', '10')
+  const points = (await stroke.getAttribute('points'))!.split(' ').map((point) => point.split(',').map(Number))
+  expect(points.length).toBeGreaterThan(2)
+  expect(Math.max(...points.slice(1).map(([x, y], index) => Math.hypot(x - points[index][0], y - points[index][1])))).toBeLessThanOrEqual(10.01)
+
+  const drawingsLayer = page.getByText('Drawings', { exact: true }).locator('..').getByRole('checkbox')
+  await drawingsLayer.uncheck()
+  await expect(stroke).toHaveCount(0)
+  await drawingsLayer.check()
+  await expect(stroke).toHaveCount(1)
+
+  await page.getByRole('button', { name: 'Draw' }).click()
+  await page.getByRole('dialog', { name: 'Freehand drawing tools' }).getByRole('button', { name: 'Undo last stroke' }).click()
+  await expect(stroke).toHaveCount(0)
 })
 
 test('reserves two-finger touch input and pans with three touch contacts', async ({ page }) => {
@@ -626,6 +692,12 @@ test('organizes scene equipment into four diagonal catalog tabs', async ({ page 
   await expect(tabs).toHaveText(['SSP Assets', 'External Assets', 'Hazards', 'Incidentals'])
   await expect(toolkit.getByRole('tab', { name: 'SSP Assets' })).toHaveAttribute('aria-selected', 'true')
   await expect(toolkit.getByRole('tab', { name: 'SSP Assets' })).toHaveCSS('background-color', 'rgb(255, 106, 0)')
+  await expect(toolkit.getByRole('tab', { name: 'External Assets' })).toHaveCSS('background-color', 'rgb(166, 64, 0)')
+  await expect(toolkit.getByRole('tab', { name: 'External Assets' })).toHaveCSS('color', 'rgb(255, 255, 255)')
+  await expect(toolkit.getByRole('tab', { name: 'SSP Assets' }).locator('.toolkit-tab-line')).toHaveText(['SSP', 'Assets'])
+  await expect(toolkit.getByRole('tab', { name: 'External Assets' }).locator('.toolkit-tab-line')).toHaveText(['External', 'Assets'])
+  await expect(toolkit.getByRole('tab', { name: 'Hazards' })).toHaveCSS('font-size', '13px')
+  await expect(toolkit.getByRole('tab', { name: 'Incidentals' })).toHaveCSS('font-size', '9px')
   await expect(toolkit.locator('.toolkit-tabs')).toHaveCSS('height', '72px')
   await expect(toolkit.getByRole('button', { name: /Gas can/ })).toBeVisible()
   await expect(toolkit.getByRole('button', { name: /Floor jack/ })).toBeVisible()

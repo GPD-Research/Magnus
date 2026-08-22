@@ -13,11 +13,12 @@ const state: PortableScenarioState = {
   points: [],
   trucks: [],
   deployedEquipment: [],
+  drawingStrokes: [{ id: 'stroke-1', points: [{ x: 10, y: 20 }, { x: 20, y: 30 }], color: '#ffffff', widthFeet: 4, createdAt: 1, persistence: 'persistent' }],
   radioEvents: [],
   roadScene: createDevelopmentRoadScene(),
   locationRequest: { highway: 'I-95', direction: 'northbound', referenceType: 'exit', reference: '166A' },
   resolvedLocation: null,
-  roadLayerVisibility: { roadGeometry: true, barriers: true, trafficFlow: true, highwayLabels: true },
+  roadLayerVisibility: { roadGeometry: true, barriers: true, trafficFlow: true, highwayLabels: true, drawings: true },
   sceneZoom: 1.25,
 }
 
@@ -31,6 +32,21 @@ describe('portable scenario files', () => {
     const document = createPortableScenario(state, '5.0.0', '2026-08-20T00:00:00.000Z')
     const serialized = JSON.stringify({ ...document, state: { ...document.state, mapRotation: undefined } })
     expect(parsePortableScenario(serialized).state.mapRotation).toBe(0)
+  })
+
+  it('defaults files saved before drawing support to an empty visible drawing layer', () => {
+    const document = createPortableScenario(state, '5.0.0', '2026-08-20T00:00:00.000Z')
+    const serialized = JSON.stringify({
+      ...document,
+      state: {
+        ...document.state,
+        drawingStrokes: undefined,
+        roadLayerVisibility: { ...document.state.roadLayerVisibility, drawings: undefined },
+      },
+    })
+
+    expect(parsePortableScenario(serialized).state.drawingStrokes).toEqual([])
+    expect(parsePortableScenario(serialized).state.roadLayerVisibility.drawings).toBe(true)
   })
 
   it('rejects unsupported and incomplete files', () => {

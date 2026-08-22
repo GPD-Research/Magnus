@@ -54,6 +54,23 @@ impl RoadLocationRequest {
             "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\n{anchor_filter}->.candidateAnchors;\nway(around.candidateAnchors:250)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:850)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n(.anchors;.routeWays;.nearbyWays;>;);\nout body;"
         )
     }
+
+    #[must_use]
+    pub fn route_geometry_query(&self) -> Option<String> {
+        if self.reference_type != RoadReferenceType::MileMarker {
+            return None;
+        }
+        let route_pattern = highway_ref_pattern(&self.highway);
+        Some(format!(
+            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\nway(area.searchArea)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\n.routeWays out body;\nnode(w.routeWays);\nout skel;"
+        ))
+    }
+
+    #[must_use]
+    pub fn prefers_route_geometry_query(&self) -> bool {
+        self.reference_type == RoadReferenceType::MileMarker
+            && self.reference.trim().parse::<f64>().is_ok_and(|value| value.fract() != 0.0)
+    }
 }
 
 fn highway_ref_pattern(highway: &str) -> String {
@@ -131,6 +148,30 @@ mod tests {
         assert!(query.contains("[\"highway\"=\"motorway_junction\"]"));
         assert!(query.contains("[\"ref\"~\"^166[A-Za-z]?$\",i]"));
         assert!(query.contains("(^|;)[ ]*(VA|SR|ROUTE|RT)[ -]?28[ ]*(;|$)"));
+    }
+
+    #[test]
+    fn builds_route_geometry_fallback_only_for_mile_markers() {
+        let query = request("I-395", RoadReferenceType::MileMarker)
+            .route_geometry_query()
+            .expect("mile markers support a route fallback");
+
+        assert!(query.contains("way(area.searchArea)"));
+        assert!(query.contains("I[ -]?395"));
+        assert!(query.contains(".routeWays out body;"));
+        assert!(query.contains("node(w.routeWays);"));
+        assert!(query.contains("out skel;"));
+        assert!(request("I-395", RoadReferenceType::Exit).route_geometry_query().is_none());
+    }
+
+    #[test]
+    fn prefers_route_geometry_for_fractional_mile_markers() {
+        let mut location = request("I-395", RoadReferenceType::MileMarker);
+        location.reference = "0.5".into();
+
+        assert!(location.prefers_route_geometry_query());
+        location.reference = "1".into();
+        assert!(!location.prefers_route_geometry_query());
     }
 
     #[test]

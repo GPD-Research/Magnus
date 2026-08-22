@@ -64,7 +64,7 @@ export const ROADWAY_DIMENSIONS_FEET = {
   skipGapLength: 30,
 } as const
 
-export type RoadLayer = 'roadGeometry' | 'barriers' | 'trafficFlow' | 'highwayLabels'
+export type RoadLayer = 'roadGeometry' | 'barriers' | 'trafficFlow' | 'highwayLabels' | 'drawings'
 export type RoadLayerVisibility = Record<RoadLayer, boolean>
 
 export function roadLayerForFeature(feature: RoadFeature): RoadLayer {

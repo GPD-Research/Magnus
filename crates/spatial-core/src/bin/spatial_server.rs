@@ -19,7 +19,7 @@ use magnus_spatial_core::{
     Geometry, RoadFeatureKind, RoadLocationRequest, RoadScene, compile_overpass_json,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock, oneshot};
 use tower_http::services::{ServeDir, ServeFile};
 
 const DEFAULT_OVERPASS_URLS: [&str; 3] = [
@@ -27,8 +27,8 @@ const DEFAULT_OVERPASS_URLS: [&str; 3] = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ];
-const CACHE_VERSION: &str = "road-scene-v4";
-const LEGACY_CACHE_VERSIONS: [&str; 1] = ["road-scene-v3"];
+const CACHE_VERSION: &str = "road-scene-v6";
+const LEGACY_CACHE_VERSIONS: [&str; 2] = ["road-scene-v4", "road-scene-v3"];
 
 #[derive(Clone)]
 struct AppState {
@@ -36,6 +36,7 @@ struct AppState {
     overpass_urls: Vec<String>,
     scene_cache: Arc<RwLock<HashMap<String, RoadScene>>>,
     cache_directory: PathBuf,
+    shutdown_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
 }
 
 #[derive(Serialize)]
@@ -97,6 +98,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()
         .context("MAGNUS_SPATIAL_ADDR must be a socket address")?;
+    let (shutdown_sender, shutdown_receiver) = oneshot::channel();
     let state = AppState {
         client: reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
@@ -108,11 +110,13 @@ async fn main() -> Result<()> {
         cache_directory: env::var("MAGNUS_ROAD_CACHE_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("target/magnus-road-cache")),
+        shutdown_sender: Arc::new(Mutex::new(Some(shutdown_sender))),
     };
     let web_directory = env::var("MAGNUS_WEB_DIR").unwrap_or_else(|_| "dist".into());
     let index_file = format!("{web_directory}/index.html");
     let app = Router::new()
         .route("/api/health", get(health))
+        .route("/api/exit", post(exit_application))
         .route("/api/road-scenes/resolve", get(resolve_road_scene))
         .route("/api/offline/status", get(offline_status))
         .route("/api/offline/prepare", post(prepare_offline_region))
@@ -122,7 +126,9 @@ async fn main() -> Result<()> {
         );
     let listener = tokio::net::TcpListener::bind(address).await?;
     println!("Magnus listening on http://{address}");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async { let _ = shutdown_receiver.await; })
+        .await?;
     Ok(())
 }
 
@@ -131,6 +137,17 @@ async fn health() -> Json<HealthResponse> {
         status: "ok",
         service: "magnus-spatial",
     })
+}
+
+async fn exit_application(State(state): State<AppState>) -> StatusCode {
+    let sender = state.shutdown_sender.lock().await.take();
+    tokio::spawn(async move {
+        tokio::task::yield_now().await;
+        if let Some(sender) = sender {
+            let _ = sender.send(());
+        }
+    });
+    StatusCode::ACCEPTED
 }
 
 async fn resolve_road_scene(
@@ -173,53 +190,70 @@ async fn resolve_road_scene(
     }
 
     let mut failures = Vec::new();
+    let route_geometry_query = request.route_geometry_query();
+    let prefer_route_geometry = request.prefers_route_geometry_query();
     let provider_attempts = state
         .overpass_urls
         .iter()
         .chain(state.overpass_urls.first());
     for (index, overpass_url) in provider_attempts.enumerate() {
-        let response = match state
-            .client
-            .post(overpass_url)
-            .form(&[("data", overpass_query.as_str())])
-            .send()
-            .await
+        let query_attempts = if prefer_route_geometry {
+            [route_geometry_query.as_deref(), Some(overpass_query.as_str())]
+        } else {
+            [Some(overpass_query.as_str()), route_geometry_query.as_deref()]
+        };
+        for (query, attempt_label) in query_attempts
+            .into_iter()
+            .zip(if prefer_route_geometry {
+                ["route fallback", "exact lookup"]
+            } else {
+                ["exact lookup", "route fallback"]
+            })
         {
-            Ok(response) => response,
-            Err(error) => {
-                failures.push(format!("provider {} request failed: {error}", index + 1));
+            let Some(query) = query else { continue };
+            let response = match state
+                .client
+                .post(overpass_url)
+                .form(&[("data", query)])
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    failures.push(format!("provider {} {attempt_label} request failed: {error}", index + 1));
+                    continue;
+                }
+            };
+            if !response.status().is_success() {
+                failures.push(format!(
+                    "provider {} {attempt_label} returned {}",
+                    index + 1,
+                    response.status()
+                ));
                 continue;
             }
-        };
-        if !response.status().is_success() {
-            failures.push(format!(
-                "provider {} returned {}",
-                index + 1,
-                response.status()
-            ));
-            continue;
+            let body = match response.text().await {
+                Ok(body) => body,
+                Err(error) => {
+                    failures.push(format!("provider {} {attempt_label} response failed: {error}", index + 1));
+                    continue;
+                }
+            };
+            let scene = match compile_overpass_json(&body, &request) {
+                Ok(scene) => scene,
+                Err(error) => {
+                    failures.push(format!("provider {} {attempt_label} data failed: {error}", index + 1));
+                    continue;
+                }
+            };
+            state
+                .scene_cache
+                .write()
+                .await
+                .insert(cache_key.clone(), scene.clone());
+            write_cached_scene(&state.cache_directory, &cache_key, &scene).await;
+            return Ok(Json(scene));
         }
-        let body = match response.text().await {
-            Ok(body) => body,
-            Err(error) => {
-                failures.push(format!("provider {} response failed: {error}", index + 1));
-                continue;
-            }
-        };
-        let scene = match compile_overpass_json(&body, &request) {
-            Ok(scene) => scene,
-            Err(error) => {
-                failures.push(format!("provider {} data failed: {error}", index + 1));
-                continue;
-            }
-        };
-        state
-            .scene_cache
-            .write()
-            .await
-            .insert(cache_key.clone(), scene.clone());
-        write_cached_scene(&state.cache_directory, &cache_key, &scene).await;
-        return Ok(Json(scene));
     }
 
     Err(api_error(

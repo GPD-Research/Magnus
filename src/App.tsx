@@ -19,6 +19,7 @@ import {
   Minus,
   MousePointer2,
   Navigation,
+  Pencil,
   PencilRuler,
   Plus,
   Radio,
@@ -30,6 +31,7 @@ import {
   ShieldCheck,
   TrafficCone,
   Truck,
+  Undo2,
   Wifi,
   WifiOff,
   X,
@@ -50,6 +52,13 @@ import {
   parsePortableScenario,
   type PortableScenarioState,
 } from './domain/scenarioFile'
+import {
+  sampleStrokePoint,
+  strokeExpiresAt,
+  strokePoints,
+  type DrawingPersistence,
+  type DrawingStroke,
+} from './domain/drawing'
 import { RoadwayLabels, RoadwayLayer } from './components/RoadwayLayer'
 import { SceneDesigner } from './components/SceneDesigner'
 import { SceneEquipmentGlyph } from './components/SceneEquipmentGlyph'
@@ -198,10 +207,11 @@ function loadSavedScenario(): PortableScenarioState | null {
           sceneOrigin: scenario.sceneOrigin ?? { x: 0, y: 0 },
           sceneRotation: scenario.sceneRotation ?? 0,
           mapRotation: 0,
+          drawingStrokes: [],
           roadScene: createDevelopmentRoadScene(),
           locationRequest: DEFAULT_LOCATION_REQUEST,
           resolvedLocation: null,
-          roadLayerVisibility: { roadGeometry: true, barriers: true, trafficFlow: true, highwayLabels: true },
+          roadLayerVisibility: { roadGeometry: true, barriers: true, trafficFlow: true, highwayLabels: true, drawings: true },
           sceneZoom: 1,
         }
       : null
@@ -217,6 +227,28 @@ function downloadBlob(blob: Blob, fileName: string) {
   link.download = fileName
   link.click()
   URL.revokeObjectURL(url)
+}
+
+function scenarioStateSnapshot(state: PortableScenarioState): string {
+  return JSON.stringify({
+    scenario: state.scenario,
+    sceneVisible: state.sceneVisible,
+    sceneOrigin: state.sceneOrigin,
+    sceneRotation: state.sceneRotation,
+    mapRotation: state.mapRotation,
+    mode: state.mode,
+    laneCount: state.laneCount,
+    points: state.points,
+    trucks: state.trucks,
+    deployedEquipment: state.deployedEquipment,
+    drawingStrokes: state.drawingStrokes,
+    radioEvents: state.radioEvents,
+    roadScene: state.roadScene,
+    locationRequest: state.locationRequest,
+    resolvedLocation: state.resolvedLocation,
+    roadLayerVisibility: state.roadLayerVisibility,
+    sceneZoom: state.sceneZoom,
+  })
 }
 
 async function writeFile(directory: SceneDirectoryHandle, fileName: string, data: Blob | string) {
@@ -392,6 +424,16 @@ function App() {
   const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
   const [designerOpen, setDesignerOpen] = useState(false)
   const [spatialServiceStatus, setSpatialServiceStatus] = useState<SpatialServiceStatus>('checking')
+  const [drawingMenuOpen, setDrawingMenuOpen] = useState(false)
+  const [drawingActive, setDrawingActive] = useState(false)
+  const [drawingColor, setDrawingColor] = useState('#ffd21f')
+  const [drawingWidth, setDrawingWidth] = useState(4)
+  const [drawingPersistence, setDrawingPersistence] = useState<DrawingPersistence>('persistent')
+  const [drawingLifetime, setDrawingLifetime] = useState(10)
+  const [drawingStrokes, setDrawingStrokes] = useState<DrawingStroke[]>(savedScenario?.drawingStrokes ?? [])
+  const [temporaryDrawingStrokes, setTemporaryDrawingStrokes] = useState<DrawingStroke[]>([])
+  const [activeDrawingStroke, setActiveDrawingStroke] = useState<DrawingStroke | null>(null)
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(() => savedScenario ? scenarioStateSnapshot(savedScenario) : null)
   const roadStageRef = useRef<HTMLDivElement>(null)
   const loadSceneInputRef = useRef<HTMLInputElement>(null)
   const leftPaneRestoreRef = useRef<HTMLButtonElement>(null)
@@ -399,6 +441,8 @@ function App() {
   const locationResolutionRef = useRef(0)
   const panPointersRef = useRef(new Map<number, { x: number; y: number }>())
   const gestureFrameRef = useRef<number | null>(null)
+  const drawingStrokeRef = useRef<DrawingStroke | null>(null)
+  const drawingPointerIdRef = useRef<number | null>(null)
   const threeFingerPanStartRef = useRef<{
     center: { x: number; y: number }
     scrollLeft: number
@@ -415,6 +459,7 @@ function App() {
     barriers: true,
     trafficFlow: true,
     highwayLabels: true,
+    drawings: true,
   })
   const [radioEvents, setRadioEvents] = useState(savedScenario?.radioEvents ?? [])
 
@@ -494,6 +539,36 @@ function App() {
   ].join(' ')
   const effectiveSceneRotation = selectedSectionTransform?.rotation ?? sceneRotation
   const mapTransform = `rotate(${mapRotation} ${roadScene.viewport.width / 2} ${roadScene.viewport.height / 2})`
+  const scenarioSnapshot = scenarioStateSnapshot(currentScenarioState())
+  const hasUnsavedChanges = savedSnapshot !== null && savedSnapshot !== scenarioSnapshot
+
+  useEffect(() => {
+    if (locationLoading || savedSnapshot !== null) return
+    const frame = requestAnimationFrame(() => setSavedSnapshot(scenarioSnapshot))
+    return () => cancelAnimationFrame(frame)
+  }, [locationLoading, savedSnapshot, scenarioSnapshot])
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [hasUnsavedChanges])
+
+  useEffect(() => {
+    if (temporaryDrawingStrokes.length === 0) return
+    const nextExpiration = Math.min(...temporaryDrawingStrokes.map((stroke) => strokeExpiresAt(stroke) ?? Number.POSITIVE_INFINITY))
+    const timeout = window.setTimeout(() => {
+      const now = Date.now()
+      setTemporaryDrawingStrokes((current) => current.filter(
+        (stroke) => (strokeExpiresAt(stroke) ?? Number.POSITIVE_INFINITY) > now,
+      ))
+    }, Math.max(0, nextExpiration - Date.now()))
+    return () => window.clearTimeout(timeout)
+  }, [temporaryDrawingStrokes])
 
   useEffect(() => {
     saveAppSettings(localStorage, appSettings)
@@ -665,6 +740,8 @@ function App() {
     setTrucks(createScenarioTrucks(nextScenario))
     setSelectedTruckId('ssp-truck-1')
     setDeployedEquipment([])
+    setDrawingStrokes([])
+    setTemporaryDrawingStrokes([])
     setSelectedEquipmentId(null)
     setSaveStatus('idle')
   }
@@ -709,6 +786,9 @@ function App() {
     setTrucks(createScenarioTrucks(scenario))
     setSelectedTruckId('ssp-truck-1')
     setDeployedEquipment([])
+    setDrawingStrokes([])
+    setTemporaryDrawingStrokes([])
+    cancelDrawingStroke()
     setSelectedEquipmentId(null)
     setRadioEvents([])
     setSceneVisible(true)
@@ -732,6 +812,7 @@ function App() {
       points,
       trucks,
       deployedEquipment,
+      drawingStrokes,
       radioEvents,
       roadScene,
       locationRequest,
@@ -745,7 +826,7 @@ function App() {
     const source = roadStageRef.current?.querySelector<SVGSVGElement>('.road-canvas')
     if (!source) throw new Error('Scene canvas is unavailable.')
     const clone = source.cloneNode(true) as SVGSVGElement
-    clone.querySelectorAll('.equipment-rotation-handle, .road-section-hit-area').forEach((element) => element.remove())
+    clone.querySelectorAll('.equipment-rotation-handle, .road-section-hit-area, .drawing-hit-area, .drawing-stroke.temporary').forEach((element) => element.remove())
     clone.querySelectorAll('.selected').forEach((element) => element.classList.remove('selected'))
     clone.querySelectorAll('[tabindex], [role="button"]').forEach((element) => {
       element.removeAttribute('tabindex')
@@ -780,6 +861,7 @@ function App() {
         downloadBlob(image, `${baseName}.${format}`)
         downloadBlob(new Blob([scenarioJson], { type: 'application/json' }), `${baseName}.magnus.json`)
       }
+      setSavedSnapshot(scenarioSnapshot)
       setSaveStatus('saved')
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
@@ -788,6 +870,7 @@ function App() {
   }
 
   function applyScenarioState(state: PortableScenarioState) {
+    setSavedSnapshot(scenarioStateSnapshot(state))
     setScenario(state.scenario)
     setSceneVisible(state.sceneVisible)
     setScenePlacementActive(false)
@@ -801,6 +884,8 @@ function App() {
     setSelectedTruckId(state.trucks[0]?.id ?? '')
     setSelectedConeId(null)
     setDeployedEquipment(state.deployedEquipment)
+    setDrawingStrokes(state.drawingStrokes)
+    setTemporaryDrawingStrokes([])
     setSelectedEquipmentId(null)
     setRadioEvents(state.radioEvents)
     initializedZoomSceneRef.current = state.roadScene
@@ -811,6 +896,18 @@ function App() {
     setSceneZoom(state.sceneZoom)
     setSaveStatus('saved')
     localStorage.setItem('magnus.scenario', JSON.stringify(createPortableScenario(state, __APP_VERSION__)))
+  }
+
+  async function exitApplication() {
+    if (hasUnsavedChanges && !window.confirm('This scenario has unsaved changes. Exit and discard them?')) return
+    try {
+      const response = await fetch('/api/exit', { method: 'POST' })
+      if (!response.ok) throw new Error(`Exit request returned HTTP ${response.status}`)
+      window.close()
+      window.setTimeout(() => window.location.replace('about:blank'), 50)
+    } catch (error) {
+      window.alert(error instanceof Error ? `Magnus could not exit cleanly: ${error.message}` : 'Magnus could not exit cleanly.')
+    }
   }
 
   async function loadScenarioFile(file: File) {
@@ -1092,6 +1189,9 @@ function App() {
       setSceneRotation(placement.rotation)
     }
     setResolvedLocation(resolved)
+    setDrawingStrokes([])
+    setTemporaryDrawingStrokes([])
+    cancelDrawingStroke()
     setSelectedRoadSectionId(null)
     setSectionSelectionEnabled(false)
     setLocationLoading(false)
@@ -1102,6 +1202,85 @@ function App() {
     visible: boolean,
   ) {
     setRoadLayerVisibility((current) => ({ ...current, [layer]: visible }))
+  }
+
+  function drawingPoint(event: React.PointerEvent<SVGRectElement>) {
+    const matrix = event.currentTarget.getScreenCTM()
+    if (!matrix) return null
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
+    return { x: point.x, y: point.y }
+  }
+
+  function beginDrawingStroke(event: React.PointerEvent<SVGRectElement>) {
+    if (!drawingActive || event.button !== 0) return
+    const point = drawingPoint(event)
+    if (!point) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const stroke: DrawingStroke = {
+      id: `stroke-${crypto.randomUUID()}`,
+      points: [point],
+      color: drawingColor,
+      widthFeet: drawingWidth,
+      createdAt: Date.now(),
+      persistence: drawingPersistence,
+      lifetimeSeconds: drawingPersistence === 'temporary' ? drawingLifetime : undefined,
+    }
+    drawingPointerIdRef.current = event.pointerId
+    drawingStrokeRef.current = stroke
+    setActiveDrawingStroke(stroke)
+  }
+
+  function continueDrawingStroke(event: React.PointerEvent<SVGRectElement>) {
+    const stroke = drawingStrokeRef.current
+    if (!stroke || drawingPointerIdRef.current !== event.pointerId) return
+    const point = drawingPoint(event)
+    if (!point) return
+    event.preventDefault()
+    event.stopPropagation()
+    const points = sampleStrokePoint(stroke.points, point)
+    if (points === stroke.points) return
+    const next = { ...stroke, points }
+    drawingStrokeRef.current = next
+    setActiveDrawingStroke(next)
+  }
+
+  function finishDrawingStroke(event: React.PointerEvent<SVGRectElement>) {
+    const stroke = drawingStrokeRef.current
+    if (!stroke || drawingPointerIdRef.current !== event.pointerId) return
+    const point = drawingPoint(event)
+    const completed = {
+      ...stroke,
+      points: point ? sampleStrokePoint(stroke.points, point, true) : stroke.points,
+      createdAt: performance.timeOrigin + event.timeStamp,
+    }
+    if (completed.points.length > 1) {
+      if (completed.persistence === 'persistent') setDrawingStrokes((current) => [...current, completed])
+      else setTemporaryDrawingStrokes((current) => [...current, completed])
+    }
+    cancelDrawingStroke()
+  }
+
+  function cancelDrawingStroke() {
+    drawingPointerIdRef.current = null
+    drawingStrokeRef.current = null
+    setActiveDrawingStroke(null)
+  }
+
+  function undoDrawing() {
+    if (drawingStrokeRef.current) {
+      cancelDrawingStroke()
+      return
+    }
+    const latestPersistent = drawingStrokes.at(-1)
+    const latestTemporary = temporaryDrawingStrokes.at(-1)
+    if (!latestPersistent && !latestTemporary) return
+    if (!latestTemporary || (latestPersistent?.createdAt ?? 0) >= latestTemporary.createdAt) {
+      setDrawingStrokes((current) => current.slice(0, -1))
+    } else {
+      setTemporaryDrawingStrokes((current) => current.slice(0, -1))
+    }
   }
 
   function clientToMapPoint(client: { x: number; y: number }, bounds: DOMRect) {
@@ -1204,6 +1383,7 @@ function App() {
           <input ref={loadSceneInputRef} className="scene-file-input" type="file" accept=".json,.magnus.json,application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadScenarioFile(file); event.currentTarget.value = '' }} />
           {saveStatus === 'saved' && <span className="scene-file-status" role="status">Scene ready</span>}
         </div>
+        <button className="icon-button exit-button" type="button" title="Exit Magnus" aria-label="Exit Magnus" onClick={() => { void exitApplication() }}><X size={19} /></button>
       </header>
 
       <section className={`workspace${appSettings.leftPaneCollapsed ? ' left-pane-collapsed' : ''}${appSettings.rightPaneCollapsed ? ' right-pane-collapsed' : ''}`}>
@@ -1275,7 +1455,7 @@ function App() {
           )}
           {sceneVisible && <section className="scene-toolkit" aria-label="Scene equipment toolkit">
             <div className="toolkit-tabs" role="tablist" aria-label="Equipment toolkit">
-              {TOOLKIT_CATEGORIES.map((category) => <button type="button" role="tab" aria-selected={activeToolkit === category.id} key={category.id} onClick={() => setActiveToolkit(category.id)}><span>{category.label}</span></button>)}
+              {TOOLKIT_CATEGORIES.map((category) => <button type="button" role="tab" aria-selected={activeToolkit === category.id} data-category={category.id} key={category.id} onClick={() => setActiveToolkit(category.id)}><span>{category.label.split(' ').map((word, index, words) => <span className="toolkit-tab-line" key={word}>{word}{index < words.length - 1 ? ' ' : ''}</span>)}</span></button>)}
             </div>
             <div className="toolkit-list">{EQUIPMENT_CATALOG.filter((definition) => definition.category === activeToolkit).map((definition) => {
               const currentCount = deployedCount(definition.id, deployedEquipment, catalogBaselineCounts)
@@ -1293,6 +1473,17 @@ function App() {
           <div className="canvas-toolbar">
             <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><div className="scene-heading-row"><h1>{sceneVisible ? selectedScenario.heading : scenePlacementActive ? `Place ${selectedScenario.label.toLowerCase()}` : 'Roadway only'}</h1></div><small className="scene-dataset">{roadScene.source.dataset}</small></div>
             <div className="canvas-tools">
+              <div className="drawing-menu-anchor">
+                <button className={`drawing-menu-button${drawingActive ? ' active' : ''}`} type="button" aria-expanded={drawingMenuOpen} aria-haspopup="dialog" onClick={() => setDrawingMenuOpen((open) => !open)}><Pencil size={15} /> Draw <ChevronDown size={13} /></button>
+                {drawingMenuOpen && <div className="drawing-menu" role="dialog" aria-label="Freehand drawing tools">
+                  <div className="drawing-menu-heading"><span>Freehand vectors</span><button type="button" aria-pressed={drawingActive} onClick={() => { setDrawingActive((active) => !active); cancelDrawingStroke() }}><Pencil size={14} /> {drawingActive ? 'Pen on' : 'Pen off'}</button></div>
+                  <div className="drawing-control"><span>Color</span><div className="drawing-colors" role="radiogroup" aria-label="Drawing color">{['#ffd21f', '#ffffff', '#ff5a1f', '#e53935', '#111111'].map((color) => <button type="button" role="radio" aria-checked={drawingColor === color} aria-label={`Drawing color ${color}`} key={color} style={{ background: color }} onClick={() => setDrawingColor(color)} />)}</div></div>
+                  <label className="drawing-control drawing-width"><span>Width</span><input aria-label="Drawing width" type="range" min="1" max="10" step="1" value={drawingWidth} onChange={(event) => setDrawingWidth(Number(event.target.value))} /><b>{drawingWidth} ft</b></label>
+                  <div className="drawing-control"><span>Keep</span><div className="drawing-mode" role="radiogroup" aria-label="Drawing persistence"><button type="button" role="radio" aria-checked={drawingPersistence === 'persistent'} onClick={() => setDrawingPersistence('persistent')}>Persistent</button><button type="button" role="radio" aria-checked={drawingPersistence === 'temporary'} onClick={() => setDrawingPersistence('temporary')}>Temporary</button></div></div>
+                  {drawingPersistence === 'temporary' && <label className="drawing-control"><span>Lifetime</span><select aria-label="Temporary drawing lifetime" value={drawingLifetime} onChange={(event) => setDrawingLifetime(Number(event.target.value))}>{[5, 10, 15, 30].map((seconds) => <option value={seconds} key={seconds}>{seconds} sec</option>)}</select></label>}
+                  <button className="drawing-undo" type="button" disabled={!activeDrawingStroke && drawingStrokes.length === 0 && temporaryDrawingStrokes.length === 0} onClick={undoDrawing}><Undo2 size={14} /> {activeDrawingStroke ? 'Cancel stroke' : 'Undo last stroke'}</button>
+                </div>}
+              </div>
               {sceneVisible && <div className="traffic-flow-instrument"><span>Traffic flow</span><ArrowUp className="traffic-direction-arrow" style={{ transform: `rotate(${effectiveSceneRotation + mapRotation}deg)` }} size={30} aria-label="Traffic flow bearing" /></div>}
               <MapCompass rotation={mapRotation} />
               <div className="scale-key" data-scale-pixels={fortyFootScalePixels.toFixed(2)}><span style={{ width: `${fortyFootScalePixels}px` }} /> 40 FT</div>
@@ -1367,10 +1558,14 @@ function App() {
               })}
               </g>}
               {roadLayerVisibility.highwayLabels && highwayLabelsAvailable && <RoadwayLabels scene={roadScene} focus={{ x: sceneFocusX, y: sceneFocusY }} />}
+              {roadLayerVisibility.drawings && <g className="drawing-layer" aria-label="Freehand drawings">
+                {[...drawingStrokes, ...temporaryDrawingStrokes, ...(activeDrawingStroke ? [activeDrawingStroke] : [])].map((stroke) => <polyline className={stroke.persistence === 'temporary' ? 'drawing-stroke temporary' : 'drawing-stroke'} data-stroke-id={stroke.id} fill="none" key={stroke.id} points={strokePoints(stroke)} stroke={stroke.color} strokeWidth={stroke.widthFeet} />)}
+              </g>}
+              {drawingActive && <rect className="drawing-hit-area" width={roadScene.viewport.width} height={roadScene.viewport.height} onPointerDown={beginDrawingStroke} onPointerMove={continueDrawingStroke} onPointerUp={finishDrawingStroke} onPointerCancel={cancelDrawingStroke} />}
               </g>
             </svg>
             </div>
-            <div className={`canvas-hint${scenePlacementActive ? ' placement-active' : ''}`}>{scenePlacementActive ? <><MousePointer2 size={15} /> Tap roadway to place {selectedScenario.label.toLowerCase()}</> : !sceneVisible ? <><Navigation size={15} /> Roadway only</> : sectionSelectionEnabled ? <><MousePointer2 size={15} /> Select a roadway section</> : mode === 'gospel' ? <><ShieldCheck size={15} /> Positions locked to Standard SOP</> : <><Navigation size={15} /> Drag cones to adapt the scene</>}</div>
+            <div className={`canvas-hint${scenePlacementActive ? ' placement-active' : ''}`}>{drawingActive ? <><Pencil size={15} /> Drag on the map to draw</> : scenePlacementActive ? <><MousePointer2 size={15} /> Tap roadway to place {selectedScenario.label.toLowerCase()}</> : !sceneVisible ? <><Navigation size={15} /> Roadway only</> : sectionSelectionEnabled ? <><MousePointer2 size={15} /> Select a roadway section</> : mode === 'gospel' ? <><ShieldCheck size={15} /> Positions locked to Standard SOP</> : <><Navigation size={15} /> Drag cones to adapt the scene</>}</div>
           </div>
         </section>
 
@@ -1397,6 +1592,7 @@ function App() {
               <label className="toggle-row"><span><span className="barrier-symbol" /> Barriers</span><input type="checkbox" checked={roadLayerVisibility.barriers} onChange={(event) => setRoadLayerVisibilityValue('barriers', event.target.checked)} /></label>
               <label className="toggle-row"><span><span className="flow-symbol">→</span> Traffic flow</span><input type="checkbox" checked={roadLayerVisibility.trafficFlow} onChange={(event) => setRoadLayerVisibilityValue('trafficFlow', event.target.checked)} /></label>
               <label className="toggle-row"><span><MapPinned size={16} /> {highwayLabelsAvailable ? 'Highway labels' : 'Highway labels unavailable in preview'}</span><input type="checkbox" checked={roadLayerVisibility.highwayLabels && highwayLabelsAvailable} disabled={!highwayLabelsAvailable} onChange={(event) => setRoadLayerVisibilityValue('highwayLabels', event.target.checked)} /></label>
+              <label className="toggle-row"><span><Pencil size={16} /> Drawings</span><input type="checkbox" checked={roadLayerVisibility.drawings} onChange={(event) => setRoadLayerVisibilityValue('drawings', event.target.checked)} /></label>
             </div>
           </section>
           {roadSections.length > 1 && (

@@ -5,7 +5,8 @@ use thiserror::Error;
 
 use crate::{
     CoordinateSystem, FeatureProperties, Geometry, RoadFeature, RoadFeatureKind,
-    RoadLocationRequest, RoadScene, SceneSource, SceneSourceType, TravelDirection, Viewport,
+    RoadLocationRequest, RoadReferenceType, RoadScene, SceneSource, SceneSourceType,
+    TravelDirection, Viewport,
 };
 
 const FEET_PER_METER: f64 = 3.280_839_895;
@@ -108,14 +109,18 @@ pub fn compile_overpass_json(
         return Err(OverpassSceneError::RouteNotFound(request.highway.clone()));
     }
     let anchors = select_anchors(&nodes, &route_ways);
-    if anchors.is_empty() {
-        return Err(OverpassSceneError::AnchorNotFound);
-    }
-    let anchor = anchor_centroid(&anchors);
-    let anchor_coordinates: Vec<[f64; 2]> = anchors
-        .iter()
-        .map(|candidate| oriented_local_feet(candidate, &anchor, &request.direction))
-        .collect();
+    let (anchor, anchor_coordinates) = if anchors.is_empty() {
+        let anchor = estimate_mile_marker_anchor(&nodes, &route_ways, request)
+            .ok_or(OverpassSceneError::AnchorNotFound)?;
+        (anchor, vec![[0.0, 0.0]])
+    } else {
+        let anchor = anchor_centroid(&anchors);
+        let coordinates = anchors
+            .iter()
+            .map(|candidate| oriented_local_feet(candidate, &anchor, &request.direction))
+            .collect();
+        (anchor, coordinates)
+    };
     let scene_bounds = scene_bounds(&anchor_coordinates);
     let mainline_nodes: HashSet<i64> = ways
         .iter()
@@ -266,6 +271,50 @@ fn anchor_centroid(anchors: &[&NodeRecord]) -> NodeRecord {
         longitude: anchors.iter().map(|anchor| anchor.longitude).sum::<f64>() / count,
         tags: HashMap::new(),
     }
+}
+
+fn estimate_mile_marker_anchor(
+    nodes: &HashMap<i64, NodeRecord>,
+    route_ways: &[&WayRecord],
+    request: &RoadLocationRequest,
+) -> Option<NodeRecord> {
+    if request.reference_type != RoadReferenceType::MileMarker {
+        return None;
+    }
+    let target_distance = request.reference.trim().parse::<f64>().ok()? * 5_280.0;
+    if !target_distance.is_finite() || target_distance < 0.0 {
+        return None;
+    }
+    let route_nodes: Vec<&NodeRecord> = route_ways
+        .iter()
+        .flat_map(|way| way.nodes.iter())
+        .filter_map(|node_id| nodes.get(node_id))
+        .collect();
+    let latitude_span = route_nodes
+        .iter()
+        .map(|node| node.latitude)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(minimum, maximum), value| {
+            (minimum.min(value), maximum.max(value))
+        });
+    let longitude_span = route_nodes
+        .iter()
+        .map(|node| node.longitude)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(minimum, maximum), value| {
+            (minimum.min(value), maximum.max(value))
+        });
+    let north_south_route = latitude_span.1 - latitude_span.0 >= longitude_span.1 - longitude_span.0;
+    let origin = route_nodes.iter().copied().min_by(|first, second| {
+        let first_axis = if north_south_route { first.latitude } else { first.longitude };
+        let second_axis = if north_south_route { second.latitude } else { second.longitude };
+        first_axis.total_cmp(&second_axis)
+    })?;
+    let candidate = route_nodes.iter().copied().min_by(|first, second| {
+        let first_delta = (geographic_distance_feet(origin, first) - target_distance).abs();
+        let second_delta = (geographic_distance_feet(origin, second) - target_distance).abs();
+        first_delta.total_cmp(&second_delta)
+    })?;
+    ((geographic_distance_feet(origin, candidate) - target_distance).abs() <= 2_640.0)
+        .then(|| candidate.clone())
 }
 
 fn scene_bounds(anchor_coordinates: &[[f64; 2]]) -> [f64; 4] {
@@ -663,6 +712,29 @@ mod tests {
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::DirectionArrow).count(), 1);
         assert!(scene.viewport.height > 700.0);
     }
+
+        #[test]
+        fn estimates_an_unmapped_mile_marker_from_route_geometry() {
+                let response = r#"{
+                    "elements": [
+                        {"type":"node","id":1,"lat":38.7900,"lon":-77.1000},
+                        {"type":"node","id":2,"lat":38.7972,"lon":-77.1000},
+                        {"type":"node","id":3,"lat":38.8044,"lon":-77.1000},
+                        {"type":"way","id":395,"nodes":[1,2,3],"tags":{"highway":"motorway","ref":"I 395","lanes":"3","oneway":"yes"}}
+                    ]
+                }"#;
+                let request = RoadLocationRequest {
+                        highway: "I-395".into(),
+                        direction: TravelDirection::Southbound,
+                        reference_type: RoadReferenceType::MileMarker,
+                        reference: "0.5".into(),
+                };
+
+                let scene = compile_overpass_json(response, &request).expect("route geometry should locate the mile point");
+
+                assert_eq!(scene.source.source_type, SceneSourceType::OsmApi);
+                assert!(scene.features.iter().any(|feature| feature.properties.osm_id == Some(395)));
+        }
 
     #[test]
     fn compiles_tagged_shoulder_widths_and_respects_explicit_absence() {

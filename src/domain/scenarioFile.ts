@@ -1,4 +1,5 @@
 import type { DeployedEquipment } from './equipmentCatalog'
+import type { DrawingStroke } from './drawing'
 import type { ResolvedRoadLocation, RoadLocationRequest } from './roadLocation'
 import type { RoadLayerVisibility, RoadScene } from './roadScene'
 import type { SspTruckState } from './signboard'
@@ -15,6 +16,7 @@ export interface PortableScenarioState {
   points: ScenePoint[]
   trucks: SspTruckState[]
   deployedEquipment: DeployedEquipment[]
+  drawingStrokes: DrawingStroke[]
   radioEvents: { time: string; text: string; channel: string }[]
   roadScene: RoadScene
   locationRequest: RoadLocationRequest
@@ -65,6 +67,11 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
     state: {
       ...state,
       mapRotation: typeof state.mapRotation === 'number' ? state.mapRotation : 0,
+      drawingStrokes: Array.isArray(state.drawingStrokes) ? state.drawingStrokes : [],
+      roadLayerVisibility: {
+        ...state.roadLayerVisibility,
+        drawings: state.roadLayerVisibility.drawings !== false,
+      },
     },
   }
 }

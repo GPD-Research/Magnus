@@ -19,6 +19,9 @@ This release includes:
 - High-visibility **SAVE SCENE** and **LOAD SCENE** workflows
 - PNG, JPG, and vector SVG output with a companion rebuildable `.magnus.json` scene file
 - Portable scene recall including roadway geometry, location, layers, zoom, equipment, and communications
+- Persistent and timed freehand SVG annotations sampled in map coordinates, with color, 1–10 ft width, undo, and layer visibility controls
+- Dirty-scene exit confirmation and clean single-process application shutdown from the top-right X
+- Fractional mile-marker route fallback when OpenStreetMap does not contain an exact tagged milestone
 
 - Independently collapsible configuration and operations panes on desktop and tablet
 - Persistent presentation layout with accessible 44 px edge restore grips

@@ -118,7 +118,11 @@ The SSP tool bag belongs to SSP Assets. A separate unowned loose bag should only
 
 ## 4. Drawing and temporary annotation
 
+**Status: delivered for Version 5.0.0.**
+
 Add a Drawing menu to the center top bar. Tapping the menu toggles it open or closed; selecting a drawing option does not close it.
+
+Implemented strokes are SVG polylines sampled in map-world coordinates at approximately 10-foot intervals, with a final shorter segment retained at pointer-up. This keeps scene files compact while preserving smooth printed SVG output. Stroke widths are stored in feet, and the complete drawing layer can be hidden from Map Layers.
 
 ### Controls
 
@@ -154,6 +158,8 @@ Each pointer-down through pointer-up interaction creates one stroke containing:
 - Touch input uses pointer capture and does not trigger browser scrolling while drawing.
 
 ## 5. Adjacent roadway loading
+
+**Status: deferred to Version 5.1.0.**
 
 Version 5 will load a 3 by 3 neighborhood centered on the requested roadway area: the selected map section plus its eight adjacent sections.
 
