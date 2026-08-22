@@ -16,7 +16,7 @@ describe('application settings', () => {
       .toEqual(DEFAULT_APP_SETTINGS)
   })
 
-  it('migrates version 1 settings with both workspace panes open', () => {
+  it('migrates older settings with default interface scale', () => {
     const versionOne = {
       ...DEFAULT_APP_SETTINGS,
       version: 1,
@@ -25,9 +25,16 @@ describe('application settings', () => {
     }
 
     expect(loadAppSettings({ getItem: () => JSON.stringify(versionOne) })).toMatchObject({
-      version: 2,
+      version: 3,
+      interfaceScale: 100,
       leftPaneCollapsed: false,
       rightPaneCollapsed: false,
+    })
+
+    const versionTwo = { ...DEFAULT_APP_SETTINGS, version: 2, interfaceScale: undefined }
+    expect(loadAppSettings({ getItem: () => JSON.stringify(versionTwo) })).toMatchObject({
+      version: 3,
+      interfaceScale: 100,
     })
   })
 
@@ -39,6 +46,11 @@ describe('application settings', () => {
     }
 
     expect(loadAppSettings({ getItem: () => JSON.stringify(stored) })).toEqual(stored)
+  })
+
+  it('restores and clamps persisted interface scale', () => {
+    expect(loadAppSettings({ getItem: () => JSON.stringify({ ...DEFAULT_APP_SETTINGS, interfaceScale: 140 }) }).interfaceScale).toBe(140)
+    expect(loadAppSettings({ getItem: () => JSON.stringify({ ...DEFAULT_APP_SETTINGS, interfaceScale: 200 }) }).interfaceScale).toBe(160)
   })
 
   it('encodes the selected connectivity source for road requests', () => {

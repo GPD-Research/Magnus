@@ -34,6 +34,13 @@ describe('portable scenario files', () => {
     expect(parsePortableScenario(serialized).state.mapRotation).toBe(0)
   })
 
+  it('defaults truck direction and asset type in older Version 2 files', () => {
+    const document = createPortableScenario({ ...state, trucks: [{ id: 'ssp-truck-1', label: 'SSP Truck 1', x: 1, y: 2, rotation: 0, assetType: 'ssp-truck', signboard: 'left-arrow' }] }, '5.0.0')
+    const legacyTruck = { ...document.state.trucks[0], rotation: undefined, assetType: undefined }
+    const parsed = parsePortableScenario(JSON.stringify({ ...document, state: { ...document.state, trucks: [legacyTruck] } }))
+    expect(parsed.state.trucks[0]).toMatchObject({ rotation: 0, assetType: 'ssp-truck' })
+  })
+
   it('defaults files saved before drawing support to an empty visible drawing layer', () => {
     const document = createPortableScenario(state, '5.0.0', '2026-08-20T00:00:00.000Z')
     const serialized = JSON.stringify({

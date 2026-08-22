@@ -76,6 +76,35 @@ test('saves custom themes while keeping the roadway field green', async ({ page 
   await expect(page.getByRole('region', { name: 'Settings' }).getByRole('button', { name: 'Blue operations' })).toHaveAttribute('aria-pressed', 'true')
 })
 
+test('scales workspace panes and renders animated directional equipment', async ({ page }, testInfo) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.goto('/')
+
+  const configPane = page.getByRole('complementary', { name: 'Scenario configuration' })
+  const initialWidth = (await configPane.boundingBox())!.width
+  await page.getByRole('button', { name: 'Open settings' }).click()
+  await page.getByLabel('Pane and text scale').fill('140')
+  await expect(configPane).toHaveCSS('zoom', '1.4')
+  if (testInfo.project.name === 'desktop-chromium') {
+    await expect.poll(async () => (await configPane.boundingBox())!.width).toBeGreaterThan(initialWidth * 1.3)
+  }
+  await page.reload()
+  await page.getByRole('button', { name: 'Open settings' }).click()
+  await expect(page.getByLabel('Pane and text scale')).toHaveValue('140')
+  await page.getByRole('button', { name: 'Close settings' }).click()
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'SSP Assets' }).click()
+  await toolkit.getByRole('button', { name: /Lane Blade Truck/ }).click()
+  const laneBlade = page.locator('.ssp-truck[data-asset-type="lane-blade-truck"]')
+  await expect(laneBlade).toHaveCount(1)
+  await expect(laneBlade.locator('.truck-lane-blade')).toHaveCount(1)
+  await expect(laneBlade.locator('.signboard-frame-a')).toHaveCSS('animation-name', 'signboard-flash')
+  await page.getByLabel(/Rotation for Lane Blade Truck/).selectOption('90')
+  await expect(laneBlade).toHaveAttribute('transform', /rotate\(90\)/)
+  await expect(laneBlade.getByLabel(/Rotate Lane Blade Truck/)).toBeVisible()
+})
+
 test('saves and restores the complete scene configuration', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(window, 'showDirectoryPicker', { value: undefined }))
   await page.goto('/')
@@ -592,7 +621,7 @@ test('instantiates lane-specific geometry and signboards when adding a scene', a
   await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(30 282)')
   await expect(page.locator('[data-cone-id="buffer-2"]')).toHaveAttribute('transform', 'translate(30 362)')
   await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(18 562)')
-  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(24 260)')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(24 260) rotate(0)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'right-arrow')
   await expect(page.locator('.metric-grid > div').filter({ hasText: 'Taper length' }).locator('strong')).toContainText('200')
 
@@ -605,7 +634,7 @@ test('instantiates lane-specific geometry and signboards when adding a scene', a
   await expect(page.locator('[data-cone-id="buffer-2"]')).toHaveAttribute('transform', 'translate(42 362)')
   await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(30 562)')
   await expect(page.locator('[data-cone-id="taper-10"]')).toHaveAttribute('transform', 'translate(18 762)')
-  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(36 260)')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(36 260) rotate(0)')
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('data-signboard', 'right-arrow')
   await expect(page.locator('.metric-grid > div').filter({ hasText: 'Taper length' }).locator('strong')).toContainText('400')
 
@@ -624,7 +653,7 @@ test('instantiates lane-specific geometry and signboards when adding a scene', a
   await page.getByRole('button', { name: 'Add scene' }).click()
   await page.locator('#mainline-surface').click({ force: true })
 
-  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(60 260)')
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(60 260) rotate(0)')
   await expect(page.locator('[data-cone-id="taper-3"]')).toHaveAttribute('transform', 'translate(66 402)')
 })
 
@@ -908,7 +937,7 @@ test('centers and rotates dropped response vehicles and exposes the expanded cat
   await expect(page.locator('[data-definition-id="tma-crash-truck"] .catalog-attenuator')).toHaveCount(1)
   await toolkit.getByRole('button', { name: /VSP cruiser/ }).click()
   await expect(page.locator('[data-definition-id="vsp-cruiser"] .catalog-police-stripe')).toHaveCount(1)
-  await expect(page.locator('[data-definition-id="vsp-cruiser"] rect[fill="#2d67ae"]')).toHaveCount(1)
+  await expect(page.locator('[data-definition-id="vsp-cruiser"] .emergency-light')).toHaveCount(2)
 
   await toolkit.getByRole('tab', { name: 'Hazards' }).click()
   await toolkit.getByRole('button', { name: /Motorcycle on its side/ }).click()

@@ -67,6 +67,11 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
     state: {
       ...state,
       mapRotation: typeof state.mapRotation === 'number' ? state.mapRotation : 0,
+      trucks: state.trucks.map((truck) => ({
+        ...truck,
+        rotation: typeof truck.rotation === 'number' ? truck.rotation : 0,
+        assetType: truck.assetType === 'lane-blade-truck' ? 'lane-blade-truck' : 'ssp-truck',
+      })),
       drawingStrokes: Array.isArray(state.drawingStrokes) ? state.drawingStrokes : [],
       roadLayerVisibility: {
         ...state.roadLayerVisibility,

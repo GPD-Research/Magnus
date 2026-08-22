@@ -7,16 +7,17 @@ export interface CustomTheme {
 }
 
 export interface AppSettings {
-  version: 2
+  version: 3
   connectivityMode: ConnectivityMode
   theme: ThemeId
   customThemes: Record<'custom-1' | 'custom-2' | 'custom-3', CustomTheme>
+  interfaceScale: number
   leftPaneCollapsed: boolean
   rightPaneCollapsed: boolean
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  version: 2,
+  version: 3,
   connectivityMode: 'online',
   theme: 'dark',
   customThemes: {
@@ -24,6 +25,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     'custom-2': { name: 'Custom 2', color: '#2f6681' },
     'custom-3': { name: 'Custom 3', color: '#8a5a2b' },
   },
+  interfaceScale: 100,
   leftPaneCollapsed: false,
   rightPaneCollapsed: false,
 }
@@ -37,7 +39,7 @@ export function loadAppSettings(storage: Pick<Storage, 'getItem'>): AppSettings 
     const stored = storage.getItem('magnus.settings')
     if (!stored) return DEFAULT_APP_SETTINGS
     const parsed = JSON.parse(stored) as Partial<Omit<AppSettings, 'version'>> & { version?: number }
-    if ((parsed.version !== 1 && parsed.version !== 2)
+    if ((parsed.version !== 1 && parsed.version !== 2 && parsed.version !== 3)
       || !connectivityModes.includes(parsed.connectivityMode!)
       || !themeIds.includes(parsed.theme!)) {
       return DEFAULT_APP_SETTINGS
@@ -50,12 +52,15 @@ export function loadAppSettings(storage: Pick<Storage, 'getItem'>): AppSettings 
       }
     }
     return {
-      version: 2,
+      version: 3,
       connectivityMode: parsed.connectivityMode!,
       theme: parsed.theme!,
       customThemes,
-      leftPaneCollapsed: parsed.version === 2 && parsed.leftPaneCollapsed === true,
-      rightPaneCollapsed: parsed.version === 2 && parsed.rightPaneCollapsed === true,
+      interfaceScale: parsed.version === 3 && typeof parsed.interfaceScale === 'number'
+        ? Math.min(160, Math.max(100, parsed.interfaceScale))
+        : 100,
+      leftPaneCollapsed: parsed.version !== 1 && parsed.leftPaneCollapsed === true,
+      rightPaneCollapsed: parsed.version !== 1 && parsed.rightPaneCollapsed === true,
     }
   } catch {
     return DEFAULT_APP_SETTINGS

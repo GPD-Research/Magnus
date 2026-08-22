@@ -77,14 +77,17 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'ambulance':
       return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .25} 0 H ${width * .25} M 0 ${-width * .25} V ${width * .25}`} className="catalog-medical" /></>
     case 'cruiser':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .28} ${-length * .38} V ${length * .4} M ${width * .28} ${-length * .38} V ${length * .4}`} className="catalog-police-stripe" /><LightBar width={width} color="#2d67ae" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .28} ${-length * .38} V ${length * .4} M ${width * .28} ${-length * .38} V ${length * .4}`} className="catalog-police-stripe" /><LightBar width={width} color="#2d67ae" flashing /></>
     case 'suv':
     case 'ssp-truck':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y="-1" width={width * .8} height="2" fill="#efc227" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y="-1" width={width * .8} height="2" fill="#111716" /></>
+    case 'lane-blade-truck':
+      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y="-1" width={width * .8} height="2" fill="#111716" /><path d={`M ${-halfWidth} ${-halfLength} L ${halfWidth} ${-halfLength}`} className="catalog-lane-blade" /></>
     case 'tractor':
-    case 'pump-truck':
     case 'sedan':
       return <VehicleBody width={width} length={length} color={definition.color} />
+    case 'pump-truck':
+      return <><VehicleBody width={width} length={length} color={definition.color} /><g transform={`translate(0 ${-length * .28})`}><LightBar width={width} color="#d72f2f" flashing /></g></>
     case 'vehicle-fire':
       return <>
         <VehicleBody width={width} length={length} color={definition.color} />
@@ -100,10 +103,15 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
   }
 }
 
-function LightBar({ width, color }: { width: number; color: string }) {
-  return <rect x={-width * .38} y={-1} width={width * .76} height="2" fill={color} stroke="#151c1b" strokeWidth=".25" />
+function LightBar({ width, color, flashing = false }: { width: number; color: string; flashing?: boolean }) {
+  const barWidth = width * .76
+  if (!flashing) return <rect x={-barWidth / 2} y={-1} width={barWidth} height="2" fill={color} stroke="#151c1b" strokeWidth=".25" />
+  return <g className="emergency-lightbar">
+    <rect className="emergency-light left" x={-barWidth / 2} y={-1} width={barWidth / 2} height="2" fill={color} stroke="#151c1b" strokeWidth=".25" />
+    <rect className="emergency-light right" x="0" y={-1} width={barWidth / 2} height="2" fill={color} stroke="#151c1b" strokeWidth=".25" />
+  </g>
 }
 
 function VehicleBody({ width, length, color }: { width: number; length: number; color: string }) {
-  return <><rect x={-width / 2} y={-length / 2} width={width} height={length} rx={Math.min(2, width * .2)} fill={color} stroke="#151c1b" strokeWidth=".7" /><path d={`M ${-width * .38} ${-length * .22} H ${width * .38} M ${-width * .38} ${length * .25} H ${width * .38}`} className="catalog-detail" /></>
+  return <><rect x={-width / 2} y={-length / 2} width={width} height={length} rx={Math.min(2, width * .2)} fill={color} stroke="#151c1b" strokeWidth=".7" /><path d={`M ${-width * .38} ${-length * .22} H ${width * .38} M ${-width * .38} ${length * .25} H ${width * .38}`} className="catalog-detail" /><path d={`M ${-width * .36} ${-length * .23} L ${-width * .3} ${-length * .37} H ${width * .3} L ${width * .36} ${-length * .23} Z`} className="catalog-windshield" /></>
 }

@@ -13,6 +13,8 @@ describe('SSP truck signboards', () => {
       expect.objectContaining({
         id: 'ssp-truck-1',
         label: 'SSP Truck 1',
+        rotation: 0,
+        assetType: 'ssp-truck',
         signboard: 'double-diamonds',
       }),
     ])
@@ -24,6 +26,11 @@ describe('SSP truck signboards', () => {
 
     expect(updated[0].signboard).toBe('double-diamonds')
     expect(updated[1].signboard).toBe('incident-ahead')
+  })
+
+  it('adds a lane blade variant with the same signboard behavior', () => {
+    const trucks = addSspTruck(createSspTrucks(), 'lane-blade-truck')
+    expect(trucks[1]).toMatchObject({ label: 'Lane Blade Truck 2', assetType: 'lane-blade-truck', rotation: 0 })
   })
 
   it('never creates more than five trucks', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import {
   AlertTriangle,
   Check,
@@ -14,6 +14,7 @@ import {
   Layers3,
   LoaderCircle,
   MapPinned,
+  MonitorUp,
     Network,
     Palette,
   Minus,
@@ -27,6 +28,7 @@ import {
   RotateCcw,
   RotateCw,
   Save,
+  ScreenShare,
   Settings,
   ShieldCheck,
   TrafficCone,
@@ -119,6 +121,7 @@ import {
   signboardLabel,
   updateTruckSignboard,
   type SignboardMessage,
+  type SspTruckState,
 } from './domain/signboard'
 import type { SceneTemplateDocument } from './domain/sceneTemplate'
 import {
@@ -167,6 +170,20 @@ interface OpenFileHandle { getFile(): Promise<File> }
 type FilePickerWindow = Window & {
   showDirectoryPicker?: () => Promise<SceneDirectoryHandle>
   showOpenFilePicker?: (options: object) => Promise<OpenFileHandle[]>
+}
+
+interface PresentationScreen {
+  availHeight: number
+  availLeft: number
+  availTop: number
+  availWidth: number
+}
+
+type PresentationWindow = Window & {
+  getScreenDetails?: () => Promise<{
+    currentScreen: PresentationScreen
+    screens: PresentationScreen[]
+  }>
 }
 
 const DEFAULT_LOCATION_REQUEST: RoadLocationRequest = {
@@ -325,7 +342,10 @@ function SignboardGraphic({ message }: { message: SignboardMessage }) {
   return (
     <>
       <rect className="signboard" x="-40" y="-12" width="80" height="24" />
-      {symbolPath && <path className="signboard-symbol" d={symbolPath} />}
+      {message === 'double-diamonds' ? <>
+        <path className="signboard-symbol signboard-frame-a" d="M -25 0 L -16 -9 L -7 0 L -16 9 Z" />
+        <path className="signboard-symbol signboard-frame-b" d="M 7 0 L 16 -9 L 25 0 L 16 9 Z" />
+      </> : symbolPath && <path className={`signboard-symbol${message.endsWith('arrow') ? ' signboard-flash' : ''}`} d={symbolPath} />}
       {copy && <text className="signboard-copy" textAnchor="middle"><tspan x="0" y="-2">{copy[0]}</tspan><tspan x="0" y="8">{copy[1]}</tspan></text>}
     </>
   )
@@ -416,6 +436,7 @@ function App() {
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<string | null>(null)
   const [draggingEquipmentId, setDraggingEquipmentId] = useState<string | null>(null)
   const rotatingEquipmentRef = useRef<{ id: string; startAngle: number; startRotation: number } | null>(null)
+  const rotatingTruckRef = useRef<{ id: string; startAngle: number; startRotation: number } | null>(null)
   const [activeToolkit, setActiveToolkit] = useState<ToolkitCategory>('ssp-asset')
   const [sceneTypeOpen, setSceneTypeOpen] = useState(true)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
@@ -525,7 +546,11 @@ function App() {
     sceneVisible ? trucks.length : 0,
     sceneVisible ? points.length : 0,
   )
-  const catalogBaselineCounts = { cone: sceneVisible ? points.length : 0, 'ssp-truck': sceneVisible ? trucks.length : 0 }
+  const catalogBaselineCounts = {
+    cone: sceneVisible ? points.length : 0,
+    'ssp-truck': sceneVisible ? trucks.filter((truck) => truck.assetType === 'ssp-truck').length : 0,
+    'lane-blade-truck': sceneVisible ? trucks.filter((truck) => truck.assetType === 'lane-blade-truck').length : 0,
+  }
   const selectedScenario = scenarioDefinition(scenario)
   const highwayLabelsAvailable = roadScene.source.type !== 'development-fixture'
   const sceneAnchorX = RIGHT_LANE_STANDARD.roadCenterX
@@ -734,6 +759,47 @@ function App() {
     setSpatialServiceStatus(available ? 'connected' : 'unavailable')
   }
 
+  async function presentOnExternalDisplay() {
+    const presentation = window.open('', 'magnus-presentation', 'popup,width=1280,height=720')
+    if (!presentation) {
+      window.alert('Allow pop-up windows to present Magnus on an external display.')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: false,
+        preferCurrentTab: true,
+      } as DisplayMediaStreamOptions)
+      const screenWindow = window as PresentationWindow
+      const details = screenWindow.getScreenDetails ? await screenWindow.getScreenDetails() : null
+      const externalScreen = details?.screens.find((screen) => screen !== details.currentScreen)
+      if (externalScreen) {
+        presentation.moveTo(externalScreen.availLeft, externalScreen.availTop)
+        presentation.resizeTo(externalScreen.availWidth, externalScreen.availHeight)
+      }
+
+      presentation.document.title = 'Magnus Presentation'
+      presentation.document.body.replaceChildren()
+      presentation.document.body.style.cssText = 'margin:0;overflow:hidden;background:#101614;'
+      const video = presentation.document.createElement('video')
+      video.autoplay = true
+      video.muted = true
+      video.playsInline = true
+      video.srcObject = stream
+      video.style.cssText = 'width:100vw;height:100vh;display:block;object-fit:contain;background:#101614;'
+      presentation.document.body.append(video)
+      const stopPresentation = () => stream.getTracks().forEach((track) => track.stop())
+      presentation.addEventListener('beforeunload', stopPresentation, { once: true })
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => presentation.close(), { once: true })
+      await video.play()
+    } catch (error) {
+      presentation.close()
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      window.alert(error instanceof Error ? `Magnus could not start presentation mode: ${error.message}` : 'Magnus could not start presentation mode.')
+    }
+  }
+
   function changeScenario(nextScenario: ScenarioType) {
     setScenario(nextScenario)
     setPoints(createScene(nextScenario))
@@ -932,8 +998,8 @@ function App() {
     }
   }
 
-  function addTruck() {
-    const nextTrucks = addSspTruck(trucks)
+  function addTruck(assetType: SspTruckState['assetType'] = 'ssp-truck') {
+    const nextTrucks = addSspTruck(trucks, assetType)
     setTrucks(nextTrucks)
     setSelectedTruckId(nextTrucks.at(-1)?.id ?? selectedTruckId)
   }
@@ -944,8 +1010,8 @@ function App() {
   }
 
   function deployCatalogItem(definitionId: string) {
-    if (definitionId === 'ssp-truck') {
-      addTruck()
+    if (definitionId === 'ssp-truck' || definitionId === 'lane-blade-truck') {
+      addTruck(definitionId)
       return
     }
     if (!canDeploy(definitionId, deployedEquipment, trucks.length, catalogBaselineCounts)) return
@@ -995,7 +1061,7 @@ function App() {
   }
 
   function moveCone(event: React.PointerEvent<SVGSVGElement>) {
-    if ((!dragging || mode === 'gospel') && !draggingEquipmentId && !draggingTruckId && !rotatingEquipmentRef.current) return
+    if ((!dragging || mode === 'gospel') && !draggingEquipmentId && !draggingTruckId && !rotatingEquipmentRef.current && !rotatingTruckRef.current) return
     const bounds = event.currentTarget.getBoundingClientRect()
     const scenePoint = clientToMapPoint(
       { x: event.clientX, y: event.clientY },
@@ -1027,6 +1093,16 @@ function App() {
         rotation: Math.round(rotating.startRotation + angle - rotating.startAngle),
       })
     }
+    const rotatingTruck = rotatingTruckRef.current
+    if (rotatingTruck) {
+      const truck = trucks.find((item) => item.id === rotatingTruck.id)
+      if (!truck) return
+      const angle = Math.atan2(localPoint.y - truck.y, localPoint.x - truck.x) * 180 / Math.PI
+      setTrucks((current) => current.map((item) => item.id === truck.id ? {
+        ...item,
+        rotation: Math.round(rotatingTruck.startRotation + angle - rotatingTruck.startAngle),
+      } : item))
+    }
   }
 
   function beginEquipmentRotation(event: React.PointerEvent<SVGCircleElement>, item: DeployedEquipment) {
@@ -1051,6 +1127,30 @@ function App() {
     event.currentTarget.setPointerCapture(event.pointerId)
     setSelectedEquipmentId(item.id)
     setSelectedTruckId('')
+  }
+
+  function beginTruckRotation(event: React.PointerEvent<SVGCircleElement>, truck: SspTruckState) {
+    event.stopPropagation()
+    const canvas = event.currentTarget.ownerSVGElement
+    if (!canvas) return
+    const scenePoint = clientToMapPoint(
+      { x: event.clientX, y: event.clientY },
+      canvas.getBoundingClientRect(),
+    )
+    const activeTransform = selectedSectionTransform ?? {
+      x: sceneOrigin.x + sceneAnchorX,
+      y: sceneOrigin.y + sceneAnchorY,
+      rotation: sceneRotation,
+    }
+    const localPoint = scenePointToLocal(scenePoint, activeTransform, { x: sceneAnchorX, y: sceneAnchorY })
+    rotatingTruckRef.current = {
+      id: truck.id,
+      startAngle: Math.atan2(localPoint.y - truck.y, localPoint.x - truck.x) * 180 / Math.PI,
+      startRotation: truck.rotation,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setSelectedTruckId(truck.id)
+    setSelectedEquipmentId(null)
   }
 
   function addRadioEvent() {
@@ -1365,6 +1465,17 @@ function App() {
                 return <div className="theme-editor"><input aria-label="Custom theme color" type="color" value={appSettings.customThemes[id].color} onChange={(event) => updateCustomTheme(id, { color: event.target.value })} /><input aria-label="Custom theme name" maxLength={24} value={appSettings.customThemes[id].name} onChange={(event) => updateCustomTheme(id, { name: event.target.value })} /></div>
               })()}
             </div>
+            <div className="settings-section">
+              <div className="settings-section-title"><MonitorUp size={15} /><span>Pane and text scale</span></div>
+              <label className="interface-scale-control">
+                <input aria-label="Pane and text scale" type="range" min="100" max="160" step="10" value={appSettings.interfaceScale} onChange={(event) => setAppSettings((current) => ({ ...current, interfaceScale: Number(event.target.value) }))} />
+                <output>{appSettings.interfaceScale}%</output>
+              </label>
+            </div>
+            <div className="settings-section">
+              <div className="settings-section-title"><ScreenShare size={15} /><span>External display</span></div>
+              <button className="presentation-button" type="button" onClick={() => { void presentOnExternalDisplay() }}><ScreenShare size={15} /> Present on external display</button>
+            </div>
             <div className="settings-section offline-preparation">
               <div className="settings-section-title"><HardDrive size={15} /><span>Offline preparation</span></div>
               <div className="offline-summary"><span>{offlineStatus?.cachedScenes ?? 0} prepared scenes</span><b>{formatStorageSize(offlineStatus?.cacheBytes ?? 0)}</b></div>
@@ -1386,7 +1497,14 @@ function App() {
         <button className="icon-button exit-button" type="button" title="Exit Magnus" aria-label="Exit Magnus" onClick={() => { void exitApplication() }}><X size={19} /></button>
       </header>
 
-      <section className={`workspace${appSettings.leftPaneCollapsed ? ' left-pane-collapsed' : ''}${appSettings.rightPaneCollapsed ? ' right-pane-collapsed' : ''}`}>
+      <section
+        className={`workspace${appSettings.leftPaneCollapsed ? ' left-pane-collapsed' : ''}${appSettings.rightPaneCollapsed ? ' right-pane-collapsed' : ''}`}
+        style={{
+          '--pane-scale': appSettings.interfaceScale / 100,
+          '--pane-min-width': `${2.8 * appSettings.interfaceScale}px`,
+          '--pane-max-width': `${3.6 * appSettings.interfaceScale}px`,
+        } as CSSProperties}
+      >
         <aside className="panel config-panel" aria-label="Scenario configuration">
           <div className="panel-heading"><span>01</span><div><p>Configuration</p><h2>Build the scene</h2></div><button className="pane-toggle" type="button" title="Collapse configuration pane" aria-label="Collapse configuration pane" onClick={(event) => collapsePane('left', event)}><ChevronLeft size={24} /></button></div>
           <div className={`spatial-service-status ${spatialServiceStatus}`} role="status" aria-live="polite">
@@ -1491,7 +1609,7 @@ function App() {
           </div>
           <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom} onPointerDown={startScenePointer} onPointerMove={moveScenePointer} onPointerUp={endScenePointer} onPointerCancel={endScenePointer} onWheel={zoomSceneWithTrackpad}>
             <div className="road-canvas-surface" style={sceneCanvasSize}>
-            <svg className={`road-canvas${scenePlacementActive ? ' placing-scene' : ''}`} viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-visible-width-feet={Math.round(sceneVisibleWidth)} data-zoom={sceneZoom} onPointerDown={placeScene} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null }}>
+            <svg className={`road-canvas${scenePlacementActive ? ' placing-scene' : ''}`} viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-visible-width-feet={Math.round(sceneVisibleWidth)} data-zoom={sceneZoom} onPointerDown={placeScene} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null; rotatingTruckRef.current = null }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null; rotatingTruckRef.current = null }}>
               <g className="map-world" transform={mapTransform}>
               <RoadwayLayer
                 scene={roadScene}
@@ -1508,6 +1626,7 @@ function App() {
                 aria-label={`${truck.label}, signboard ${signboardLabel(truck.signboard)}`}
                 className={`ssp-truck${truck.id === selectedTruckId ? ' selected' : ''}`}
                 data-length-feet={RIGHT_LANE_STANDARD.truck.length}
+                data-asset-type={truck.assetType}
                 data-signboard={truck.signboard}
                 data-truck-id={truck.id}
                 data-width-feet={RIGHT_LANE_STANDARD.truck.width}
@@ -1517,7 +1636,7 @@ function App() {
                 onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setSelectedTruckId(truck.id); setSelectedConeId(null); setSelectedEquipmentId(null); setDraggingTruckId(truck.id) }}
                 role="button"
                 tabIndex={0}
-                transform={`translate(${truck.x + selectedScenario.truckOffsetX} ${truck.y})`}
+                transform={`translate(${truck.x + selectedScenario.truckOffsetX} ${truck.y}) rotate(${truck.rotation})`}
               >
                 <rect className="truck-body" x="-4.25" y="-12" width="8.5" height="24" />
                 <path className="truck-panel-line" d="M -4.25 -1 H 4.25 M -4.25 -7 H 4.25 M -3 -7 V -1 M 3 -7 V -1" />
@@ -1527,6 +1646,9 @@ function App() {
                 <rect className="strobe" x="-4" y="-11" width="0.8" height="0.8" />
                 <rect className="strobe delayed" x="3.2" y="-11" width="0.8" height="0.8" />
                 <g transform="translate(0 10) scale(.1)"><SignboardGraphic message={truck.signboard} /></g>
+                {truck.assetType === 'lane-blade-truck' && <path className="truck-lane-blade" d="M -4.25 -12 H 4.25" />}
+                <rect className="deployed-selection" x="-6.25" y="-14" width="12.5" height="28" />
+                {truck.id === selectedTruckId && <circle className="equipment-rotation-handle" aria-label={`Rotate ${truck.label}`} cx="6.25" cy="-14" r="2.2" onPointerDown={(event) => beginTruckRotation(event, truck)} />}
               </g>)}
               {points.map((point) => (
                 <g className={`cone${point.id === selectedConeId ? ' selected' : ''}${mode === 'gospel' ? ' locked' : ''}`} data-cone-id={point.id} key={point.id} role="button" tabIndex={0} transform={`translate(${point.x} ${point.y})`} onClick={(event) => { event.stopPropagation(); setSelectedConeId(point.id); setSelectedEquipmentId(null); setSelectedTruckId('') }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { setSelectedConeId(point.id); setSelectedEquipmentId(null); setSelectedTruckId('') } }} onPointerDown={(event) => { event.stopPropagation(); setSelectedConeId(point.id); setSelectedEquipmentId(null); setSelectedTruckId(''); if (mode === 'gospel') return; event.currentTarget.setPointerCapture(event.pointerId); setDragging(point.id) }}>
@@ -1580,6 +1702,7 @@ function App() {
             {trucks.length > 1 && <div className="truck-selector" role="tablist" aria-label="SSP trucks">{trucks.map((truck, index) => <button type="button" role="tab" aria-selected={truck.id === selectedTruck.id} key={truck.id} onClick={() => setSelectedTruckId(truck.id)}>{index + 1}</button>)}</div>}
             <svg className="signboard-output" viewBox="-44 -16 88 32" role="img" aria-label={`${selectedTruck.label} signboard: ${signboardLabel(selectedTruck.signboard)}`}><SignboardGraphic message={selectedTruck.signboard} /></svg>
             <label htmlFor="signboard-message">Displayed message<select id="signboard-message" aria-label={`Signboard message for ${selectedTruck.label}`} value={selectedTruck.signboard} onChange={(event) => setSelectedTruckSignboard(event.target.value as SignboardMessage)}>{SIGNBOARD_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+            <label htmlFor="ssp-truck-rotation">Rotation<select id="ssp-truck-rotation" aria-label={`Rotation for ${selectedTruck.label}`} value={selectedTruck.rotation} onChange={(event) => setTrucks((current) => current.map((truck) => truck.id === selectedTruck.id ? { ...truck, rotation: Number(event.target.value) } : truck))}><option value="0">0°</option><option value="45">45°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
           </section>}
           <section className="roadway-controls" aria-label="Roadway and map controls">
             <div className="control-row">

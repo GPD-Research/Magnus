@@ -24,6 +24,7 @@ describe('equipment catalog', () => {
   it('organizes the scene catalog into the four planned categories', () => {
     expect(TOOLKIT_CATEGORIES.map(({ label }) => label)).toEqual(['SSP Assets', 'External Assets', 'Hazards', 'Incidentals'])
     expect(equipmentDefinition('ssp-truck').category).toBe('ssp-asset')
+    expect(equipmentDefinition('lane-blade-truck')).toMatchObject({ category: 'ssp-asset', glyph: 'lane-blade-truck' })
     expect(equipmentDefinition('ems-ambulance').category).toBe('external-asset')
     expect(equipmentDefinition('vehicle-fire').category).toBe('hazard')
     expect(equipmentDefinition('crash-debris-area')).toMatchObject({ category: 'incidental', resizable: true })

@@ -26,11 +26,11 @@
 .scene-file-status { position: absolute; top: 39px; right: 0; z-index: 15; padding: 4px 7px; color: #18211e; background: #d8f0df; border: 1px solid #7fb795; font-size: 8px; white-space: nowrap; }
 .topbar svg, .panel svg, .canvas-hint svg { stroke-width: 1.5; }
 
-.workspace { height: calc(100vh - 64px); display: grid; grid-template-areas: 'config left-grip canvas right-grip audit'; grid-template-columns: minmax(280px, 360px) 0 minmax(0, 1fr) 0 minmax(280px, 360px); overflow: hidden; }
-.workspace.left-pane-collapsed { grid-template-columns: 0 44px minmax(0, 1fr) 0 minmax(280px, 360px); }
-.workspace.right-pane-collapsed { grid-template-columns: minmax(280px, 360px) 0 minmax(0, 1fr) 44px 0; }
+.workspace { --pane-scale: 1; --pane-min-width: 280px; --pane-max-width: 360px; height: calc(100vh - 64px); display: grid; grid-template-areas: 'config left-grip canvas right-grip audit'; grid-template-columns: minmax(var(--pane-min-width), var(--pane-max-width)) 0 minmax(0, 1fr) 0 minmax(var(--pane-min-width), var(--pane-max-width)); overflow: hidden; }
+.workspace.left-pane-collapsed { grid-template-columns: 0 44px minmax(0, 1fr) 0 minmax(var(--pane-min-width), var(--pane-max-width)); }
+.workspace.right-pane-collapsed { grid-template-columns: minmax(var(--pane-min-width), var(--pane-max-width)) 0 minmax(0, 1fr) 44px 0; }
 .workspace.left-pane-collapsed.right-pane-collapsed { grid-template-columns: 0 44px minmax(0, 1fr) 44px 0; }
-.panel { min-width: 0; overflow-y: auto; color: var(--ink); background: var(--panel-bg); }
+.panel { min-width: 0; overflow-y: auto; color: var(--ink); background: var(--panel-bg); zoom: var(--pane-scale); }
 .config-panel { grid-area: config; border-right: 1px solid var(--line); }
 .audit-panel { grid-area: audit; position: relative; border-left: 1px solid var(--line); }
 .canvas-panel { grid-area: canvas; }
@@ -230,6 +230,11 @@
 .theme-editor { display: grid; grid-template-columns: 42px 1fr; gap: 7px; margin-top: 9px; }
 .theme-editor input { min-width: 0; width: 100%; height: 34px; padding: 4px 7px; color: var(--ink); background: var(--control-bg); border: 1px solid var(--line); }
 .theme-editor input[type='color'] { padding: 3px; }
+.interface-scale-control { display: grid; grid-template-columns: 1fr 44px; align-items: center; gap: 12px; }
+.interface-scale-control input { width: 100%; accent-color: var(--theme-accent); }
+.interface-scale-control output { color: var(--ink); font: 600 13px 'Barlow Condensed', sans-serif; text-align: right; }
+.presentation-button { width: 100%; height: 36px; display: flex; align-items: center; justify-content: center; gap: 7px; color: #fff; background: var(--theme-accent); border: 0; font-size: 9px; font-weight: 600; cursor: pointer; }
+.presentation-button:hover, .presentation-button:focus-visible { filter: brightness(1.12); outline: 2px solid color-mix(in srgb, var(--theme-accent) 55%, white); outline-offset: 2px; }
 .offline-summary { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding: 8px 9px; color: var(--muted); background: var(--panel-raised); font-size: 9px; }
 .offline-summary b { color: var(--ink); }
 .offline-regions { border: 1px solid var(--line); }
@@ -292,9 +297,13 @@
 .truck-lightbar { fill: #e4ac18; stroke: #111817; stroke-width: .15; }
 .signboard { fill: #151b1c; stroke: #d7dcda; stroke-width: .15; }
 .signboard-symbol { fill: none; stroke: #ffc323; stroke-width: 2.5; stroke-linecap: square; stroke-linejoin: miter; }
+.signboard-flash, .signboard-frame-a, .signboard-frame-b { animation: signboard-flash .8s steps(1, end) infinite; }
+.signboard-frame-b { animation-delay: -.4s; }
+@keyframes signboard-flash { 0%, 49.99% { opacity: 1; } 50%, 100% { opacity: 0; } }
 .signboard-copy { fill: #ffc323; font: 700 8px 'IBM Plex Sans', sans-serif; letter-spacing: 0; }
 .ssp-truck { cursor: pointer; outline: none; }
-.ssp-truck.selected .truck-body, .ssp-truck:focus .truck-body { stroke: #ffc323; stroke-width: .8; filter: drop-shadow(0 0 2px rgba(255,195,35,.9)); }
+.ssp-truck.selected .deployed-selection, .ssp-truck:focus .deployed-selection { stroke: #ffc323; }
+.truck-lane-blade, .catalog-lane-blade { fill: none; stroke: #d82e2e; stroke-width: 1.5; stroke-linecap: square; }
 .deployed-equipment { cursor: move; outline: none; }
 .deployed-selection { fill: none; stroke: transparent; stroke-width: 1; stroke-dasharray: 3 2; }
 .deployed-equipment.selected .deployed-selection, .deployed-equipment:focus .deployed-selection { stroke: #ffc323; }
@@ -306,6 +315,10 @@
 .catalog-cone-base { fill: none; stroke: #111817; stroke-width: .7; }
 .catalog-tow-rig, .catalog-attenuator { fill: none; stroke: #26302e; stroke-width: .9; }
 .catalog-police-stripe { fill: none; stroke: #2d67ae; stroke-width: .7; }
+.catalog-windshield { fill: #d6dcda; stroke: #151c1b; stroke-width: .35; }
+.emergency-light { animation: emergency-light-pulse .6s steps(1, end) infinite; }
+.emergency-light.right { animation-delay: -.3s; }
+@keyframes emergency-light-pulse { 0%, 49.99% { opacity: 1; filter: brightness(1.7) drop-shadow(0 0 2px currentColor); } 50%, 100% { opacity: .28; filter: brightness(.45); } }
 .catalog-blood { fill: #b92926; stroke: #711513; stroke-width: .3; }
 .catalog-person { stroke-width: 1; }
 .catalog-medical { fill: none; stroke: #c94439; stroke-width: 1.5; }

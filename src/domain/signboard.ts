@@ -13,6 +13,8 @@ export interface SspTruckState {
   label: string
   x: number
   y: number
+  rotation: number
+  assetType: 'ssp-truck' | 'lane-blade-truck'
   signboard: SignboardMessage
 }
 
@@ -41,9 +43,9 @@ export function createSspTrucks(): SspTruckState[] {
   return [createSspTruck(0)]
 }
 
-export function addSspTruck(trucks: SspTruckState[]): SspTruckState[] {
+export function addSspTruck(trucks: SspTruckState[], assetType: SspTruckState['assetType'] = 'ssp-truck'): SspTruckState[] {
   if (trucks.length >= MAX_SSP_TRUCKS) return trucks
-  return [...trucks, createSspTruck(trucks.length)]
+  return [...trucks, createSspTruck(trucks.length, assetType)]
 }
 
 export function updateTruckSignboard(
@@ -58,12 +60,14 @@ export function signboardLabel(message: SignboardMessage): string {
   return SIGNBOARD_OPTIONS.find((option) => option.value === message)?.label ?? message
 }
 
-function createSspTruck(index: number): SspTruckState {
+function createSspTruck(index: number, assetType: SspTruckState['assetType'] = 'ssp-truck'): SspTruckState {
   const sequence = index + 1
   return {
     id: `ssp-truck-${sequence}`,
-    label: `SSP Truck ${sequence}`,
+    label: `${assetType === 'lane-blade-truck' ? 'Lane Blade Truck' : 'SSP Truck'} ${sequence}`,
     ...truckPositions[index],
+    rotation: 0,
+    assetType,
     signboard: 'double-diamonds',
   }
 }

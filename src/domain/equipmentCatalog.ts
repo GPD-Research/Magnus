@@ -9,7 +9,7 @@ export const TOOLKIT_CATEGORIES: { id: ToolkitCategory; label: string }[] = [
 ]
 
 export type EquipmentGlyph =
-  | 'cone' | 'flare' | 'diamond-sign' | 'person' | 'ssp-truck' | 'cruiser' | 'ambulance'
+  | 'cone' | 'flare' | 'diamond-sign' | 'person' | 'ssp-truck' | 'lane-blade-truck' | 'cruiser' | 'ambulance'
   | 'ladder-truck' | 'pump-truck' | 'pickup' | 'tool' | 'suv' | 'sedan'
   | 'tractor-trailer' | 'jackknife' | 'tractor' | 'bus' | 'trailer'
   | 'car-hauler' | 'vehicle-fire' | 'tanker' | 'debris' | 'deer' | 'airplane' | 'helipad'
@@ -45,6 +45,7 @@ export interface DeployedEquipment {
 // new silhouettes require one additional case in SceneEquipmentGlyph.
 export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'ssp-truck', label: 'SSP truck', category: 'ssp-asset', countClass: 'vehicle', glyph: 'ssp-truck', color: '#eef1ed', width: 8.5, length: 24, limit: 5 },
+  { id: 'lane-blade-truck', label: 'Lane Blade Truck', category: 'ssp-asset', countClass: 'vehicle', glyph: 'lane-blade-truck', color: '#eef1ed', width: 8.5, length: 24, limit: 5 },
   { id: 'cone', label: 'Full-size cone', category: 'ssp-asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 20 } },
   { id: 'flare', label: 'Road flare', category: 'ssp-asset', countClass: 'equipment', glyph: 'flare', color: '#e24631', width: 2, length: 2, capacity: { per: 'ssp-truck', quantity: 80 } },
   { id: 'emergency-sign', label: 'Emergency Scene Ahead sign', category: 'ssp-asset', countClass: 'equipment', glyph: 'diamond-sign', color: '#ed5ca8', width: 6, length: 6, capacity: { per: 'ssp-truck', quantity: 2 } },
