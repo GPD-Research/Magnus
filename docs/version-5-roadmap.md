@@ -1,6 +1,8 @@
 # Magnus Version 5 Roadmap
 
-Version 5 is focused on lecture-based demonstration, large-scene navigation, richer scene inventories, live annotation, and distributable output. Version 4 remains the operational baseline while these capabilities are developed and validated.
+Version 5 is focused on lecture-based demonstration, large-scene navigation, richer scene inventories, live annotation, and distributable output. Version 4.5 remains the operational baseline while these capabilities are developed and validated.
+
+The expandable center workspace shipped in Version 4.5. Roadway rotation is deferred until after the 4.5 release and branding work so its shared transform requirements can be evaluated as a separate high-risk change.
 
 ## Product goals
 
@@ -12,6 +14,8 @@ Version 5 is focused on lecture-based demonstration, large-scene navigation, ric
 - Export the current visual composition for printing, email, and presentation materials.
 
 ## 1. Expandable center workspace
+
+**Status: delivered in Version 4.5.0.**
 
 The left configuration pane and right operations pane will collapse independently toward their nearest screen edge.
 
@@ -33,6 +37,8 @@ The left configuration pane and right operations pane will collapse independentl
 - Desktop and tablet layouts provide at least a 44 px tap target for each grip.
 
 ## 2. Roadway rotation
+
+**Status: deferred.** Resume only after a dedicated transform design and regression plan is approved.
 
 Add roadway rotation controls beside the existing zoom controls in the top bar.
 
@@ -203,8 +209,8 @@ Add an Output menu to the center top bar with SVG and PNG actions.
 
 ### Milestone 1: Viewport foundation
 
-- Collapsible side panes and restore grips
-- Persisted pane state
+- Collapsible side panes and restore grips (delivered in Version 4.5.0)
+- Persisted pane state (delivered in Version 4.5.0)
 - Rotation state and 45-degree controls
 - Shared forward and inverse world transforms
 - Regression coverage for placement, dragging, pan, and zoom under rotation

@@ -16,6 +16,31 @@ describe('application settings', () => {
       .toEqual(DEFAULT_APP_SETTINGS)
   })
 
+  it('migrates version 1 settings with both workspace panes open', () => {
+    const versionOne = {
+      ...DEFAULT_APP_SETTINGS,
+      version: 1,
+      leftPaneCollapsed: undefined,
+      rightPaneCollapsed: undefined,
+    }
+
+    expect(loadAppSettings({ getItem: () => JSON.stringify(versionOne) })).toMatchObject({
+      version: 2,
+      leftPaneCollapsed: false,
+      rightPaneCollapsed: false,
+    })
+  })
+
+  it('restores persisted workspace pane state', () => {
+    const stored = {
+      ...DEFAULT_APP_SETTINGS,
+      leftPaneCollapsed: true,
+      rightPaneCollapsed: true,
+    }
+
+    expect(loadAppSettings({ getItem: () => JSON.stringify(stored) })).toEqual(stored)
+  })
+
   it('encodes the selected connectivity source for road requests', () => {
     expect(connectivityQuery('offline')).toBe('source=offline')
     expect(connectivityQuery('lan')).toBe('source=lan')

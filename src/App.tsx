@@ -14,6 +14,10 @@ import {
   Minus,
   MousePointer2,
   Navigation,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   PencilRuler,
   Plus,
   Radio,
@@ -283,6 +287,8 @@ function App() {
   const [designerOpen, setDesignerOpen] = useState(false)
   const [spatialServiceStatus, setSpatialServiceStatus] = useState<SpatialServiceStatus>('checking')
   const roadStageRef = useRef<HTMLDivElement>(null)
+  const leftPaneRestoreRef = useRef<HTMLButtonElement>(null)
+  const rightPaneRestoreRef = useRef<HTMLButtonElement>(null)
   const locationResolutionRef = useRef(0)
   const panPointersRef = useRef(new Map<number, { x: number; y: number }>())
   const gestureFrameRef = useRef<number | null>(null)
@@ -847,6 +853,26 @@ function App() {
     setRoadLayerVisibility((current) => ({ ...current, [layer]: visible }))
   }
 
+  function collapsePane(side: 'left' | 'right', event: React.MouseEvent<HTMLButtonElement>) {
+    setAppSettings((current) => ({
+      ...current,
+      [side === 'left' ? 'leftPaneCollapsed' : 'rightPaneCollapsed']: true,
+    }))
+    if (event.detail === 0) {
+      requestAnimationFrame(() => {
+        const restoreButton = side === 'left' ? leftPaneRestoreRef.current : rightPaneRestoreRef.current
+        restoreButton?.focus()
+      })
+    }
+  }
+
+  function restorePane(side: 'left' | 'right') {
+    setAppSettings((current) => ({
+      ...current,
+      [side === 'left' ? 'leftPaneCollapsed' : 'rightPaneCollapsed']: false,
+    }))
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -897,9 +923,9 @@ function App() {
         <button className="primary-button" type="button" onClick={saveScenario}><Check size={17} /> {saveStatus === 'saved' ? 'Scenario saved' : 'Save scenario'}</button>
       </header>
 
-      <section className="workspace">
+      <section className={`workspace${appSettings.leftPaneCollapsed ? ' left-pane-collapsed' : ''}${appSettings.rightPaneCollapsed ? ' right-pane-collapsed' : ''}`}>
         <aside className="panel config-panel" aria-label="Scenario configuration">
-          <div className="panel-heading"><span>01</span><div><p>Configuration</p><h2>Build the scene</h2></div></div>
+          <div className="panel-heading"><span>01</span><div><p>Configuration</p><h2>Build the scene</h2></div><button className="pane-collapse" type="button" title="Collapse configuration pane" aria-label="Collapse configuration pane" onClick={(event) => collapsePane('left', event)}><PanelLeftClose size={18} /></button></div>
           <div className={`spatial-service-status ${spatialServiceStatus}`} role="status" aria-live="polite">
             <span className="service-indicator" aria-hidden="true" />
             <div><b>Spatial service</b><small>{spatialServiceStatus === 'connected' ? 'Connected' : spatialServiceStatus === 'checking' ? 'Checking connection' : 'Development preview available'}</small></div>
@@ -979,6 +1005,8 @@ function App() {
           <div className="asset-inventory"><div><span>Available assets</span><b>{sceneVisible ? points.length + trucks.length + 2 : 0}</b></div><div className="asset-icons"><span><Truck size={19} /> {sceneVisible ? trucks.length : 0}</span><span><TrafficCone size={19} /> {sceneVisible ? points.length : 0}</span><span><Radio size={18} /> {sceneVisible ? 2 : 0}</span></div></div>
         </aside>
 
+        <button ref={leftPaneRestoreRef} className="pane-restore left-pane-restore" type="button" title="Restore configuration pane" aria-label="Restore configuration pane" onClick={() => restorePane('left')}><PanelLeftOpen size={20} /><span>Configuration</span></button>
+
         <section className="canvas-panel" aria-label="Interactive scene canvas">
           <div className="canvas-toolbar">
             <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><div className="scene-heading-row"><h1>{sceneVisible ? selectedScenario.heading : scenePlacementActive ? `Place ${selectedScenario.label.toLowerCase()}` : 'Roadway only'}</h1>{sceneVisible && <ArrowUp className="traffic-direction-arrow" style={{ transform: `rotate(${effectiveSceneRotation}deg)` }} size={19} aria-label="Traffic flow bearing" />}</div><small className="scene-dataset">{roadScene.source.dataset}</small></div>
@@ -1057,8 +1085,10 @@ function App() {
           <MapCompass rotation={mapRotation} />
         </section>
 
+        <button ref={rightPaneRestoreRef} className="pane-restore right-pane-restore" type="button" title="Restore operations pane" aria-label="Restore operations pane" onClick={() => restorePane('right')}><PanelRightOpen size={20} /><span>Operations</span></button>
+
         <aside className="panel audit-panel" aria-label="Compliance and communications">
-          <div className="panel-heading"><span>02</span><div><p>Operations</p><h2>Mode & audit</h2></div></div>
+          <div className="panel-heading"><span>02</span><div><p>Operations</p><h2>Mode & audit</h2></div><button className="pane-collapse" type="button" title="Collapse operations pane" aria-label="Collapse operations pane" onClick={(event) => collapsePane('right', event)}><PanelRightClose size={18} /></button></div>
           <section className="scene-resource-counts" aria-label="Scene resource counts"><div><span>Vehicles</span><b>{deployedCounts.vehicles}</b></div><div><span>Cones</span><b>{deployedCounts.cones}</b></div><div><span>Personnel</span><b>{deployedCounts.personnel}</b></div><div><span>Hazards</span><b>{deployedCounts.hazards}</b></div></section>
           {selectedEquipment && selectedEquipmentDefinition && <section className="equipment-inspector" aria-label="Selected scene item"><div><span>Selected item</span><b>{selectedEquipmentDefinition.label}</b></div><div className="equipment-position"><label>X (ft)<input type="number" value={Math.round(selectedEquipment.x)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { x: Number(event.target.value) })} /></label><label>Y (ft)<input type="number" value={Math.round(selectedEquipment.y)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { y: Number(event.target.value) })} /></label><label>Rotation<select value={selectedEquipment.rotation} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { rotation: Number(event.target.value) })}><option value="0">0°</option><option value="45">45°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label></div><button type="button" onClick={deleteSelectedEquipment}>Delete selected item</button></section>}
           <section className="signboard-control" aria-label="SSP truck signboard">

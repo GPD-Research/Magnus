@@ -1,13 +1,18 @@
-# Magnus 4.0.0
+# Magnus 4.5.0
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 4.0.0 adds operator-controlled connectivity, offline preparation, resilient map caching, and locally saved themes to the roadway, SOP, resource, and hazard tools introduced in Version 3.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 4.5.0 is a release candidate that stabilizes the Version 4 offline foundation and adds an expandable roadway workspace for classroom and presentation use.
 
 Version 5 planning is tracked in [docs/version-5-roadmap.md](docs/version-5-roadmap.md).
 
-## Version 4
+## Version 4.5
 
 This release includes:
 
+- Independently collapsible configuration and operations panes on desktop and tablet
+- Persistent presentation layout with accessible 44 px edge restore grips
+- Keyboard focus transfer from a collapsed pane to its restore control
+- Expanded roadway workspace without changing scene zoom or stored object coordinates
+- Versioned settings migration that keeps existing Version 4 preferences compatible
 - Online, LAN, and Offline map modes selected from the top bar or Settings
 - Cache-only local resolution in LAN and Offline modes, with no public provider attempt
 - Persistent roadway scene cache with provider failover in Online mode
@@ -31,7 +36,9 @@ This release includes:
 - Highway, direction, and mile-marker/exit location requests in the configuration pane
 - Single-process production launch serving the UI and spatial API from Rust
 
-This is a release candidate. Prepared PBF packages are downloaded and inventoried by the app, while arbitrary offline highway/reference lookup still depends on a previously cached `RoadScene`. A cache miss is reported explicitly and never falls through to an internet provider in LAN or Offline mode.
+Roadway rotation is intentionally deferred beyond Version 4.5 because it requires a shared forward and inverse map-transform pipeline across placement, dragging, drawing, panning, zooming, and export.
+
+Prepared PBF packages are downloaded and inventoried by the app, while arbitrary offline highway/reference lookup still depends on a previously cached `RoadScene`. A cache miss is reported explicitly and never falls through to an internet provider in LAN or Offline mode.
 
 ## Launch
 

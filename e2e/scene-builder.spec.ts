@@ -24,7 +24,7 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  await expect(page.getByLabel('Magnus version 4.0.0')).toBeVisible()
+  await expect(page.getByLabel('Magnus version 4.5.0')).toBeVisible()
 })
 
 test('persists offline mode and sends cache-only map requests', async ({ page }) => {
@@ -227,7 +227,9 @@ test('uses a wider center pane and a muted moss map field', async ({ page }) => 
   await page.goto('/')
 
   const widths = await page.locator('.workspace').evaluate((workspace) => {
-    const [left, center, right] = Array.from(workspace.children) as HTMLElement[]
+    const left = workspace.querySelector<HTMLElement>('.config-panel')!
+    const center = workspace.querySelector<HTMLElement>('.canvas-panel')!
+    const right = workspace.querySelector<HTMLElement>('.audit-panel')!
     return {
       workspace: workspace.clientWidth,
       left: left.clientWidth,
@@ -251,6 +253,41 @@ test('uses a wider center pane and a muted moss map field', async ({ page }) => 
       && truckBounds.y > stageBounds.y
       && truckBounds.y < stageBounds.y + stageBounds.height
   }).toBe(true)
+})
+
+test('collapses, restores, and persists both workspace panes', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.setViewportSize({ width: 900, height: 900 })
+  await page.goto('/')
+
+  const workspace = page.locator('.workspace')
+  const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
+  const center = page.locator('.canvas-panel')
+  const initialCenterWidth = (await center.boundingBox())!.width
+  const initialZoom = await canvas.getAttribute('data-zoom')
+  const initialTruckTransform = await page.locator('[data-truck-id="ssp-truck-1"]').getAttribute('transform')
+  await page.getByRole('button', { name: 'Collapse configuration pane' }).press('Enter')
+  await expect(page.getByRole('button', { name: 'Restore configuration pane' })).toBeFocused()
+  await page.getByRole('button', { name: 'Collapse operations pane' }).click()
+  await expect(workspace).toHaveClass(/left-pane-collapsed/)
+  await expect(workspace).toHaveClass(/right-pane-collapsed/)
+  await expect(canvas).toHaveAttribute('data-zoom', initialZoom!)
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', initialTruckTransform!)
+  await expect.poll(async () => (await center.boundingBox())!.width).toBeGreaterThan(initialCenterWidth)
+
+  const gripWidths = await workspace.evaluate((element) => ({
+    left: element.querySelector<HTMLElement>('.left-pane-restore')!.getBoundingClientRect().width,
+    right: element.querySelector<HTMLElement>('.right-pane-restore')!.getBoundingClientRect().width,
+  }))
+  expect(gripWidths).toEqual({ left: 44, right: 44 })
+
+  await page.reload()
+  await expect(workspace).toHaveClass(/left-pane-collapsed/)
+  await expect(workspace).toHaveClass(/right-pane-collapsed/)
+  await page.getByRole('button', { name: 'Restore configuration pane' }).click()
+  await page.getByRole('button', { name: 'Restore operations pane' }).click()
+  await expect(page.getByRole('button', { name: 'Collapse configuration pane' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Collapse operations pane' })).toBeVisible()
 })
 
 test('resolves a highway exit request into scaled interchange geometry', async ({ page }) => {
