@@ -17,16 +17,16 @@ if [[ "$REGION" == "northern-virginia" ]] && ! command -v osmium >/dev/null; the
   exit 1
 fi
 
-if [[ "$REGION" == "virginia" ]]; then
-  printf 'Prepared %s\n' "$RAW_PBF"
-  exit 0
-fi
-
 mkdir -p "$(dirname "$RAW_PBF")" "$(dirname "$NOVA_PBF")"
 
 if [[ ! -f "$RAW_PBF" ]]; then
   printf 'Downloading public Virginia OSM extract from Geofabrik...\n'
   curl --fail --location --continue-at - --output "$RAW_PBF" "$VIRGINIA_URL"
+fi
+
+if [[ "$REGION" == "virginia" ]]; then
+  printf 'Prepared %s\n' "$RAW_PBF"
+  exit 0
 fi
 
 TEMP_EXTRACT="${NOVA_PBF%.osm.pbf}-all.osm.pbf"

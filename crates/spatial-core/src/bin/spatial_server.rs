@@ -254,7 +254,8 @@ async fn prepare_offline_region(
     if !matches!(request.region.as_str(), "northern-virginia" | "virginia") {
         return Err(api_error(StatusCode::BAD_REQUEST, "unsupported offline region"));
     }
-    let output = tokio::process::Command::new("scripts/prepare-nova-data.sh")
+    let output = tokio::process::Command::new("bash")
+        .arg("scripts/prepare-nova-data.sh")
         .arg(&request.region)
         .output()
         .await
