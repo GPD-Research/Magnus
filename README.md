@@ -55,6 +55,22 @@ npm start
 
 Open `http://127.0.0.1:8787`. In VS Code, `Ctrl+Shift+B` exposes equivalent development and production launch tasks.
 
+### Linux application drawer
+
+To add Magnus to the current user's Linux application drawer, run:
+
+```bash
+scripts/install-linux-app.sh
+```
+
+The entry uses the Magnus icon, launches without a terminal window, and opens the app in the default browser. To register an existing launcher instead, pass its path:
+
+```bash
+scripts/install-linux-app.sh /absolute/path/to/your/launcher.sh
+```
+
+The desktop entry is installed at `~/.local/share/applications/magnus.desktop`. Remove that file to remove Magnus from the application drawer.
+
 ## Single right-lane closure rules
 
 Traffic flows from upstream to downstream. The SSP truck faces downstream in the right lane with its rear signboard showing a left arrow.
