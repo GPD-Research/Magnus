@@ -24,7 +24,7 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  await expect(page.getByLabel('Magnus version 4.0.0-rc.1')).toBeVisible()
+  await expect(page.getByLabel('Magnus version 4.0.0')).toBeVisible()
 })
 
 test('persists offline mode and sends cache-only map requests', async ({ page }) => {
@@ -468,6 +468,68 @@ test('deploys assets and hazards with live scene counters and deletion', async (
   const cruiser = toolkit.getByRole('button', { name: /VSP cruiser/ })
   for (let count = 0; count < 5; count += 1) await cruiser.click()
   await expect(cruiser).toBeDisabled()
+})
+
+test('allows scene items across the full map after repositioning the scene', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: 1,
+      source: { type: 'osm-pbf', dataset: 'placement test road', generatedAt: '2026-08-22T00:00:00.000Z', attribution: 'Test fixture' },
+      coordinateSystem: { worldCrs: 'LOCAL', displayUnits: 'feet', origin: 'top-left', trafficFlow: 'bottom-to-top' },
+      viewport: { width: 72, height: 760 },
+      features: [{
+        id: 'straight-road',
+        kind: 'road-surface',
+        layer: 0,
+        geometry: { type: 'LineString', coordinates: [[36, 760], [36, 0]] },
+        properties: { name: 'Straight road', highway: 'motorway', lanes: 3, direction: 'forward', renderWidthFeet: 36 },
+      }],
+    }),
+  }))
+  await page.goto('/')
+  await expect(page.getByText('placement test road')).toBeVisible()
+
+  const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: 'Add scene' }).click()
+
+  const canvasBounds = await canvas.boundingBox()
+  const viewBox = (await canvas.getAttribute('viewBox'))?.split(' ').map(Number)
+  expect(canvasBounds).not.toBeNull()
+  expect(viewBox).toHaveLength(4)
+  const mapPoint = (x: number, y: number) => ({
+    clientX: canvasBounds!.x + ((x - viewBox![0]) / viewBox![2]) * canvasBounds!.width,
+    clientY: canvasBounds!.y + ((y - viewBox![1]) / viewBox![3]) * canvasBounds!.height,
+  })
+  await canvas.dispatchEvent('pointerdown', {
+    pointerId: 41,
+    pointerType: 'mouse',
+    ...mapPoint(36, 20),
+  })
+  await expect(page.locator('.scene-equipment')).toHaveAttribute(
+    'transform',
+    'translate(36 20) rotate(0) translate(-36 -260)',
+  )
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
+  const ambulance = page.locator('[data-definition-id="ems-ambulance"]')
+  const ambulanceBounds = await ambulance.boundingBox()
+  expect(ambulanceBounds).not.toBeNull()
+  await page.mouse.move(
+    ambulanceBounds!.x + ambulanceBounds!.width / 2,
+    ambulanceBounds!.y + ambulanceBounds!.height / 2,
+  )
+  await page.mouse.down()
+  const downstream = mapPoint(36, 740)
+  await page.mouse.move(downstream.clientX, downstream.clientY, { steps: 4 })
+  await page.mouse.up()
+
+  await expect.poll(async () => {
+    const transform = await ambulance.getAttribute('transform')
+    return Number(/translate\([^ ]+ ([^)]+)\)/.exec(transform ?? '')?.[1])
+  }).toBeGreaterThan(760)
 })
 
 test('centers and rotates dropped response vehicles and exposes the expanded catalog', async ({ page }) => {

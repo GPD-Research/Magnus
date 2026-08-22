@@ -662,22 +662,15 @@ function App() {
     }
     const localPoint = scenePointToLocal(scenePoint, activeTransform, { x: sceneAnchorX, y: sceneAnchorY })
     if (dragging && mode !== 'gospel') {
-      const x = Math.max(6, Math.min(roadScene.viewport.width - 6, localPoint.x))
-      const y = Math.max(30, Math.min(roadScene.viewport.height - 30, localPoint.y))
-      setPoints((current) => current.map((point) => (point.id === dragging ? { ...point, x, y } : point)))
+      setPoints((current) => current.map((point) => (point.id === dragging ? { ...point, ...localPoint } : point)))
     }
     if (draggingEquipmentId) {
       const item = deployedEquipment.find((equipment) => equipment.id === draggingEquipmentId)
       if (!item) return
-      const definition = equipmentDefinition(item.definitionId)
-      const x = Math.max(definition.width / 2, Math.min(roadScene.viewport.width - definition.width / 2, localPoint.x))
-      const y = Math.max(definition.length / 2, Math.min(roadScene.viewport.height - definition.length / 2, localPoint.y))
-      updateDeployedEquipment(item.id, { x, y })
+      updateDeployedEquipment(item.id, localPoint)
     }
     if (draggingTruckId) {
-      const x = Math.max(RIGHT_LANE_STANDARD.truck.width / 2, Math.min(roadScene.viewport.width - RIGHT_LANE_STANDARD.truck.width / 2, localPoint.x))
-      const y = Math.max(RIGHT_LANE_STANDARD.truck.halfLength, Math.min(roadScene.viewport.height - RIGHT_LANE_STANDARD.truck.halfLength, localPoint.y))
-      setTrucks((current) => current.map((truck) => truck.id === draggingTruckId ? { ...truck, x, y } : truck))
+      setTrucks((current) => current.map((truck) => truck.id === draggingTruckId ? { ...truck, ...localPoint } : truck))
     }
     const rotating = rotatingEquipmentRef.current
     if (rotating) {
