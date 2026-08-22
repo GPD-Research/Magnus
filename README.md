@@ -2,6 +2,8 @@
 
 Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 4.0.0 adds operator-controlled connectivity, offline preparation, resilient map caching, and locally saved themes to the roadway, SOP, resource, and hazard tools introduced in Version 3.
 
+Version 5 planning is tracked in [docs/version-5-roadmap.md](docs/version-5-roadmap.md).
+
 ## Version 4
 
 This release includes:
