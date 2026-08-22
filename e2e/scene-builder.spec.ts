@@ -24,7 +24,10 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  await expect(page.getByLabel('Magnus version 4.5.0')).toBeVisible()
+  const brand = page.getByLabel('Magnus version 4.5.0')
+  await expect(brand).toBeVisible()
+  await expect(brand).toContainText('AGNUS')
+  await expect(brand).toContainText('v4.5')
 })
 
 test('persists offline mode and sends cache-only map requests', async ({ page }) => {

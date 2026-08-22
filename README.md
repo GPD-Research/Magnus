@@ -1,5 +1,7 @@
 # Magnus 4.5.0
 
+<img src="public/favicon.svg" alt="Magnus arrow-M logo" width="96" height="96">
+
 Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 4.5.0 is a release candidate that stabilizes the Version 4 offline foundation and adds an expandable roadway workspace for classroom and presentation use.
 
 Version 5 planning is tracked in [docs/version-5-roadmap.md](docs/version-5-roadmap.md).
@@ -13,6 +15,8 @@ This release includes:
 - Keyboard focus transfer from a collapsed pane to its restore control
 - Expanded roadway workspace without changing scene zoom or stored object coordinates
 - Versioned settings migration that keeps existing Version 4 preferences compatible
+- High-visibility orange arrow-M identity shared by the app header, browser icon, and Linux launcher
+- Unified Magnus wordmark with a package-derived short release label
 - Online, LAN, and Offline map modes selected from the top bar or Settings
 - Cache-only local resolution in LAN and Offline modes, with no public provider attempt
 - Persistent roadway scene cache with provider failover in Online mode
@@ -39,6 +43,12 @@ This release includes:
 Roadway rotation is intentionally deferred beyond Version 4.5 because it requires a shared forward and inverse map-transform pipeline across placement, dragging, drawing, panning, zooming, and export.
 
 Prepared PBF packages are downloaded and inventoried by the app, while arbitrary offline highway/reference lookup still depends on a previously cached `RoadScene`. A cache miss is reported explicitly and never falls through to an internet provider in LAN or Offline mode.
+
+## Brand identity
+
+The Magnus mark uses a black M with downward arrow terminals on a high-visibility orange field. In the application header, the mark serves as the first letter of the `M`agnus wordmark and is followed by `AGNUS` and the current short release label. The label is derived from the package version: Version 4.5.0 displays as `v4.5`, and Version 5.0.0 will display as `v5`.
+
+The same vector asset at `public/favicon.svg` is used for the application header, browser favicon, and installed Linux application icon.
 
 ## Launch
 

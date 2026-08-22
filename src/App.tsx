@@ -41,6 +41,7 @@ import {
   type ConnectivityMode,
   type ThemeId,
 } from './domain/appSettings'
+import { releaseVersionLabel } from './domain/appVersion'
 import { RoadwayLayer } from './components/RoadwayLayer'
 import { SceneDesigner } from './components/SceneDesigner'
 import { SceneEquipmentGlyph } from './components/SceneEquipmentGlyph'
@@ -129,6 +130,7 @@ const connectivityModes: { id: ConnectivityMode; label: string; icon: typeof Wif
 ]
 
 const themeIds: ThemeId[] = ['dark', 'light', 'custom-1', 'custom-2', 'custom-3']
+const appReleaseVersion = releaseVersionLabel(__APP_VERSION__)
 
 type SpatialServiceStatus = 'checking' | 'connected' | 'unavailable'
 type SaveStatus = 'idle' | 'saved'
@@ -876,9 +878,10 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand-mark" aria-label={`Magnus version ${__APP_VERSION__}`}><span aria-hidden="true">M</span></div>
-        <div className="brand-copy"><strong>MAGNUS</strong><span>SSP Scene Builder</span></div>
-        <div className="session-status"><span className="live-dot" />Magnus <b>v{__APP_VERSION__}</b></div>
+        <div className="brand-lockup" aria-label={`Magnus version ${__APP_VERSION__}`}>
+          <div className="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt="" /></div>
+          <div className="brand-copy"><div className="brand-name"><strong>AGNUS</strong><b>{appReleaseVersion}</b></div><span>SSP Scene Builder</span></div>
+        </div>
         <div className="connectivity-switch" role="group" aria-label="Map connectivity">
           {connectivityModes.map((item) => {
             const Icon = item.icon
