@@ -266,17 +266,38 @@ test('collapses, restores, and persists both workspace panes', async ({ page }) 
   const workspace = page.locator('.workspace')
   const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
   const center = page.locator('.canvas-panel')
+  const stage = page.locator('.road-stage')
+  const viewedCenter = () => stage.evaluate((element) => {
+    const surface = element.querySelector<HTMLElement>('.road-canvas-surface')!
+    const canvas = element.querySelector<SVGSVGElement>('.road-canvas')!
+    const viewBox = canvas.viewBox.baseVal
+    return {
+      x: viewBox.x + ((element.scrollLeft + element.clientWidth / 2 - surface.offsetLeft) / surface.clientWidth) * viewBox.width,
+      y: viewBox.y + ((element.scrollTop + element.clientHeight / 2 - surface.offsetTop) / surface.clientHeight) * viewBox.height,
+    }
+  })
   const initialCenterWidth = (await center.boundingBox())!.width
   const initialZoom = await canvas.getAttribute('data-zoom')
   const initialTruckTransform = await page.locator('[data-truck-id="ssp-truck-1"]').getAttribute('transform')
+  const initialViewedCenter = await viewedCenter()
   await page.getByRole('button', { name: 'Collapse configuration pane' }).press('Enter')
-  await expect(page.getByRole('button', { name: 'Restore configuration pane' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Expand configuration pane' })).toBeFocused()
+  await expect.poll(viewedCenter).toEqual({
+    x: expect.closeTo(initialViewedCenter.x, 0),
+    y: expect.closeTo(initialViewedCenter.y, 0),
+  })
+  await expect(page.getByRole('button', { name: 'Collapse operations pane' })).toBeVisible()
   await page.getByRole('button', { name: 'Collapse operations pane' }).click()
   await expect(workspace).toHaveClass(/left-pane-collapsed/)
   await expect(workspace).toHaveClass(/right-pane-collapsed/)
   await expect(canvas).toHaveAttribute('data-zoom', initialZoom!)
   await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', initialTruckTransform!)
   await expect.poll(async () => (await center.boundingBox())!.width).toBeGreaterThan(initialCenterWidth)
+  await expect.poll(viewedCenter).toEqual({
+    x: expect.closeTo(initialViewedCenter.x, 0),
+    y: expect.closeTo(initialViewedCenter.y, 0),
+  })
+  await expect(page.getByText('Mode & audit')).toHaveCount(0)
 
   const gripWidths = await workspace.evaluate((element) => ({
     left: element.querySelector<HTMLElement>('.left-pane-restore')!.getBoundingClientRect().width,
@@ -287,8 +308,8 @@ test('collapses, restores, and persists both workspace panes', async ({ page }) 
   await page.reload()
   await expect(workspace).toHaveClass(/left-pane-collapsed/)
   await expect(workspace).toHaveClass(/right-pane-collapsed/)
-  await page.getByRole('button', { name: 'Restore configuration pane' }).click()
-  await page.getByRole('button', { name: 'Restore operations pane' }).click()
+  await page.getByRole('button', { name: 'Expand configuration pane' }).click()
+  await page.getByRole('button', { name: 'Expand operations pane' }).click()
   await expect(page.getByRole('button', { name: 'Collapse configuration pane' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Collapse operations pane' })).toBeVisible()
 })

@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Download,
   HardDrive,
@@ -14,10 +16,6 @@ import {
   Minus,
   MousePointer2,
   Navigation,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   PencilRuler,
   Plus,
   Radio,
@@ -300,7 +298,7 @@ function App() {
     scrollTop: number
   } | null>(null)
   const initializedZoomSceneRef = useRef<RoadScene | null>(null)
-  const pendingZoomCenterRef = useRef<{ x: number; y: number; zoom: number } | null>(null)
+  const pendingZoomCenterRef = useRef<{ worldX: number; worldY: number; zoom: number } | null>(null)
   const [roadLayerVisibility, setRoadLayerVisibility] = useState<RoadLayerVisibility>({
     roadGeometry: true,
     barriers: true,
@@ -421,8 +419,8 @@ function App() {
     if (initializedZoomSceneRef.current === roadScene) return
     initializedZoomSceneRef.current = roadScene
     pendingZoomCenterRef.current = {
-      x: Math.max(0, Math.min(1, (sceneFocusX - sceneViewBox.x) / sceneViewBox.width)),
-      y: Math.max(0, Math.min(1, (sceneFocusY - sceneViewBox.y) / sceneViewBox.height)),
+      worldX: sceneFocusX,
+      worldY: sceneFocusY,
       zoom: defaultSceneZoom,
     }
     setSceneZoom(defaultSceneZoom)
@@ -432,15 +430,20 @@ function App() {
     const stage = roadStageRef.current
     const pendingCenter = pendingZoomCenterRef.current
     if (!stage || pendingCenter?.zoom !== sceneZoom) return
+    if (sceneDisplaySize.width !== stage.clientWidth || sceneDisplaySize.height !== stage.clientHeight) return
     const frame = requestAnimationFrame(() => {
+      const surface = stage.querySelector<HTMLElement>('.road-canvas-surface')
+      if (!surface) return
+      const normalizedX = (pendingCenter.worldX - sceneViewBox.x) / sceneViewBox.width
+      const normalizedY = (pendingCenter.worldY - sceneViewBox.y) / sceneViewBox.height
       stage.scrollTo({
-        left: Math.max(0, pendingCenter.x * stage.scrollWidth - stage.clientWidth / 2),
-        top: Math.max(0, pendingCenter.y * stage.scrollHeight - stage.clientHeight / 2),
+        left: Math.max(0, surface.offsetLeft + normalizedX * surface.clientWidth - stage.clientWidth / 2),
+        top: Math.max(0, surface.offsetTop + normalizedY * surface.clientHeight - stage.clientHeight / 2),
       })
       pendingZoomCenterRef.current = null
     })
     return () => cancelAnimationFrame(frame)
-  }, [roadScene, sceneZoom])
+  }, [roadScene, sceneDisplaySize, sceneViewBox, sceneZoom])
 
   useEffect(() => {
     let active = true
@@ -742,16 +745,25 @@ function App() {
   }
 
   function setCenteredSceneZoom(nextZoom: number) {
-    const stage = roadStageRef.current
     const zoom = clampSceneZoom(nextZoom, maximumSceneZoom)
+    rememberViewedCenter(zoom)
+    setSceneZoom(zoom)
+  }
+
+  function rememberViewedCenter(zoom = sceneZoom) {
+    const stage = roadStageRef.current
     if (stage) {
-      pendingZoomCenterRef.current = {
-        x: (stage.scrollLeft + stage.clientWidth / 2) / stage.scrollWidth,
-        y: (stage.scrollTop + stage.clientHeight / 2) / stage.scrollHeight,
-        zoom,
+      const canvas = stage.querySelector<SVGSVGElement>('.road-canvas')
+      const surface = stage.querySelector<HTMLElement>('.road-canvas-surface')
+      if (canvas && surface) {
+        const viewBox = canvas.viewBox.baseVal
+        pendingZoomCenterRef.current = {
+          worldX: viewBox.x + ((stage.scrollLeft + stage.clientWidth / 2 - surface.offsetLeft) / surface.clientWidth) * viewBox.width,
+          worldY: viewBox.y + ((stage.scrollTop + stage.clientHeight / 2 - surface.offsetTop) / surface.clientHeight) * viewBox.height,
+          zoom,
+        }
       }
     }
-    setSceneZoom(zoom)
   }
 
   function changeSceneZoom(direction: -1 | 1) {
@@ -856,6 +868,7 @@ function App() {
   }
 
   function collapsePane(side: 'left' | 'right', event: React.MouseEvent<HTMLButtonElement>) {
+    rememberViewedCenter()
     setAppSettings((current) => ({
       ...current,
       [side === 'left' ? 'leftPaneCollapsed' : 'rightPaneCollapsed']: true,
@@ -869,6 +882,7 @@ function App() {
   }
 
   function restorePane(side: 'left' | 'right') {
+    rememberViewedCenter()
     setAppSettings((current) => ({
       ...current,
       [side === 'left' ? 'leftPaneCollapsed' : 'rightPaneCollapsed']: false,
@@ -928,7 +942,7 @@ function App() {
 
       <section className={`workspace${appSettings.leftPaneCollapsed ? ' left-pane-collapsed' : ''}${appSettings.rightPaneCollapsed ? ' right-pane-collapsed' : ''}`}>
         <aside className="panel config-panel" aria-label="Scenario configuration">
-          <div className="panel-heading"><span>01</span><div><p>Configuration</p><h2>Build the scene</h2></div><button className="pane-collapse" type="button" title="Collapse configuration pane" aria-label="Collapse configuration pane" onClick={(event) => collapsePane('left', event)}><PanelLeftClose size={18} /></button></div>
+          <div className="panel-heading"><span>01</span><div><p>Configuration</p><h2>Build the scene</h2></div><button className="pane-toggle" type="button" title="Collapse configuration pane" aria-label="Collapse configuration pane" onClick={(event) => collapsePane('left', event)}><ChevronLeft size={24} /></button></div>
           <div className={`spatial-service-status ${spatialServiceStatus}`} role="status" aria-live="polite">
             <span className="service-indicator" aria-hidden="true" />
             <div><b>Spatial service</b><small>{spatialServiceStatus === 'connected' ? 'Connected' : spatialServiceStatus === 'checking' ? 'Checking connection' : 'Development preview available'}</small></div>
@@ -1008,7 +1022,7 @@ function App() {
           <div className="asset-inventory"><div><span>Available assets</span><b>{sceneVisible ? points.length + trucks.length + 2 : 0}</b></div><div className="asset-icons"><span><Truck size={19} /> {sceneVisible ? trucks.length : 0}</span><span><TrafficCone size={19} /> {sceneVisible ? points.length : 0}</span><span><Radio size={18} /> {sceneVisible ? 2 : 0}</span></div></div>
         </aside>
 
-        <button ref={leftPaneRestoreRef} className="pane-restore left-pane-restore" type="button" title="Restore configuration pane" aria-label="Restore configuration pane" onClick={() => restorePane('left')}><PanelLeftOpen size={20} /><span>Configuration</span></button>
+        <button ref={leftPaneRestoreRef} className="pane-toggle pane-restore left-pane-restore" type="button" title="Expand configuration pane" aria-label="Expand configuration pane" onClick={() => restorePane('left')}><ChevronRight size={24} /></button>
 
         <section className="canvas-panel" aria-label="Interactive scene canvas">
           <div className="canvas-toolbar">
@@ -1088,10 +1102,10 @@ function App() {
           <MapCompass rotation={mapRotation} />
         </section>
 
-        <button ref={rightPaneRestoreRef} className="pane-restore right-pane-restore" type="button" title="Restore operations pane" aria-label="Restore operations pane" onClick={() => restorePane('right')}><PanelRightOpen size={20} /><span>Operations</span></button>
+        <button ref={rightPaneRestoreRef} className="pane-toggle pane-restore right-pane-restore" type="button" title="Expand operations pane" aria-label="Expand operations pane" onClick={() => restorePane('right')}><ChevronLeft size={24} /></button>
 
         <aside className="panel audit-panel" aria-label="Compliance and communications">
-          <div className="panel-heading"><span>02</span><div><p>Operations</p><h2>Mode & audit</h2></div><button className="pane-collapse" type="button" title="Collapse operations pane" aria-label="Collapse operations pane" onClick={(event) => collapsePane('right', event)}><PanelRightClose size={18} /></button></div>
+          <button className="pane-toggle audit-pane-toggle" type="button" title="Collapse operations pane" aria-label="Collapse operations pane" onClick={(event) => collapsePane('right', event)}><ChevronRight size={24} /></button>
           <section className="scene-resource-counts" aria-label="Scene resource counts"><div><span>Vehicles</span><b>{deployedCounts.vehicles}</b></div><div><span>Cones</span><b>{deployedCounts.cones}</b></div><div><span>Personnel</span><b>{deployedCounts.personnel}</b></div><div><span>Hazards</span><b>{deployedCounts.hazards}</b></div></section>
           {selectedEquipment && selectedEquipmentDefinition && <section className="equipment-inspector" aria-label="Selected scene item"><div><span>Selected item</span><b>{selectedEquipmentDefinition.label}</b></div><div className="equipment-position"><label>X (ft)<input type="number" value={Math.round(selectedEquipment.x)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { x: Number(event.target.value) })} /></label><label>Y (ft)<input type="number" value={Math.round(selectedEquipment.y)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { y: Number(event.target.value) })} /></label><label>Rotation<select value={selectedEquipment.rotation} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { rotation: Number(event.target.value) })}><option value="0">0°</option><option value="45">45°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label></div><button type="button" onClick={deleteSelectedEquipment}>Delete selected item</button></section>}
           <section className="signboard-control" aria-label="SSP truck signboard">
