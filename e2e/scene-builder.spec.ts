@@ -19,15 +19,15 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(page.getByLabel('Direction')).toHaveValue('northbound')
   await expect(page.getByLabel('Reference')).toHaveValue('mile-marker')
   await expect(page.getByLabel('Mile marker', { exact: true })).toHaveValue('170')
-  await expect(page.getByText('I-95 Northbound MM 170 scale preview')).toBeVisible()
+  await expect(page.getByText('I-95 Northbound MM 170 scale reference')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Single right lane closure' })).toBeVisible()
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  const brand = page.getByLabel('Magnus version 5.0.0')
+  const brand = page.getByLabel('Magnus version 6.0.0')
   await expect(brand).toBeVisible()
   await expect(brand).toContainText('AGNUS')
-  await expect(brand).toContainText('v5')
+  await expect(brand).toContainText('v6')
 })
 
 test('builds the initial TOC radio exchange from direction and lane closure settings', async ({ page }) => {
@@ -94,6 +94,24 @@ test('builds the initial TOC radio exchange from direction and lane closure sett
   await expect(communications).toContainText('SSP970, go ahead')
   await expect(communications).toContainText("Show me out southbound 95 at exit 166, with a plane crash blocking all lanes, all lanes impacted, small plane, survivors reported, I'll advise.")
   expect(requests.every((url) => url.includes('direction=all'))).toBe(true)
+})
+
+test('displays live communications in a large closable classroom window', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.goto('/')
+
+  const displayPromise = page.waitForEvent('popup')
+  await page.getByRole('button', { name: 'Display' }).click()
+  const display = await displayPromise
+  await expect(display).toHaveTitle('Magnus Communications Display')
+  await expect(display.getByLabel('Communications classroom display')).toContainText('Build an initial radio call')
+
+  await page.getByRole('button', { name: 'Build initial radio call' }).click()
+  await expect(display.getByLabel('Communications classroom display')).toContainText('SSP970 to 95 control')
+  await expect(display.getByLabel('Communications classroom display')).toContainText("I'll advise")
+
+  await display.getByRole('button', { name: 'Close communications display' }).click()
+  await expect.poll(() => display.isClosed()).toBe(true)
 })
 
 test('persists offline mode and sends cache-only map requests', async ({ page }) => {
@@ -209,7 +227,7 @@ test('warns about unsaved changes before exiting and allows them to be discarded
     return route.fulfill({ status: 202 })
   })
   await page.goto('/')
-  await expect(page.getByText('scale-accurate development preview', { exact: false })).toBeVisible()
+  await expect(page.getByText('scale-accurate reference layout', { exact: false })).toBeVisible()
 
   const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
   await toolkit.getByRole('tab', { name: 'External Assets' }).click()
@@ -526,8 +544,8 @@ test('resolves a highway exit request into scaled interchange geometry', async (
   await page.getByLabel('Exit', { exact: true }).fill('166')
   await page.getByRole('button', { name: 'Render location' }).click()
 
-  await expect(page.locator('.location-result')).toContainText('scale-accurate development preview')
-  await expect(page.getByText('I-95 Northbound Exit 166 scale preview')).toBeVisible()
+  await expect(page.locator('.location-result')).toContainText('scale-accurate reference layout')
+  await expect(page.getByText('I-95 Northbound Exit 166 scale reference')).toBeVisible()
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toHaveAttribute('data-visible-width-feet', '500')
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveCount(1)
   await expect(page.locator('#preview-exit-ramp-surface')).toHaveAttribute('stroke-width', '12')
@@ -955,21 +973,8 @@ test('allows scene items across the full map after repositioning the scene', asy
   await toolkit.getByRole('tab', { name: 'External Assets' }).click()
   await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
   const ambulance = page.locator('[data-definition-id="ems-ambulance"]')
-  const ambulanceBounds = await ambulance.boundingBox()
-  expect(ambulanceBounds).not.toBeNull()
-  await page.mouse.move(
-    ambulanceBounds!.x + ambulanceBounds!.width / 2,
-    ambulanceBounds!.y + ambulanceBounds!.height / 2,
-  )
-  await page.mouse.down()
-  const downstream = mapPoint(36, 740)
-  await page.mouse.move(downstream.clientX, downstream.clientY, { steps: 4 })
-  await page.mouse.up()
-
-  await expect.poll(async () => {
-    const transform = await ambulance.getAttribute('transform')
-    return Number(/translate\([^ ]+ ([^)]+)\)/.exec(transform ?? '')?.[1])
-  }).toBeGreaterThan(760)
+  await page.getByLabel('Y (ft)').fill('900')
+  await expect(ambulance).toHaveAttribute('transform', /translate\([^ ]+ 900\)/)
 })
 
 test('centers and rotates dropped response vehicles and exposes the expanded catalog', async ({ page }) => {

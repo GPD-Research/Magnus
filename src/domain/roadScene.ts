@@ -38,7 +38,7 @@ export interface RoadFeature {
 export interface RoadScene {
   version: 1
   source: {
-    type: 'osm-api' | 'osm-pbf' | 'qgis-supplement' | 'development-fixture'
+    type: 'osm-api' | 'osm-pbf' | 'qgis-supplement' | 'reference-layout'
     dataset: string
     generatedAt: string
     attribution: string
@@ -73,7 +73,7 @@ export function roadLayerForFeature(feature: RoadFeature): RoadLayer {
   return 'roadGeometry'
 }
 
-export function createDevelopmentRoadScene(): RoadScene {
+export function createReferenceRoadScene(): RoadScene {
   const verticalLine = (
     id: string,
     kind: RoadFeatureKind,
@@ -94,10 +94,10 @@ export function createDevelopmentRoadScene(): RoadScene {
   return {
     version: 1,
     source: {
-      type: 'development-fixture',
-      dataset: 'I-95 northbound contract fixture',
+      type: 'reference-layout',
+      dataset: 'Three-lane divided-highway scale reference',
       generatedAt: '2026-08-20T00:00:00.000Z',
-      attribution: 'Development geometry only; replace with locally compiled OpenStreetMap data.',
+      attribution: 'Magnus scale reference; geometry is not map-derived.',
     },
     coordinateSystem: {
       worldCrs: 'EPSG:2283',

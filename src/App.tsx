@@ -86,7 +86,7 @@ import {
   type ToolkitCategory,
 } from './domain/equipmentCatalog'
 import {
-  createDevelopmentRoadScene,
+  createReferenceRoadScene,
   type RoadScene,
   type RoadLayerVisibility,
 } from './domain/roadScene'
@@ -252,7 +252,7 @@ function loadSavedScenario(): PortableScenarioState | null {
           drawingStrokes: [],
           incidentType: 'crash',
           tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
-          roadScene: createDevelopmentRoadScene(),
+          roadScene: createReferenceRoadScene(),
           locationRequest: DEFAULT_LOCATION_REQUEST,
           resolvedLocation: null,
           roadLayerVisibility: { roadGeometry: true, barriers: true, trafficFlow: true, highwayLabels: true, drawings: true },
@@ -407,7 +407,7 @@ function compactRouteReference(value: string): string {
 
 function centeredRoadPlacement(scene: RoadScene, highway: string) {
   const requestedReference = compactRouteReference(highway)
-  const matchingFeatures = scene.source.type === 'development-fixture' ? [] : scene.features.filter(
+  const matchingFeatures = scene.source.type === 'reference-layout' ? [] : scene.features.filter(
     (feature) => feature.properties.reference
       ?.split(';')
       .some((reference) => compactRouteReference(reference) === requestedReference),
@@ -440,7 +440,7 @@ function App() {
   const [offlineStatus, setOfflineStatus] = useState<OfflineStatus | null>(null)
   const [offlineStatusMessage, setOfflineStatusMessage] = useState('')
   const [offlinePreparing, setOfflinePreparing] = useState<OfflineRegionStatus['id'] | null>(null)
-  const [roadScene, setRoadScene] = useState<RoadScene>(() => savedScenario?.roadScene ?? createDevelopmentRoadScene())
+  const [roadScene, setRoadScene] = useState<RoadScene>(() => savedScenario?.roadScene ?? createReferenceRoadScene())
   const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>(savedScenario?.locationRequest ?? DEFAULT_LOCATION_REQUEST)
   const [resolvedLocation, setResolvedLocation] = useState<ResolvedRoadLocation | null>(savedScenario?.resolvedLocation ?? null)
   const [locationErrors, setLocationErrors] = useState<string[]>([])
@@ -584,7 +584,7 @@ function App() {
     'lane-blade-truck': sceneVisible ? trucks.filter((truck) => truck.assetType === 'lane-blade-truck').length : 0,
   }
   const selectedScenario = scenarioDefinition(scenario)
-  const highwayLabelsAvailable = roadScene.source.type !== 'development-fixture'
+  const highwayLabelsAvailable = roadScene.source.type !== 'reference-layout'
   const sceneAnchorX = RIGHT_LANE_STANDARD.roadCenterX
   const sceneAnchorY = RIGHT_LANE_STANDARD.truck.y
   const sceneFocusX = selectedSectionTransform?.x ?? sceneOrigin.x + sceneAnchorX
@@ -850,6 +850,82 @@ function App() {
       presentation.close()
       window.alert(error instanceof Error ? `Magnus could not start presentation mode: ${error.message}` : 'Magnus could not start presentation mode.')
     }
+  }
+
+  function displayCommunications() {
+    const radioLog = document.querySelector<HTMLElement>('.radio-log')
+    if (!radioLog) {
+      window.alert('The communications transcript is not ready to display.')
+      return
+    }
+    const display = window.open('', 'magnus-communications-display', 'popup,width=1100,height=700')
+    if (!display) {
+      window.alert('Allow pop-up windows to display Magnus communications.')
+      return
+    }
+
+    display.document.head.replaceChildren()
+    const style = display.document.createElement('style')
+    style.textContent = `
+      :root { color-scheme: dark; font-family: "Barlow Condensed", sans-serif; background: #101614; }
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; color: #f4f7f5; background: #101614; }
+      header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 28px; background: #18211e; border-bottom: 3px solid #69c29a; }
+      h1 { margin: 0; font-size: clamp(28px, 4vw, 54px); letter-spacing: 0; text-transform: uppercase; }
+      button { flex: 0 0 auto; min-width: 110px; min-height: 48px; padding: 8px 18px; color: #f4f7f5; background: #27332f; border: 2px solid #74827d; border-radius: 4px; font: 700 20px "Barlow Condensed", sans-serif; cursor: pointer; }
+      button:focus-visible { outline: 4px solid #f0b44d; outline-offset: 3px; }
+      main { width: min(1400px, 100%); margin: 0 auto; padding: clamp(24px, 4vw, 56px); }
+      .empty { margin: 10vh 0 0; color: #aebbb6; font-size: clamp(30px, 5vw, 68px); text-align: center; }
+      .radio-event { display: grid; grid-template-columns: auto 1fr; gap: 18px; padding: clamp(18px, 3vh, 34px) 0; border-bottom: 2px solid #394640; }
+      .radio-event svg { width: 32px; height: 32px; margin-top: 8px; color: #69c29a; }
+      .radio-event span { display: block; margin-bottom: 8px; color: #89dab5; font-size: clamp(18px, 2.2vw, 30px); font-weight: 700; }
+      .radio-event p { margin: 0; color: #f4f7f5; font-size: clamp(30px, 4.2vw, 64px); font-weight: 600; line-height: 1.15; letter-spacing: 0; }
+    `
+    const title = display.document.createElement('title')
+    title.textContent = 'Magnus Communications Display'
+    display.document.head.append(title, style)
+    display.document.body.replaceChildren()
+    const header = display.document.createElement('header')
+    const heading = display.document.createElement('h1')
+    heading.textContent = 'Communications'
+    const closeButton = display.document.createElement('button')
+    closeButton.type = 'button'
+    closeButton.textContent = 'Close'
+    closeButton.setAttribute('aria-label', 'Close communications display')
+    closeButton.addEventListener('click', () => display.close())
+    header.append(heading, closeButton)
+    const transcript = display.document.createElement('main')
+    transcript.setAttribute('aria-label', 'Communications classroom display')
+    display.document.body.append(header, transcript)
+
+    let renderFrame: number | null = null
+    const renderTranscript = () => {
+      if (display.closed) return
+      const events = Array.from(radioLog.querySelectorAll('.radio-event')).map((event) => event.cloneNode(true))
+      if (events.length > 0) {
+        transcript.replaceChildren(...events)
+      } else {
+        const empty = display.document.createElement('p')
+        empty.className = 'empty'
+        empty.textContent = 'Build an initial radio call to display communications.'
+        transcript.replaceChildren(empty)
+      }
+    }
+    const scheduleRender = () => {
+      if (renderFrame !== null || display.closed) return
+      renderFrame = window.requestAnimationFrame(() => {
+        renderFrame = null
+        renderTranscript()
+      })
+    }
+    renderTranscript()
+    const observer = new MutationObserver(scheduleRender)
+    observer.observe(radioLog, { childList: true, characterData: true, subtree: true })
+    display.addEventListener('beforeunload', () => {
+      observer.disconnect()
+      if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
+    }, { once: true })
+    display.focus()
   }
 
   function changeScenario(nextScenario: ScenarioType) {
@@ -1491,314 +1567,2405 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand-lockup" aria-label={`Magnus version ${__APP_VERSION__}`}>
-          <div className="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt="" /></div>
-          <div className="brand-copy"><div className="brand-name"><strong>AGNUS</strong><b>{appReleaseVersion}</b></div><span>SSP Scene Builder</span></div>
+        <div
+          className="brand-lockup"
+          aria-label={`Magnus version ${__APP_VERSION__}`}
+        >
+          <div className="brand-mark" aria-hidden="true">
+            <img src="/favicon.svg" alt="" />
+          </div>
+          <div className="brand-copy">
+            <div className="brand-name">
+              <strong>AGNUS</strong>
+              <b>{appReleaseVersion}</b>
+            </div>
+            <span>SSP Scene Builder</span>
+          </div>
         </div>
-        <div className="connectivity-switch" role="group" aria-label="Map connectivity">
+        <div
+          className="connectivity-switch"
+          role="group"
+          aria-label="Map connectivity"
+        >
           {connectivityModes.map((item) => {
-            const Icon = item.icon
-            return <button type="button" aria-pressed={appSettings.connectivityMode === item.id} key={item.id} onClick={() => selectConnectivityMode(item.id)}><Icon size={14} /><span>{item.label}</span></button>
+            const Icon = item.icon;
+            return (
+              <button
+                type="button"
+                aria-pressed={appSettings.connectivityMode === item.id}
+                key={item.id}
+                onClick={() => selectConnectivityMode(item.id)}
+              >
+                <Icon size={14} />
+                <span>{item.label}</span>
+              </button>
+            );
           })}
         </div>
-        <div className="zoom-controls topbar-zoom" role="group" aria-label="Scene zoom">
-          <button type="button" title="Zoom out" aria-label="Zoom out highway graphic" disabled={sceneZoom <= MIN_SCENE_ZOOM} onClick={() => changeSceneZoom(-1)}><Minus size={17} /></button>
-          <button className="zoom-value" type="button" title="Reset to 500 foot view" aria-label={`Reset highway graphic zoom, currently ${Math.round(sceneVisibleWidth)} feet wide`} onClick={() => setCenteredSceneZoom(defaultSceneZoom)}>{Math.round(sceneVisibleWidth)} FT</button>
-          <button type="button" title="Zoom in" aria-label="Zoom in highway graphic" disabled={sceneZoom >= maximumSceneZoom} onClick={() => changeSceneZoom(1)}><Plus size={17} /></button>
-          <button type="button" title="Rotate center view counterclockwise" aria-label="Rotate center view counterclockwise 45 degrees" onClick={() => rotateMap(-45)}><RotateCcw size={16} /></button>
-          <button className="rotation-value" type="button" title="Reset center view rotation" aria-label={`Reset center view rotation, currently ${mapRotation} degrees`} onClick={() => setMapRotation(0)}>{mapRotation}°</button>
-          <button type="button" title="Rotate center view clockwise" aria-label="Rotate center view clockwise 45 degrees" onClick={() => rotateMap(45)}><RotateCw size={16} /></button>
+        <div
+          className="zoom-controls topbar-zoom"
+          role="group"
+          aria-label="Scene zoom"
+        >
+          <button
+            type="button"
+            title="Zoom out"
+            aria-label="Zoom out highway graphic"
+            disabled={sceneZoom <= MIN_SCENE_ZOOM}
+            onClick={() => changeSceneZoom(-1)}
+          >
+            <Minus size={17} />
+          </button>
+          <button
+            className="zoom-value"
+            type="button"
+            title="Reset to 500 foot view"
+            aria-label={`Reset highway graphic zoom, currently ${Math.round(sceneVisibleWidth)} feet wide`}
+            onClick={() => setCenteredSceneZoom(defaultSceneZoom)}
+          >
+            {Math.round(sceneVisibleWidth)} FT
+          </button>
+          <button
+            type="button"
+            title="Zoom in"
+            aria-label="Zoom in highway graphic"
+            disabled={sceneZoom >= maximumSceneZoom}
+            onClick={() => changeSceneZoom(1)}
+          >
+            <Plus size={17} />
+          </button>
+          <button
+            type="button"
+            title="Rotate center view counterclockwise"
+            aria-label="Rotate center view counterclockwise 45 degrees"
+            onClick={() => rotateMap(-45)}
+          >
+            <RotateCcw size={16} />
+          </button>
+          <button
+            className="rotation-value"
+            type="button"
+            title="Reset center view rotation"
+            aria-label={`Reset center view rotation, currently ${mapRotation} degrees`}
+            onClick={() => setMapRotation(0)}
+          >
+            {mapRotation}°
+          </button>
+          <button
+            type="button"
+            title="Rotate center view clockwise"
+            aria-label="Rotate center view clockwise 45 degrees"
+            onClick={() => rotateMap(45)}
+          >
+            <RotateCw size={16} />
+          </button>
         </div>
         <div className="settings-anchor">
-          <button className="icon-button" type="button" title="Settings" aria-label="Open settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings size={18} /></button>
-          {settingsOpen && <section className="settings-popover" aria-label="Settings">
-            <div className="settings-heading"><div><span>Magnus preferences</span><h2>Settings</h2></div><button type="button" title="Close settings" aria-label="Close settings" onClick={() => setSettingsOpen(false)}><X size={17} /></button></div>
-            <div className="settings-section">
-              <div className="settings-section-title"><Wifi size={15} /><span>Map connection</span></div>
-              <div className="settings-mode-options" role="radiogroup" aria-label="Map connection mode">{connectivityModes.map((item) => <button type="button" role="radio" aria-checked={appSettings.connectivityMode === item.id} key={item.id} onClick={() => selectConnectivityMode(item.id)}>{item.label}</button>)}</div>
-            </div>
-            <div className="settings-section">
-              <div className="settings-section-title"><Palette size={15} /><span>Theme</span></div>
-              <div className="theme-options">{themeIds.map((id) => {
-                const custom = id.startsWith('custom') ? appSettings.customThemes[id as keyof typeof appSettings.customThemes] : null
-                const label = id === 'dark' ? 'Dark' : id === 'light' ? 'Light' : custom?.name
-                const color = id === 'dark' ? '#1d2522' : id === 'light' ? '#eef2f0' : custom?.color
-                return <button type="button" aria-pressed={appSettings.theme === id} key={id} onClick={() => selectTheme(id)}><span className="theme-swatch" style={{ background: color }} /><span>{label}</span></button>
-              })}</div>
-              {appSettings.theme.startsWith('custom') && (() => {
-                const id = appSettings.theme as keyof typeof appSettings.customThemes
-                return <div className="theme-editor"><input aria-label="Custom theme color" type="color" value={appSettings.customThemes[id].color} onChange={(event) => updateCustomTheme(id, { color: event.target.value })} /><input aria-label="Custom theme name" maxLength={24} value={appSettings.customThemes[id].name} onChange={(event) => updateCustomTheme(id, { name: event.target.value })} /></div>
-              })()}
-            </div>
-            <div className="settings-section">
-              <div className="settings-section-title"><MonitorUp size={15} /><span>Pane and text scale</span></div>
-              <label className="interface-scale-control">
-                <input aria-label="Pane and text scale" type="range" min="100" max="160" step="10" value={appSettings.interfaceScale} onChange={(event) => setAppSettings((current) => ({ ...current, interfaceScale: Number(event.target.value) }))} />
-                <output>{appSettings.interfaceScale}%</output>
-              </label>
-            </div>
-            <div className="settings-section">
-              <div className="settings-section-title"><ScreenShare size={15} /><span>External display</span></div>
-              <button className="presentation-button" type="button" onClick={() => { void presentOnExternalDisplay() }}><ScreenShare size={15} /> Present on external display</button>
-            </div>
-            <div className="settings-section offline-preparation">
-              <div className="settings-section-title"><HardDrive size={15} /><span>Offline preparation</span></div>
-              <div className="offline-summary"><span>{offlineStatus?.cachedScenes ?? 0} prepared scenes</span><b>{formatStorageSize(offlineStatus?.cacheBytes ?? 0)}</b></div>
-              <div className="offline-regions">{offlineStatus?.regions.map((region) => <div key={region.id}><span><b>{region.label}</b><small>{region.installed ? formatStorageSize(region.bytes) : 'Not installed'}</small></span><button type="button" disabled={offlinePreparing !== null} onClick={() => { void prepareRegion(region.id) }}>{offlinePreparing === region.id ? <LoaderCircle className="location-spinner" size={14} /> : region.installed ? <RefreshCw size={14} /> : <Download size={14} />}<span>{region.installed ? 'Refresh' : 'Prepare'}</span></button></div>)}</div>
-              {offlineStatusMessage && <p className="offline-status-message" role="status">{offlineStatusMessage}</p>}
-            </div>
-          </section>}
+          <button
+            className="icon-button"
+            type="button"
+            title="Settings"
+            aria-label="Open settings"
+            aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            <Settings size={18} />
+          </button>
+          {settingsOpen && (
+            <section className="settings-popover" aria-label="Settings">
+              <div className="settings-heading">
+                <div>
+                  <span>Magnus preferences</span>
+                  <h2>Settings</h2>
+                </div>
+                <button
+                  type="button"
+                  title="Close settings"
+                  aria-label="Close settings"
+                  onClick={() => setSettingsOpen(false)}
+                >
+                  <X size={17} />
+                </button>
+              </div>
+              <div className="settings-section">
+                <div className="settings-section-title">
+                  <Wifi size={15} />
+                  <span>Map connection</span>
+                </div>
+                <div
+                  className="settings-mode-options"
+                  role="radiogroup"
+                  aria-label="Map connection mode"
+                >
+                  {connectivityModes.map((item) => (
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={appSettings.connectivityMode === item.id}
+                      key={item.id}
+                      onClick={() => selectConnectivityMode(item.id)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="settings-section">
+                <div className="settings-section-title">
+                  <Palette size={15} />
+                  <span>Theme</span>
+                </div>
+                <div className="theme-options">
+                  {themeIds.map((id) => {
+                    const custom = id.startsWith("custom")
+                      ? appSettings.customThemes[
+                          id as keyof typeof appSettings.customThemes
+                        ]
+                      : null;
+                    const label =
+                      id === "dark"
+                        ? "Dark"
+                        : id === "light"
+                          ? "Light"
+                          : custom?.name;
+                    const color =
+                      id === "dark"
+                        ? "#1d2522"
+                        : id === "light"
+                          ? "#eef2f0"
+                          : custom?.color;
+                    return (
+                      <button
+                        type="button"
+                        aria-pressed={appSettings.theme === id}
+                        key={id}
+                        onClick={() => selectTheme(id)}
+                      >
+                        <span
+                          className="theme-swatch"
+                          style={{ background: color }}
+                        />
+                        <span>{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {appSettings.theme.startsWith("custom") &&
+                  (() => {
+                    const id =
+                      appSettings.theme as keyof typeof appSettings.customThemes;
+                    return (
+                      <div className="theme-editor">
+                        <input
+                          aria-label="Custom theme color"
+                          type="color"
+                          value={appSettings.customThemes[id].color}
+                          onChange={(event) =>
+                            updateCustomTheme(id, { color: event.target.value })
+                          }
+                        />
+                        <input
+                          aria-label="Custom theme name"
+                          maxLength={24}
+                          value={appSettings.customThemes[id].name}
+                          onChange={(event) =>
+                            updateCustomTheme(id, { name: event.target.value })
+                          }
+                        />
+                      </div>
+                    );
+                  })()}
+              </div>
+              <div className="settings-section">
+                <div className="settings-section-title">
+                  <MonitorUp size={15} />
+                  <span>Pane and text scale</span>
+                </div>
+                <label className="interface-scale-control">
+                  <input
+                    aria-label="Pane and text scale"
+                    type="range"
+                    min="100"
+                    max="160"
+                    step="10"
+                    value={appSettings.interfaceScale}
+                    onChange={(event) =>
+                      setAppSettings((current) => ({
+                        ...current,
+                        interfaceScale: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  <output>{appSettings.interfaceScale}%</output>
+                </label>
+              </div>
+              <div className="settings-section">
+                <div className="settings-section-title">
+                  <ScreenShare size={15} />
+                  <span>External display</span>
+                </div>
+                <button
+                  className="presentation-button"
+                  type="button"
+                  onClick={() => {
+                    void presentOnExternalDisplay();
+                  }}
+                >
+                  <ScreenShare size={15} /> Present on external display
+                </button>
+              </div>
+              <div className="settings-section offline-preparation">
+                <div className="settings-section-title">
+                  <HardDrive size={15} />
+                  <span>Offline preparation</span>
+                </div>
+                <div className="offline-summary">
+                  <span>
+                    {offlineStatus?.cachedScenes ?? 0} prepared scenes
+                  </span>
+                  <b>{formatStorageSize(offlineStatus?.cacheBytes ?? 0)}</b>
+                </div>
+                <div className="offline-regions">
+                  {offlineStatus?.regions.map((region) => (
+                    <div key={region.id}>
+                      <span>
+                        <b>{region.label}</b>
+                        <small>
+                          {region.installed
+                            ? formatStorageSize(region.bytes)
+                            : "Not installed"}
+                        </small>
+                      </span>
+                      <button
+                        type="button"
+                        disabled={offlinePreparing !== null}
+                        onClick={() => {
+                          void prepareRegion(region.id);
+                        }}
+                      >
+                        {offlinePreparing === region.id ? (
+                          <LoaderCircle
+                            className="location-spinner"
+                            size={14}
+                          />
+                        ) : region.installed ? (
+                          <RefreshCw size={14} />
+                        ) : (
+                          <Download size={14} />
+                        )}
+                        <span>{region.installed ? "Refresh" : "Prepare"}</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {offlineStatusMessage && (
+                  <p className="offline-status-message" role="status">
+                    {offlineStatusMessage}
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
         </div>
-        <button className="icon-button" type="button" title="Reset scene" onClick={resetScenario}><RotateCcw size={18} /></button>
+        <button
+          className="icon-button"
+          type="button"
+          title="Reset scene"
+          onClick={resetScenario}
+        >
+          <RotateCcw size={18} />
+        </button>
         <div className="scene-file-actions">
           <div className="save-scene-anchor">
-            <button className="scene-file-button" type="button" aria-expanded={saveMenuOpen} aria-haspopup="menu" onClick={() => setSaveMenuOpen((open) => !open)}><Save size={17} /> SAVE SCENE</button>
-            {saveMenuOpen && <div className="save-scene-menu" role="menu" aria-label="Save scene format"><span>Image format</span><button type="button" role="menuitem" onClick={() => { void saveScene('png') }}>PNG image</button><button type="button" role="menuitem" onClick={() => { void saveScene('jpg') }}>JPG image</button><button type="button" role="menuitem" onClick={() => { void saveScene('svg') }}>SVG vector</button><small>Includes a rebuildable .magnus.json scene file</small></div>}
+            <button
+              className="scene-file-button"
+              type="button"
+              aria-expanded={saveMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setSaveMenuOpen((open) => !open)}
+            >
+              <Save size={17} /> SAVE SCENE
+            </button>
+            {saveMenuOpen && (
+              <div
+                className="save-scene-menu"
+                role="menu"
+                aria-label="Save scene format"
+              >
+                <span>Image format</span>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    void saveScene("png");
+                  }}
+                >
+                  PNG image
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    void saveScene("jpg");
+                  }}
+                >
+                  JPG image
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    void saveScene("svg");
+                  }}
+                >
+                  SVG vector
+                </button>
+                <small>Includes a rebuildable .magnus.json scene file</small>
+              </div>
+            )}
           </div>
-          <button className="scene-file-button" type="button" onClick={() => { void chooseScenarioFile() }}><FolderOpen size={17} /> LOAD SCENE</button>
-          <input ref={loadSceneInputRef} className="scene-file-input" type="file" accept=".json,.magnus.json,application/json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadScenarioFile(file); event.currentTarget.value = '' }} />
-          {saveStatus === 'saved' && <span className="scene-file-status" role="status">Scene ready</span>}
+          <button
+            className="scene-file-button"
+            type="button"
+            onClick={() => {
+              void chooseScenarioFile();
+            }}
+          >
+            <FolderOpen size={17} /> LOAD SCENE
+          </button>
+          <input
+            ref={loadSceneInputRef}
+            className="scene-file-input"
+            type="file"
+            accept=".json,.magnus.json,application/json"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void loadScenarioFile(file);
+              event.currentTarget.value = "";
+            }}
+          />
+          {saveStatus === "saved" && (
+            <span className="scene-file-status" role="status">
+              Scene ready
+            </span>
+          )}
         </div>
-        <button className="icon-button exit-button" type="button" title="Exit Magnus" aria-label="Exit Magnus" onClick={() => { void exitApplication() }}><X size={19} /></button>
+        <button
+          className="icon-button exit-button"
+          type="button"
+          title="Exit Magnus"
+          aria-label="Exit Magnus"
+          onClick={() => {
+            void exitApplication();
+          }}
+        >
+          <X size={19} />
+        </button>
       </header>
 
       <section
-        className={`workspace${appSettings.leftPaneCollapsed ? ' left-pane-collapsed' : ''}${appSettings.rightPaneCollapsed ? ' right-pane-collapsed' : ''}`}
-        style={{
-          '--pane-scale': appSettings.interfaceScale / 100,
-          '--pane-min-width': `${2.8 * appSettings.interfaceScale}px`,
-          '--pane-max-width': `${3.6 * appSettings.interfaceScale}px`,
-        } as CSSProperties}
+        className={`workspace${appSettings.leftPaneCollapsed ? " left-pane-collapsed" : ""}${appSettings.rightPaneCollapsed ? " right-pane-collapsed" : ""}`}
+        style={
+          {
+            "--pane-scale": appSettings.interfaceScale / 100,
+            "--pane-min-width": `${2.8 * appSettings.interfaceScale}px`,
+            "--pane-max-width": `${3.6 * appSettings.interfaceScale}px`,
+          } as CSSProperties
+        }
       >
-        <aside className="panel config-panel" aria-label="Scenario configuration">
-          <div className="panel-heading"><span>01</span><div><p>Configuration</p><h2>Build the scene</h2></div><button className="pane-toggle" type="button" title="Collapse configuration pane" aria-label="Collapse configuration pane" onClick={(event) => collapsePane('left', event)}><ChevronLeft size={24} /></button></div>
-          <div className={`spatial-service-status ${spatialServiceStatus}`} role="status" aria-live="polite">
+        <aside
+          className="panel config-panel"
+          aria-label="Scenario configuration"
+        >
+          <div className="panel-heading">
+            <span>01</span>
+            <div>
+              <p>Configuration</p>
+              <h2>Build the scene</h2>
+            </div>
+            <button
+              className="pane-toggle"
+              type="button"
+              title="Collapse configuration pane"
+              aria-label="Collapse configuration pane"
+              onClick={(event) => collapsePane("left", event)}
+            >
+              <ChevronLeft size={24} />
+            </button>
+          </div>
+          <div
+            className={`spatial-service-status ${spatialServiceStatus}`}
+            role="status"
+            aria-live="polite"
+          >
             <span className="service-indicator" aria-hidden="true" />
-            <div><b>Spatial service</b><small>{spatialServiceStatus === 'connected' ? 'Connected' : spatialServiceStatus === 'checking' ? 'Checking connection' : 'Development preview available'}</small></div>
-            {spatialServiceStatus === 'unavailable' && <button type="button" title="Retry spatial service connection" aria-label="Retry spatial service connection" onClick={() => { void retrySpatialService() }}><RefreshCw size={14} /></button>}
+            <div>
+              <b>Spatial service</b>
+              <small>
+                {spatialServiceStatus === "connected"
+                  ? "Connected"
+                  : spatialServiceStatus === "checking"
+                    ? "Checking connection"
+                    : "Development preview available"}
+              </small>
+            </div>
+            {spatialServiceStatus === "unavailable" && (
+              <button
+                type="button"
+                title="Retry spatial service connection"
+                aria-label="Retry spatial service connection"
+                onClick={() => {
+                  void retrySpatialService();
+                }}
+              >
+                <RefreshCw size={14} />
+              </button>
+            )}
           </div>
           <div className="template-designer-launch">
-            <button type="button" onClick={() => setDesignerOpen(true)}><PencilRuler size={16} /><span><b>Scene design tool</b><small>Author vector SOP templates</small></span></button>
+            <button type="button" onClick={() => setDesignerOpen(true)}>
+              <PencilRuler size={16} />
+              <span>
+                <b>Scene design tool</b>
+                <small>Author vector SOP templates</small>
+              </span>
+            </button>
           </div>
-          <form className="location-tool" aria-label="Roadway location" onSubmit={(event) => { void loadRoadLocation(event) }}>
-            <div className="location-tool-heading"><MapPinned size={16} /><div><label htmlFor="highway">Roadway location</label><span>Load scaled corridor geometry</span></div></div>
-            <div className="location-fields">
-              <label className="location-highway" htmlFor="highway">Highway<input id="highway" placeholder="I-95 or Route 28" value={locationRequest.highway} onChange={(event) => { setLocationRequest((current) => ({ ...current, highway: event.target.value, reference: current.highway === event.target.value ? current.reference : '' })); setResolvedLocation(null) }} /></label>
-              <label htmlFor="reference-type">Reference<select id="reference-type" value={locationRequest.referenceType} onChange={(event) => setLocationRequest((current) => ({ ...current, referenceType: event.target.value as RoadLocationRequest['referenceType'], reference: '' }))}><option value="mile-marker">Mile marker</option><option value="exit">Exit number</option></select></label>
-              <label htmlFor="reference">{locationRequest.referenceType === 'exit' ? 'Exit' : 'Mile marker'}<input id="reference" inputMode="decimal" placeholder={locationRequest.referenceType === 'exit' ? '166' : '168.0'} value={locationRequest.reference} onChange={(event) => setLocationRequest((current) => ({ ...current, reference: event.target.value }))} /></label>
+          <form
+            className="location-tool"
+            aria-label="Roadway location"
+            onSubmit={(event) => {
+              void loadRoadLocation(event);
+            }}
+          >
+            <div className="location-tool-heading">
+              <MapPinned size={16} />
+              <div>
+                <label htmlFor="highway">Roadway location</label>
+                <span>Load scaled corridor geometry</span>
+              </div>
             </div>
-            {locationErrors.map((error) => <p className="location-error" role="alert" key={error}>{error}</p>)}
-            <button className="location-load" type="submit" disabled={locationLoading}>{locationLoading ? <LoaderCircle className="location-spinner" size={15} /> : <MapPinned size={15} />}<span>{locationLoading ? 'Resolving location' : 'Render location'}</span></button>
-            {resolvedLocation && <div className={`location-result ${resolvedLocation.source}`} role="status"><strong>{resolvedLocation.request.highway}</strong><span>{resolvedLocation.message}</span></div>}
+            <div className="location-fields">
+              <label className="location-highway" htmlFor="highway">
+                Highway
+                <input
+                  id="highway"
+                  placeholder="I-95 or Route 28"
+                  value={locationRequest.highway}
+                  onChange={(event) => {
+                    setLocationRequest((current) => ({
+                      ...current,
+                      highway: event.target.value,
+                      reference:
+                        current.highway === event.target.value
+                          ? current.reference
+                          : "",
+                    }));
+                    setResolvedLocation(null);
+                  }}
+                />
+              </label>
+              <label htmlFor="reference-type">
+                Reference
+                <select
+                  id="reference-type"
+                  value={locationRequest.referenceType}
+                  onChange={(event) =>
+                    setLocationRequest((current) => ({
+                      ...current,
+                      referenceType: event.target
+                        .value as RoadLocationRequest["referenceType"],
+                      reference: "",
+                    }))
+                  }
+                >
+                  <option value="mile-marker">Mile marker</option>
+                  <option value="exit">Exit number</option>
+                </select>
+              </label>
+              <label htmlFor="reference">
+                {locationRequest.referenceType === "exit"
+                  ? "Exit"
+                  : "Mile marker"}
+                <input
+                  id="reference"
+                  inputMode="decimal"
+                  placeholder={
+                    locationRequest.referenceType === "exit" ? "166" : "168.0"
+                  }
+                  value={locationRequest.reference}
+                  onChange={(event) =>
+                    setLocationRequest((current) => ({
+                      ...current,
+                      reference: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            {locationErrors.map((error) => (
+              <p className="location-error" role="alert" key={error}>
+                {error}
+              </p>
+            ))}
+            <button
+              className="location-load"
+              type="submit"
+              disabled={locationLoading}
+            >
+              {locationLoading ? (
+                <LoaderCircle className="location-spinner" size={15} />
+              ) : (
+                <MapPinned size={15} />
+              )}
+              <span>
+                {locationLoading ? "Resolving location" : "Render location"}
+              </span>
+            </button>
+            {resolvedLocation && (
+              <div
+                className={`location-result ${resolvedLocation.source}`}
+                role="status"
+              >
+                <strong>{resolvedLocation.request.highway}</strong>
+                <span>{resolvedLocation.message}</span>
+              </div>
+            )}
           </form>
           <div className="control-group scene-type-control">
-            <button className="scene-type-toggle" type="button" aria-expanded={sceneTypeOpen} aria-controls="scene-type-options" onClick={() => setSceneTypeOpen((open) => !open)}><span>Scene type</span>{sceneTypeOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
-            {sceneTypeOpen && <div id="scene-type-options" className="scene-type-options"><div className="scenario-options">
-              {SCENARIO_CATALOG.map((item) => (
-                <button className={scenario === item.id ? 'scenario-card active' : 'scenario-card'} disabled={sceneVisible || scenePlacementActive} key={item.id} type="button" onClick={() => changeScenario(item.id)}>
-                  {item.id === 'shoulder' || item.id === 'lane-shift' ? <Navigation size={18} /> : <TrafficCone size={18} />}<span>{item.label}<small>{item.mutcdApplication}</small></span><i>{scenario === item.id && <Check size={13} />}</i>
-                </button>
-              ))}
-            </div>
-            <div className="scene-placement-actions">
-              {sceneVisible ? (
-                <button className="remove-scene-button" type="button" onClick={removeScene}><Minus size={15} /> Remove scene</button>
+            <button
+              className="scene-type-toggle"
+              type="button"
+              aria-expanded={sceneTypeOpen}
+              aria-controls="scene-type-options"
+              onClick={() => setSceneTypeOpen((open) => !open)}
+            >
+              <span>Scene type</span>
+              {sceneTypeOpen ? (
+                <ChevronUp size={18} />
               ) : (
-                <button className={scenePlacementActive ? 'add-scene-button active' : 'add-scene-button'} type="button" aria-pressed={scenePlacementActive} onClick={beginScenePlacement}><MousePointer2 size={15} /> {scenePlacementActive ? 'Tap roadway to place' : 'Add scene'}</button>
+                <ChevronDown size={18} />
               )}
-            </div></div>}
+            </button>
+            {sceneTypeOpen && (
+              <div id="scene-type-options" className="scene-type-options">
+                <div className="scenario-options">
+                  {SCENARIO_CATALOG.map((item) => (
+                    <button
+                      className={
+                        scenario === item.id
+                          ? "scenario-card active"
+                          : "scenario-card"
+                      }
+                      disabled={sceneVisible || scenePlacementActive}
+                      key={item.id}
+                      type="button"
+                      onClick={() => changeScenario(item.id)}
+                    >
+                      {item.id === "shoulder" || item.id === "lane-shift" ? (
+                        <Navigation size={18} />
+                      ) : (
+                        <TrafficCone size={18} />
+                      )}
+                      <span>
+                        {item.label}
+                        <small>{item.mutcdApplication}</small>
+                      </span>
+                      <i>{scenario === item.id && <Check size={13} />}</i>
+                    </button>
+                  ))}
+                </div>
+                <div className="scene-placement-actions">
+                  {sceneVisible ? (
+                    <button
+                      className="remove-scene-button"
+                      type="button"
+                      onClick={removeScene}
+                    >
+                      <Minus size={15} /> Remove scene
+                    </button>
+                  ) : (
+                    <button
+                      className={
+                        scenePlacementActive
+                          ? "add-scene-button active"
+                          : "add-scene-button"
+                      }
+                      type="button"
+                      aria-pressed={scenePlacementActive}
+                      onClick={beginScenePlacement}
+                    >
+                      <MousePointer2 size={15} />{" "}
+                      {scenePlacementActive
+                        ? "Tap roadway to place"
+                        : "Add scene"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          {scenario === 'right-lane' && mode === 'modified' && (
+          {scenario === "right-lane" && mode === "modified" && (
             <div className="control-group mode-controls enhanced-controls">
               <label>Enhanced safety setup</label>
               <div className="mode-control-row">
                 <span>Taper cones</span>
                 <div className="stepper compact-stepper">
-                  <button type="button" title="Remove taper cone" onClick={() => setPoints((current) => setRightLaneTaperCount(current, Math.max(5, taperCount - 1)))}><Minus size={14} /></button>
+                  <button
+                    type="button"
+                    title="Remove taper cone"
+                    onClick={() =>
+                      setPoints((current) =>
+                        setRightLaneTaperCount(
+                          current,
+                          Math.max(5, taperCount - 1),
+                        ),
+                      )
+                    }
+                  >
+                    <Minus size={14} />
+                  </button>
                   <strong>{taperCount}</strong>
-                  <button type="button" title="Add taper cone" onClick={() => setPoints((current) => setRightLaneTaperCount(current, Math.min(8, taperCount + 1)))}><Plus size={14} /></button>
+                  <button
+                    type="button"
+                    title="Add taper cone"
+                    onClick={() =>
+                      setPoints((current) =>
+                        setRightLaneTaperCount(
+                          current,
+                          Math.min(8, taperCount + 1),
+                        ),
+                      )
+                    }
+                  >
+                    <Plus size={14} />
+                  </button>
                 </div>
               </div>
               <label className="mode-control-row" htmlFor="downstream-spacing">
                 <span>Forward spacing</span>
-                <select id="downstream-spacing" value={downstreamSpacing} onChange={(event) => setPoints((current) => setDownstreamSpacing(current, Number(event.target.value)))}><option value="40">40 ft</option><option value="60">60 ft</option><option value="80">80 ft</option></select>
+                <select
+                  id="downstream-spacing"
+                  value={downstreamSpacing}
+                  onChange={(event) =>
+                    setPoints((current) =>
+                      setDownstreamSpacing(current, Number(event.target.value)),
+                    )
+                  }
+                >
+                  <option value="40">40 ft</option>
+                  <option value="60">60 ft</option>
+                  <option value="80">80 ft</option>
+                </select>
               </label>
             </div>
           )}
-          {scenario === 'right-lane' && mode === 'violate' && (
+          {scenario === "right-lane" && mode === "violate" && (
             <div className="control-group mode-controls violation-controls">
               <label>Violation training setup</label>
-              <p>Drag rear cones closer than 40 ft or reduce rear protection below 8 cones.</p>
+              <p>
+                Drag rear cones closer than 40 ft or reduce rear protection
+                below 8 cones.
+              </p>
               <div className="violation-actions">
-                <button type="button" onClick={removeRearCone}><Minus size={14} /> Remove rear cone</button>
-                <button type="button" onClick={() => setPoints(createScene('right-lane'))}><RotateCcw size={14} /> Restore SOP</button>
+                <button type="button" onClick={removeRearCone}>
+                  <Minus size={14} /> Remove rear cone
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPoints(createScene("right-lane"))}
+                >
+                  <RotateCcw size={14} /> Restore SOP
+                </button>
               </div>
             </div>
           )}
-          {sceneVisible && <section className="scene-toolkit" aria-label="Scene equipment toolkit">
-            <div className="toolkit-tabs" role="tablist" aria-label="Equipment toolkit">
-              {TOOLKIT_CATEGORIES.map((category) => <button type="button" role="tab" aria-selected={activeToolkit === category.id} data-category={category.id} key={category.id} onClick={() => setActiveToolkit(category.id)}><span>{category.label.split(' ').map((word, index, words) => <span className="toolkit-tab-line" key={word}>{word}{index < words.length - 1 ? ' ' : ''}</span>)}</span></button>)}
+          {sceneVisible && (
+            <section
+              className="scene-toolkit"
+              aria-label="Scene equipment toolkit"
+            >
+              <div
+                className="toolkit-tabs"
+                role="tablist"
+                aria-label="Equipment toolkit"
+              >
+                {TOOLKIT_CATEGORIES.map((category) => (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeToolkit === category.id}
+                    data-category={category.id}
+                    key={category.id}
+                    onClick={() => setActiveToolkit(category.id)}
+                  >
+                    <span>
+                      {category.label.split(" ").map((word, index, words) => (
+                        <span className="toolkit-tab-line" key={word}>
+                          {word}
+                          {index < words.length - 1 ? " " : ""}
+                        </span>
+                      ))}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="toolkit-list">
+                {EQUIPMENT_CATALOG.filter(
+                  (definition) => definition.category === activeToolkit,
+                ).map((definition) => {
+                  const currentCount = deployedCount(
+                    definition.id,
+                    deployedEquipment,
+                    catalogBaselineCounts,
+                  );
+                  const limit =
+                    definition.id === "ssp-truck"
+                      ? MAX_SSP_TRUCKS
+                      : deploymentLimit(
+                          definition,
+                          deployedEquipment,
+                          trucks.length,
+                        );
+                  const available =
+                    definition.id === "ssp-truck"
+                      ? trucks.length < MAX_SSP_TRUCKS
+                      : canDeploy(
+                          definition.id,
+                          deployedEquipment,
+                          trucks.length,
+                          catalogBaselineCounts,
+                        );
+                  return (
+                    <button
+                      type="button"
+                      key={definition.id}
+                      disabled={!available}
+                      onClick={() => deployCatalogItem(definition.id)}
+                    >
+                      <span
+                        className="toolkit-swatch"
+                        style={{ background: definition.color }}
+                      />
+                      <span>{definition.label}</span>
+                      <small>
+                        {currentCount}
+                        {Number.isFinite(limit) ? ` / ${limit}` : ""}
+                      </small>
+                      <Plus size={13} />
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          <div className="asset-inventory">
+            <div>
+              <span>Available assets</span>
+              <b>{sceneVisible ? points.length + trucks.length + 2 : 0}</b>
             </div>
-            <div className="toolkit-list">{EQUIPMENT_CATALOG.filter((definition) => definition.category === activeToolkit).map((definition) => {
-              const currentCount = deployedCount(definition.id, deployedEquipment, catalogBaselineCounts)
-              const limit = definition.id === 'ssp-truck' ? MAX_SSP_TRUCKS : deploymentLimit(definition, deployedEquipment, trucks.length)
-              const available = definition.id === 'ssp-truck' ? trucks.length < MAX_SSP_TRUCKS : canDeploy(definition.id, deployedEquipment, trucks.length, catalogBaselineCounts)
-              return <button type="button" key={definition.id} disabled={!available} onClick={() => deployCatalogItem(definition.id)}><span className="toolkit-swatch" style={{ background: definition.color }} /><span>{definition.label}</span><small>{currentCount}{Number.isFinite(limit) ? ` / ${limit}` : ''}</small><Plus size={13} /></button>
-            })}</div>
-          </section>}
-          <div className="asset-inventory"><div><span>Available assets</span><b>{sceneVisible ? points.length + trucks.length + 2 : 0}</b></div><div className="asset-icons"><span><Truck size={19} /> {sceneVisible ? trucks.length : 0}</span><span><TrafficCone size={19} /> {sceneVisible ? points.length : 0}</span><span><Radio size={18} /> {sceneVisible ? 2 : 0}</span></div></div>
+            <div className="asset-icons">
+              <span>
+                <Truck size={19} /> {sceneVisible ? trucks.length : 0}
+              </span>
+              <span>
+                <TrafficCone size={19} /> {sceneVisible ? points.length : 0}
+              </span>
+              <span>
+                <Radio size={18} /> {sceneVisible ? 2 : 0}
+              </span>
+            </div>
+          </div>
         </aside>
 
-        <button ref={leftPaneRestoreRef} className="pane-toggle pane-restore left-pane-restore" type="button" title="Expand configuration pane" aria-label="Expand configuration pane" onClick={() => restorePane('left')}><ChevronRight size={24} /></button>
+        <button
+          ref={leftPaneRestoreRef}
+          className="pane-toggle pane-restore left-pane-restore"
+          type="button"
+          title="Expand configuration pane"
+          aria-label="Expand configuration pane"
+          onClick={() => restorePane("left")}
+        >
+          <ChevronRight size={24} />
+        </button>
 
         <section className="canvas-panel" aria-label="Interactive scene canvas">
           <div className="canvas-toolbar">
-            <div><span className="eyebrow">Vector scene · {roadScene.source.type.replaceAll('-', ' ')}</span><div className="scene-heading-row"><h1>{sceneVisible ? selectedScenario.heading : scenePlacementActive ? `Place ${selectedScenario.label.toLowerCase()}` : 'Roadway only'}</h1></div><small className="scene-dataset">{roadScene.source.dataset}</small></div>
+            <div>
+              <span className="eyebrow">
+                Vector scene · {roadScene.source.type.replaceAll("-", " ")}
+              </span>
+              <div className="scene-heading-row">
+                <h1>
+                  {sceneVisible
+                    ? selectedScenario.heading
+                    : scenePlacementActive
+                      ? `Place ${selectedScenario.label.toLowerCase()}`
+                      : "Roadway only"}
+                </h1>
+              </div>
+              <small className="scene-dataset">
+                {roadScene.source.dataset}
+              </small>
+            </div>
             <div className="canvas-tools">
               <div className="drawing-menu-anchor">
-                <button className={`drawing-menu-button${drawingActive ? ' active' : ''}`} type="button" aria-expanded={drawingMenuOpen} aria-haspopup="dialog" onClick={() => setDrawingMenuOpen((open) => !open)}><Pencil size={15} /> Draw <ChevronDown size={13} /></button>
-                {drawingMenuOpen && <div className="drawing-menu" role="dialog" aria-label="Freehand drawing tools">
-                  <div className="drawing-menu-heading"><span>Freehand vectors</span><button type="button" aria-pressed={drawingActive} onClick={() => { setDrawingActive((active) => !active); cancelDrawingStroke() }}><Pencil size={14} /> {drawingActive ? 'Pen on' : 'Pen off'}</button></div>
-                  <div className="drawing-control"><span>Color</span><div className="drawing-colors" role="radiogroup" aria-label="Drawing color">{['#ffd21f', '#ffffff', '#ff5a1f', '#e53935', '#111111'].map((color) => <button type="button" role="radio" aria-checked={drawingColor === color} aria-label={`Drawing color ${color}`} key={color} style={{ background: color }} onClick={() => setDrawingColor(color)} />)}</div></div>
-                  <label className="drawing-control drawing-width"><span>Width</span><input aria-label="Drawing width" type="range" min="1" max="10" step="1" value={drawingWidth} onChange={(event) => setDrawingWidth(Number(event.target.value))} /><b>{drawingWidth} ft</b></label>
-                  <div className="drawing-control"><span>Keep</span><div className="drawing-mode" role="radiogroup" aria-label="Drawing persistence"><button type="button" role="radio" aria-checked={drawingPersistence === 'persistent'} onClick={() => setDrawingPersistence('persistent')}>Persistent</button><button type="button" role="radio" aria-checked={drawingPersistence === 'temporary'} onClick={() => setDrawingPersistence('temporary')}>Temporary</button></div></div>
-                  {drawingPersistence === 'temporary' && <label className="drawing-control"><span>Lifetime</span><select aria-label="Temporary drawing lifetime" value={drawingLifetime} onChange={(event) => setDrawingLifetime(Number(event.target.value))}>{[5, 10, 15, 30].map((seconds) => <option value={seconds} key={seconds}>{seconds} sec</option>)}</select></label>}
-                  <button className="drawing-undo" type="button" disabled={!activeDrawingStroke && drawingStrokes.length === 0 && temporaryDrawingStrokes.length === 0} onClick={undoDrawing}><Undo2 size={14} /> {activeDrawingStroke ? 'Cancel stroke' : 'Undo last stroke'}</button>
-                </div>}
+                <button
+                  className={`drawing-menu-button${drawingActive ? " active" : ""}`}
+                  type="button"
+                  aria-expanded={drawingMenuOpen}
+                  aria-haspopup="dialog"
+                  onClick={() => setDrawingMenuOpen((open) => !open)}
+                >
+                  <Pencil size={15} /> Draw <ChevronDown size={13} />
+                </button>
+                {drawingMenuOpen && (
+                  <div
+                    className="drawing-menu"
+                    role="dialog"
+                    aria-label="Freehand drawing tools"
+                  >
+                    <div className="drawing-menu-heading">
+                      <span>Freehand vectors</span>
+                      <button
+                        type="button"
+                        aria-pressed={drawingActive}
+                        onClick={() => {
+                          setDrawingActive((active) => !active);
+                          cancelDrawingStroke();
+                        }}
+                      >
+                        <Pencil size={14} />{" "}
+                        {drawingActive ? "Pen on" : "Pen off"}
+                      </button>
+                    </div>
+                    <div className="drawing-control">
+                      <span>Color</span>
+                      <div
+                        className="drawing-colors"
+                        role="radiogroup"
+                        aria-label="Drawing color"
+                      >
+                        {[
+                          "#ffd21f",
+                          "#ffffff",
+                          "#ff5a1f",
+                          "#e53935",
+                          "#111111",
+                        ].map((color) => (
+                          <button
+                            type="button"
+                            role="radio"
+                            aria-checked={drawingColor === color}
+                            aria-label={`Drawing color ${color}`}
+                            key={color}
+                            style={{ background: color }}
+                            onClick={() => setDrawingColor(color)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <label className="drawing-control drawing-width">
+                      <span>Width</span>
+                      <input
+                        aria-label="Drawing width"
+                        type="range"
+                        min="1"
+                        max="10"
+                        step="1"
+                        value={drawingWidth}
+                        onChange={(event) =>
+                          setDrawingWidth(Number(event.target.value))
+                        }
+                      />
+                      <b>{drawingWidth} ft</b>
+                    </label>
+                    <div className="drawing-control">
+                      <span>Keep</span>
+                      <div
+                        className="drawing-mode"
+                        role="radiogroup"
+                        aria-label="Drawing persistence"
+                      >
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={drawingPersistence === "persistent"}
+                          onClick={() => setDrawingPersistence("persistent")}
+                        >
+                          Persistent
+                        </button>
+                        <button
+                          type="button"
+                          role="radio"
+                          aria-checked={drawingPersistence === "temporary"}
+                          onClick={() => setDrawingPersistence("temporary")}
+                        >
+                          Temporary
+                        </button>
+                      </div>
+                    </div>
+                    {drawingPersistence === "temporary" && (
+                      <label className="drawing-control">
+                        <span>Lifetime</span>
+                        <select
+                          aria-label="Temporary drawing lifetime"
+                          value={drawingLifetime}
+                          onChange={(event) =>
+                            setDrawingLifetime(Number(event.target.value))
+                          }
+                        >
+                          {[5, 10, 15, 30].map((seconds) => (
+                            <option value={seconds} key={seconds}>
+                              {seconds} sec
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <button
+                      className="drawing-undo"
+                      type="button"
+                      disabled={
+                        !activeDrawingStroke &&
+                        drawingStrokes.length === 0 &&
+                        temporaryDrawingStrokes.length === 0
+                      }
+                      onClick={undoDrawing}
+                    >
+                      <Undo2 size={14} />{" "}
+                      {activeDrawingStroke
+                        ? "Cancel stroke"
+                        : "Undo last stroke"}
+                    </button>
+                  </div>
+                )}
               </div>
-              {sceneVisible && <div className="traffic-flow-instrument"><span>Traffic flow</span><ArrowUp className="traffic-direction-arrow" style={{ transform: `rotate(${effectiveSceneRotation + mapRotation}deg)` }} size={30} aria-label="Traffic flow bearing" /></div>}
+              {sceneVisible && (
+                <div className="traffic-flow-instrument">
+                  <span>Traffic flow</span>
+                  <ArrowUp
+                    className="traffic-direction-arrow"
+                    style={{
+                      transform: `rotate(${effectiveSceneRotation + mapRotation}deg)`,
+                    }}
+                    size={30}
+                    aria-label="Traffic flow bearing"
+                  />
+                </div>
+              )}
               <MapCompass rotation={mapRotation} />
-              <div className="scale-key" data-scale-pixels={fortyFootScalePixels.toFixed(2)}><span style={{ width: `${fortyFootScalePixels}px` }} /> 40 FT</div>
+              <div
+                className="scale-key"
+                data-scale-pixels={fortyFootScalePixels.toFixed(2)}
+              >
+                <span style={{ width: `${fortyFootScalePixels}px` }} /> 40 FT
+              </div>
             </div>
           </div>
-          <div className="road-stage" ref={roadStageRef} data-zoom={sceneZoom} onPointerDown={startScenePointer} onPointerMove={moveScenePointer} onPointerUp={endScenePointer} onPointerCancel={endScenePointer} onWheel={zoomSceneWithTrackpad}>
+          <div
+            className="road-stage"
+            ref={roadStageRef}
+            data-zoom={sceneZoom}
+            onPointerDown={startScenePointer}
+            onPointerMove={moveScenePointer}
+            onPointerUp={endScenePointer}
+            onPointerCancel={endScenePointer}
+            onWheel={zoomSceneWithTrackpad}
+          >
             <div className="road-canvas-surface" style={sceneCanvasSize}>
-            <svg className={`road-canvas${scenePlacementActive ? ' placing-scene' : ''}`} viewBox={sceneViewBoxValue} role="img" aria-label="Top-down highway scene with SSP vehicle and traffic cones" data-visible-width-feet={Math.round(sceneVisibleWidth)} data-zoom={sceneZoom} onPointerDown={placeScene} onPointerMove={moveCone} onPointerUp={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null; rotatingTruckRef.current = null }} onPointerLeave={() => { setDragging(null); setDraggingEquipmentId(null); setDraggingTruckId(null); rotatingEquipmentRef.current = null; rotatingTruckRef.current = null }}>
-              <g className="map-world" transform={mapTransform}>
-              <RoadwayLayer
-                scene={roadScene}
-                visibility={roadLayerVisibility}
-                selectionEnabled={sectionSelectionEnabled}
-                selectedFeatureId={selectedRoadSectionId}
-                onSelectFeature={(feature) => {
-                  setSelectedRoadSectionId(feature.id)
-                  setSectionSelectionEnabled(false)
+              <svg
+                className={`road-canvas${scenePlacementActive ? " placing-scene" : ""}`}
+                viewBox={sceneViewBoxValue}
+                role="img"
+                aria-label="Top-down highway scene with SSP vehicle and traffic cones"
+                data-visible-width-feet={Math.round(sceneVisibleWidth)}
+                data-zoom={sceneZoom}
+                onPointerDown={placeScene}
+                onPointerMove={moveCone}
+                onPointerUp={() => {
+                  setDragging(null);
+                  setDraggingEquipmentId(null);
+                  setDraggingTruckId(null);
+                  rotatingEquipmentRef.current = null;
+                  rotatingTruckRef.current = null;
                 }}
-              />
-              {sceneVisible && <g className={`scene-equipment${sectionSelectionEnabled ? ' selection-paused' : ''}`} transform={sceneTransform}>
-              {trucks.map((truck) => <g
-                aria-label={`${truck.label}, signboard ${signboardLabel(truck.signboard)}`}
-                className={`ssp-truck${truck.id === selectedTruckId ? ' selected' : ''}`}
-                data-length-feet={RIGHT_LANE_STANDARD.truck.length}
-                data-asset-type={truck.assetType}
-                data-signboard={truck.signboard}
-                data-truck-id={truck.id}
-                data-width-feet={RIGHT_LANE_STANDARD.truck.width}
-                key={truck.id}
-                onClick={(event) => { event.stopPropagation(); setSelectedTruckId(truck.id); setSelectedConeId(null); setSelectedEquipmentId(null) }}
-                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { setSelectedTruckId(truck.id); setSelectedConeId(null); setSelectedEquipmentId(null) } }}
-                onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setSelectedTruckId(truck.id); setSelectedConeId(null); setSelectedEquipmentId(null); setDraggingTruckId(truck.id) }}
-                role="button"
-                tabIndex={0}
-                transform={`translate(${truck.x + selectedScenario.truckOffsetX} ${truck.y}) rotate(${truck.rotation})`}
+                onPointerLeave={() => {
+                  setDragging(null);
+                  setDraggingEquipmentId(null);
+                  setDraggingTruckId(null);
+                  rotatingEquipmentRef.current = null;
+                  rotatingTruckRef.current = null;
+                }}
               >
-                <rect className="truck-body" x="-4.25" y="-12" width="8.5" height="24" />
-                <path className="truck-panel-line" d="M -4.25 -1 H 4.25 M -4.25 -7 H 4.25 M -3 -7 V -1 M 3 -7 V -1" />
-                <path className="truck-windshield" d="M -3.4 -3 H 3.4 L 2.8 -8 H -2.8 Z" />
-                <path className="truck-hood-line" d="M -3.2 -10 H 3.2 M -2.5 -12 V -10 M 2.5 -12 V -10" />
-                <rect className="truck-lightbar" x="-4.5" y="-1" width="9" height="1.4" />
-                <rect className="strobe" x="-4" y="-11" width="0.8" height="0.8" />
-                <rect className="strobe delayed" x="3.2" y="-11" width="0.8" height="0.8" />
-                <g transform="translate(0 10) scale(.1)"><SignboardGraphic message={truck.signboard} /></g>
-                {truck.assetType === 'lane-blade-truck' && <path className="truck-lane-blade" d="M -4.25 -12 H 4.25" />}
-                <rect className="deployed-selection" x="-6.25" y="-14" width="12.5" height="28" />
-                {truck.id === selectedTruckId && <circle className="equipment-rotation-handle" aria-label={`Rotate ${truck.label}`} cx="6.25" cy="-14" r="2.2" onPointerDown={(event) => beginTruckRotation(event, truck)} />}
-              </g>)}
-              {points.map((point) => (
-                <g className={`cone${point.id === selectedConeId ? ' selected' : ''}${mode === 'gospel' ? ' locked' : ''}`} data-cone-id={point.id} key={point.id} role="button" tabIndex={0} transform={`translate(${point.x} ${point.y})`} onClick={(event) => { event.stopPropagation(); setSelectedConeId(point.id); setSelectedEquipmentId(null); setSelectedTruckId('') }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { setSelectedConeId(point.id); setSelectedEquipmentId(null); setSelectedTruckId('') } }} onPointerDown={(event) => { event.stopPropagation(); setSelectedConeId(point.id); setSelectedEquipmentId(null); setSelectedTruckId(''); if (mode === 'gospel') return; event.currentTarget.setPointerCapture(event.pointerId); setDragging(point.id) }}>
-                  <rect className="cone-hit-area" x="-4" y="-4" width="8" height="8" />
-                  <SceneEquipmentGlyph definition={setupConeDefinition} />
+                <g className="map-world" transform={mapTransform}>
+                  <RoadwayLayer
+                    scene={roadScene}
+                    visibility={roadLayerVisibility}
+                    selectionEnabled={sectionSelectionEnabled}
+                    selectedFeatureId={selectedRoadSectionId}
+                    onSelectFeature={(feature) => {
+                      setSelectedRoadSectionId(feature.id);
+                      setSectionSelectionEnabled(false);
+                    }}
+                  />
+                  {sceneVisible && (
+                    <g
+                      className={`scene-equipment${sectionSelectionEnabled ? " selection-paused" : ""}`}
+                      transform={sceneTransform}
+                    >
+                      {trucks.map((truck) => (
+                        <g
+                          aria-label={`${truck.label}, signboard ${signboardLabel(truck.signboard)}`}
+                          className={`ssp-truck${truck.id === selectedTruckId ? " selected" : ""}`}
+                          data-length-feet={RIGHT_LANE_STANDARD.truck.length}
+                          data-asset-type={truck.assetType}
+                          data-signboard={truck.signboard}
+                          data-truck-id={truck.id}
+                          data-width-feet={RIGHT_LANE_STANDARD.truck.width}
+                          key={truck.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedTruckId(truck.id);
+                            setSelectedConeId(null);
+                            setSelectedEquipmentId(null);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              setSelectedTruckId(truck.id);
+                              setSelectedConeId(null);
+                              setSelectedEquipmentId(null);
+                            }
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            event.currentTarget.setPointerCapture(
+                              event.pointerId,
+                            );
+                            setSelectedTruckId(truck.id);
+                            setSelectedConeId(null);
+                            setSelectedEquipmentId(null);
+                            setDraggingTruckId(truck.id);
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          transform={`translate(${truck.x + selectedScenario.truckOffsetX} ${truck.y}) rotate(${truck.rotation})`}
+                        >
+                          <rect
+                            className="truck-body"
+                            x="-4.25"
+                            y="-12"
+                            width="8.5"
+                            height="24"
+                          />
+                          <path
+                            className="truck-panel-line"
+                            d="M -4.25 -1 H 4.25 M -4.25 -7 H 4.25 M -3 -7 V -1 M 3 -7 V -1"
+                          />
+                          <path
+                            className="truck-windshield"
+                            d="M -3.4 -3 H 3.4 L 2.8 -8 H -2.8 Z"
+                          />
+                          <path
+                            className="truck-hood-line"
+                            d="M -3.2 -10 H 3.2 M -2.5 -12 V -10 M 2.5 -12 V -10"
+                          />
+                          <rect
+                            className="truck-lightbar"
+                            x="-4.5"
+                            y="-1"
+                            width="9"
+                            height="1.4"
+                          />
+                          <rect
+                            className="strobe"
+                            x="-4"
+                            y="-11"
+                            width="0.8"
+                            height="0.8"
+                          />
+                          <rect
+                            className="strobe delayed"
+                            x="3.2"
+                            y="-11"
+                            width="0.8"
+                            height="0.8"
+                          />
+                          <g transform="translate(0 10) scale(.1)">
+                            <SignboardGraphic message={truck.signboard} />
+                          </g>
+                          {truck.assetType === "lane-blade-truck" && (
+                            <path
+                              className="truck-lane-blade"
+                              d="M -4.25 -12 H 4.25"
+                            />
+                          )}
+                          <rect
+                            className="deployed-selection"
+                            x="-6.25"
+                            y="-14"
+                            width="12.5"
+                            height="28"
+                          />
+                          {truck.id === selectedTruckId && (
+                            <circle
+                              className="equipment-rotation-handle"
+                              aria-label={`Rotate ${truck.label}`}
+                              cx="6.25"
+                              cy="-14"
+                              r="2.2"
+                              onPointerDown={(event) =>
+                                beginTruckRotation(event, truck)
+                              }
+                            />
+                          )}
+                        </g>
+                      ))}
+                      {points.map((point) => (
+                        <g
+                          className={`cone${point.id === selectedConeId ? " selected" : ""}${mode === "gospel" ? " locked" : ""}`}
+                          data-cone-id={point.id}
+                          key={point.id}
+                          role="button"
+                          tabIndex={0}
+                          transform={`translate(${point.x} ${point.y})`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedConeId(point.id);
+                            setSelectedEquipmentId(null);
+                            setSelectedTruckId("");
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              setSelectedConeId(point.id);
+                              setSelectedEquipmentId(null);
+                              setSelectedTruckId("");
+                            }
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            setSelectedConeId(point.id);
+                            setSelectedEquipmentId(null);
+                            setSelectedTruckId("");
+                            if (mode === "gospel") return;
+                            event.currentTarget.setPointerCapture(
+                              event.pointerId,
+                            );
+                            setDragging(point.id);
+                          }}
+                        >
+                          <rect
+                            className="cone-hit-area"
+                            x="-4"
+                            y="-4"
+                            width="8"
+                            height="8"
+                          />
+                          <SceneEquipmentGlyph
+                            definition={setupConeDefinition}
+                          />
+                        </g>
+                      ))}
+                      {deployedEquipment.map((item) => {
+                        const definition = equipmentDefinition(
+                          item.definitionId,
+                        );
+                        const renderDefinition = {
+                          ...definition,
+                          width: item.width ?? definition.width,
+                          length: item.length ?? definition.length,
+                        };
+                        return (
+                          <g
+                            aria-label={definition.label}
+                            className={`deployed-equipment${item.id === selectedEquipmentId ? " selected" : ""}`}
+                            data-definition-id={definition.id}
+                            key={item.id}
+                            onPointerDown={(event) => {
+                              event.stopPropagation();
+                              event.currentTarget.setPointerCapture(
+                                event.pointerId,
+                              );
+                              setSelectedEquipmentId(item.id);
+                              setSelectedConeId(null);
+                              setSelectedTruckId("");
+                              setDraggingEquipmentId(item.id);
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            transform={`translate(${item.x} ${item.y}) rotate(${item.rotation})`}
+                          >
+                            <SceneEquipmentGlyph
+                              definition={renderDefinition}
+                            />
+                            <rect
+                              className="deployed-selection"
+                              x={-renderDefinition.width / 2 - 2}
+                              y={-renderDefinition.length / 2 - 2}
+                              width={renderDefinition.width + 4}
+                              height={renderDefinition.length + 4}
+                            />
+                            {item.id === selectedEquipmentId &&
+                              isEquipmentRotatable(definition) && (
+                                <circle
+                                  className="equipment-rotation-handle"
+                                  aria-label={`Rotate ${definition.label}`}
+                                  cx={renderDefinition.width / 2 + 2}
+                                  cy={-renderDefinition.length / 2 - 2}
+                                  r="2.2"
+                                  onPointerDown={(event) =>
+                                    beginEquipmentRotation(event, item)
+                                  }
+                                />
+                              )}
+                          </g>
+                        );
+                      })}
+                    </g>
+                  )}
+                  {roadLayerVisibility.highwayLabels &&
+                    highwayLabelsAvailable && (
+                      <RoadwayLabels
+                        scene={roadScene}
+                        focus={{ x: sceneFocusX, y: sceneFocusY }}
+                      />
+                    )}
+                  {roadLayerVisibility.drawings && (
+                    <g className="drawing-layer" aria-label="Freehand drawings">
+                      {[
+                        ...drawingStrokes,
+                        ...temporaryDrawingStrokes,
+                        ...(activeDrawingStroke ? [activeDrawingStroke] : []),
+                      ].map((stroke) => (
+                        <polyline
+                          className={
+                            stroke.persistence === "temporary"
+                              ? "drawing-stroke temporary"
+                              : "drawing-stroke"
+                          }
+                          data-stroke-id={stroke.id}
+                          fill="none"
+                          key={stroke.id}
+                          points={strokePoints(stroke)}
+                          stroke={stroke.color}
+                          strokeWidth={stroke.widthFeet}
+                        />
+                      ))}
+                    </g>
+                  )}
+                  {drawingActive && (
+                    <rect
+                      className="drawing-hit-area"
+                      width={roadScene.viewport.width}
+                      height={roadScene.viewport.height}
+                      onPointerDown={beginDrawingStroke}
+                      onPointerMove={continueDrawingStroke}
+                      onPointerUp={finishDrawingStroke}
+                      onPointerCancel={cancelDrawingStroke}
+                    />
+                  )}
                 </g>
-              ))}
-              {deployedEquipment.map((item) => {
-                const definition = equipmentDefinition(item.definitionId)
-                const renderDefinition = {
-                  ...definition,
-                  width: item.width ?? definition.width,
-                  length: item.length ?? definition.length,
-                }
-                return <g
-                  aria-label={definition.label}
-                  className={`deployed-equipment${item.id === selectedEquipmentId ? ' selected' : ''}`}
-                  data-definition-id={definition.id}
-                  key={item.id}
-                  onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setSelectedEquipmentId(item.id); setSelectedConeId(null); setSelectedTruckId(''); setDraggingEquipmentId(item.id) }}
-                  role="button"
-                  tabIndex={0}
-                  transform={`translate(${item.x} ${item.y}) rotate(${item.rotation})`}
-                >
-                  <SceneEquipmentGlyph definition={renderDefinition} />
-                  <rect className="deployed-selection" x={-renderDefinition.width / 2 - 2} y={-renderDefinition.length / 2 - 2} width={renderDefinition.width + 4} height={renderDefinition.length + 4} />
-                  {item.id === selectedEquipmentId && isEquipmentRotatable(definition) && <circle className="equipment-rotation-handle" aria-label={`Rotate ${definition.label}`} cx={renderDefinition.width / 2 + 2} cy={-renderDefinition.length / 2 - 2} r="2.2" onPointerDown={(event) => beginEquipmentRotation(event, item)} />}
-                </g>
-              })}
-              </g>}
-              {roadLayerVisibility.highwayLabels && highwayLabelsAvailable && <RoadwayLabels scene={roadScene} focus={{ x: sceneFocusX, y: sceneFocusY }} />}
-              {roadLayerVisibility.drawings && <g className="drawing-layer" aria-label="Freehand drawings">
-                {[...drawingStrokes, ...temporaryDrawingStrokes, ...(activeDrawingStroke ? [activeDrawingStroke] : [])].map((stroke) => <polyline className={stroke.persistence === 'temporary' ? 'drawing-stroke temporary' : 'drawing-stroke'} data-stroke-id={stroke.id} fill="none" key={stroke.id} points={strokePoints(stroke)} stroke={stroke.color} strokeWidth={stroke.widthFeet} />)}
-              </g>}
-              {drawingActive && <rect className="drawing-hit-area" width={roadScene.viewport.width} height={roadScene.viewport.height} onPointerDown={beginDrawingStroke} onPointerMove={continueDrawingStroke} onPointerUp={finishDrawingStroke} onPointerCancel={cancelDrawingStroke} />}
-              </g>
-            </svg>
+              </svg>
             </div>
-            <div className={`canvas-hint${scenePlacementActive ? ' placement-active' : ''}`}>{drawingActive ? <><Pencil size={15} /> Drag on the map to draw</> : scenePlacementActive ? <><MousePointer2 size={15} /> Tap roadway to place {selectedScenario.label.toLowerCase()}</> : !sceneVisible ? <><Navigation size={15} /> Roadway only</> : sectionSelectionEnabled ? <><MousePointer2 size={15} /> Select a roadway section</> : mode === 'gospel' ? <><ShieldCheck size={15} /> Positions locked to Standard SOP</> : <><Navigation size={15} /> Drag cones to adapt the scene</>}</div>
+            <div
+              className={`canvas-hint${scenePlacementActive ? " placement-active" : ""}`}
+            >
+              {drawingActive ? (
+                <>
+                  <Pencil size={15} /> Drag on the map to draw
+                </>
+              ) : scenePlacementActive ? (
+                <>
+                  <MousePointer2 size={15} /> Tap roadway to place{" "}
+                  {selectedScenario.label.toLowerCase()}
+                </>
+              ) : !sceneVisible ? (
+                <>
+                  <Navigation size={15} /> Roadway only
+                </>
+              ) : sectionSelectionEnabled ? (
+                <>
+                  <MousePointer2 size={15} /> Select a roadway section
+                </>
+              ) : mode === "gospel" ? (
+                <>
+                  <ShieldCheck size={15} /> Positions locked to Standard SOP
+                </>
+              ) : (
+                <>
+                  <Navigation size={15} /> Drag cones to adapt the scene
+                </>
+              )}
+            </div>
           </div>
         </section>
 
-        <button ref={rightPaneRestoreRef} className="pane-toggle pane-restore right-pane-restore" type="button" title="Expand operations pane" aria-label="Expand operations pane" onClick={() => restorePane('right')}><ChevronLeft size={24} /></button>
+        <button
+          ref={rightPaneRestoreRef}
+          className="pane-toggle pane-restore right-pane-restore"
+          type="button"
+          title="Expand operations pane"
+          aria-label="Expand operations pane"
+          onClick={() => restorePane("right")}
+        >
+          <ChevronLeft size={24} />
+        </button>
 
-        <aside className="panel audit-panel" aria-label="Compliance and communications">
-          <button className="pane-toggle audit-pane-toggle" type="button" title="Collapse operations pane" aria-label="Collapse operations pane" onClick={(event) => collapsePane('right', event)}><ChevronRight size={24} /></button>
-          <section className="scene-resource-counts" aria-label="Scene resource counts"><div><span>Vehicles</span><b>{deployedCounts.vehicles}</b></div><div><span>Cones</span><b>{deployedCounts.cones}</b></div><div><span>Personnel</span><b>{deployedCounts.personnel}</b></div><div><span>Hazards</span><b>{deployedCounts.hazards}</b></div></section>
-          {selectedEquipment && selectedEquipmentDefinition && <section className="equipment-inspector" aria-label="Selected scene item"><div><span>Selected item</span><b>{selectedEquipmentDefinition.label}</b></div><div className="equipment-position"><label>X (ft)<input type="number" value={Math.round(selectedEquipment.x)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { x: Number(event.target.value) })} /></label><label>Y (ft)<input type="number" value={Math.round(selectedEquipment.y)} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { y: Number(event.target.value) })} /></label><label>Rotation<select value={selectedEquipment.rotation} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { rotation: Number(event.target.value) })}><option value="0">0°</option><option value="45">45°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>{selectedEquipmentDefinition.resizable && <><label>Width (ft)<input min="4" max="100" type="number" value={selectedEquipmentWidth} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { width: Math.max(4, Number(event.target.value)) })} /></label><label>Length (ft)<input min="4" max="100" type="number" value={selectedEquipmentLength} onChange={(event) => updateDeployedEquipment(selectedEquipment.id, { length: Math.max(4, Number(event.target.value)) })} /></label></>}</div><button type="button" onClick={deleteSelectedEquipment}>Delete selected item</button></section>}
-          {selectedTruck && <section className="signboard-control" aria-label="SSP truck signboard">
-            <div className="signboard-control-heading"><div><span>SSP truck signboard</span><b>{selectedTruck.label}</b></div><small>{trucks.length} / {MAX_SSP_TRUCKS}</small></div>
-            {trucks.length > 1 && <div className="truck-selector" role="tablist" aria-label="SSP trucks">{trucks.map((truck, index) => <button type="button" role="tab" aria-selected={truck.id === selectedTruck.id} key={truck.id} onClick={() => setSelectedTruckId(truck.id)}>{index + 1}</button>)}</div>}
-            <svg className="signboard-output" viewBox="-44 -16 88 32" role="img" aria-label={`${selectedTruck.label} signboard: ${signboardLabel(selectedTruck.signboard)}`}><SignboardGraphic message={selectedTruck.signboard} /></svg>
-            <label htmlFor="signboard-message">Displayed message<select id="signboard-message" aria-label={`Signboard message for ${selectedTruck.label}`} value={selectedTruck.signboard} onChange={(event) => setSelectedTruckSignboard(event.target.value as SignboardMessage)}>{SIGNBOARD_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-            <label htmlFor="ssp-truck-rotation">Rotation<select id="ssp-truck-rotation" aria-label={`Rotation for ${selectedTruck.label}`} value={selectedTruck.rotation} onChange={(event) => setTrucks((current) => current.map((truck) => truck.id === selectedTruck.id ? { ...truck, rotation: Number(event.target.value) } : truck))}><option value="0">0°</option><option value="45">45°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
-          </section>}
-          <section className="roadway-controls" aria-label="Roadway and map controls">
+        <aside
+          className="panel audit-panel"
+          aria-label="Compliance and communications"
+        >
+          <button
+            className="pane-toggle audit-pane-toggle"
+            type="button"
+            title="Collapse operations pane"
+            aria-label="Collapse operations pane"
+            onClick={(event) => collapsePane("right", event)}
+          >
+            <ChevronRight size={24} />
+          </button>
+          <section
+            className="scene-resource-counts"
+            aria-label="Scene resource counts"
+          >
+            <div>
+              <span>Vehicles</span>
+              <b>{deployedCounts.vehicles}</b>
+            </div>
+            <div>
+              <span>Cones</span>
+              <b>{deployedCounts.cones}</b>
+            </div>
+            <div>
+              <span>Personnel</span>
+              <b>{deployedCounts.personnel}</b>
+            </div>
+            <div>
+              <span>Hazards</span>
+              <b>{deployedCounts.hazards}</b>
+            </div>
+          </section>
+          {selectedEquipment && selectedEquipmentDefinition && (
+            <section
+              className="equipment-inspector"
+              aria-label="Selected scene item"
+            >
+              <div>
+                <span>Selected item</span>
+                <b>{selectedEquipmentDefinition.label}</b>
+              </div>
+              <div className="equipment-position">
+                <label>
+                  X (ft)
+                  <input
+                    type="number"
+                    value={Math.round(selectedEquipment.x)}
+                    onChange={(event) =>
+                      updateDeployedEquipment(selectedEquipment.id, {
+                        x: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Y (ft)
+                  <input
+                    type="number"
+                    value={Math.round(selectedEquipment.y)}
+                    onChange={(event) =>
+                      updateDeployedEquipment(selectedEquipment.id, {
+                        y: Number(event.target.value),
+                      })
+                    }
+                  />
+                </label>
+                <label>
+                  Rotation
+                  <select
+                    value={selectedEquipment.rotation}
+                    onChange={(event) =>
+                      updateDeployedEquipment(selectedEquipment.id, {
+                        rotation: Number(event.target.value),
+                      })
+                    }
+                  >
+                    <option value="0">0°</option>
+                    <option value="45">45°</option>
+                    <option value="90">90°</option>
+                    <option value="180">180°</option>
+                    <option value="270">270°</option>
+                  </select>
+                </label>
+                {selectedEquipmentDefinition.resizable && (
+                  <>
+                    <label>
+                      Width (ft)
+                      <input
+                        min="4"
+                        max="100"
+                        type="number"
+                        value={selectedEquipmentWidth}
+                        onChange={(event) =>
+                          updateDeployedEquipment(selectedEquipment.id, {
+                            width: Math.max(4, Number(event.target.value)),
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Length (ft)
+                      <input
+                        min="4"
+                        max="100"
+                        type="number"
+                        value={selectedEquipmentLength}
+                        onChange={(event) =>
+                          updateDeployedEquipment(selectedEquipment.id, {
+                            length: Math.max(4, Number(event.target.value)),
+                          })
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
+              <button type="button" onClick={deleteSelectedEquipment}>
+                Delete selected item
+              </button>
+            </section>
+          )}
+          {selectedTruck && (
+            <section
+              className="signboard-control"
+              aria-label="SSP truck signboard"
+            >
+              <div className="signboard-control-heading">
+                <div>
+                  <span>SSP truck signboard</span>
+                  <b>{selectedTruck.label}</b>
+                </div>
+                <small>
+                  {trucks.length} / {MAX_SSP_TRUCKS}
+                </small>
+              </div>
+              {trucks.length > 1 && (
+                <div
+                  className="truck-selector"
+                  role="tablist"
+                  aria-label="SSP trucks"
+                >
+                  {trucks.map((truck, index) => (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={truck.id === selectedTruck.id}
+                      key={truck.id}
+                      onClick={() => setSelectedTruckId(truck.id)}
+                    >
+                      {index + 1}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <svg
+                className="signboard-output"
+                viewBox="-44 -16 88 32"
+                role="img"
+                aria-label={`${selectedTruck.label} signboard: ${signboardLabel(selectedTruck.signboard)}`}
+              >
+                <SignboardGraphic message={selectedTruck.signboard} />
+              </svg>
+              <label htmlFor="signboard-message">
+                Displayed message
+                <select
+                  id="signboard-message"
+                  aria-label={`Signboard message for ${selectedTruck.label}`}
+                  value={selectedTruck.signboard}
+                  onChange={(event) =>
+                    setSelectedTruckSignboard(
+                      event.target.value as SignboardMessage,
+                    )
+                  }
+                >
+                  {SIGNBOARD_OPTIONS.map((option) => (
+                    <option value={option.value} key={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor="ssp-truck-rotation">
+                Rotation
+                <select
+                  id="ssp-truck-rotation"
+                  aria-label={`Rotation for ${selectedTruck.label}`}
+                  value={selectedTruck.rotation}
+                  onChange={(event) =>
+                    setTrucks((current) =>
+                      current.map((truck) =>
+                        truck.id === selectedTruck.id
+                          ? { ...truck, rotation: Number(event.target.value) }
+                          : truck,
+                      ),
+                    )
+                  }
+                >
+                  <option value="0">0°</option>
+                  <option value="45">45°</option>
+                  <option value="90">90°</option>
+                  <option value="180">180°</option>
+                  <option value="270">270°</option>
+                </select>
+              </label>
+            </section>
+          )}
+          <section
+            className="roadway-controls"
+            aria-label="Roadway and map controls"
+          >
             <div className="control-row">
-              <div className="control-group compact"><label>Travel lanes</label><div className="stepper"><button type="button" title="Remove lane" onClick={() => setLaneCount((count) => Math.max(2, count - 1))}><Minus size={15} /></button><strong>{laneCount}</strong><button type="button" title="Add lane" onClick={() => setLaneCount((count) => Math.min(5, count + 1))}><Plus size={15} /></button></div></div>
-              <div className="control-group compact"><label htmlFor="speed">Speed limit</label><div className="unit-input"><input id="speed" type="number" defaultValue="65" /><span>MPH</span></div></div>
+              <div className="control-group compact">
+                <label>Travel lanes</label>
+                <div className="stepper">
+                  <button
+                    type="button"
+                    title="Remove lane"
+                    onClick={() =>
+                      setLaneCount((count) => Math.max(2, count - 1))
+                    }
+                  >
+                    <Minus size={15} />
+                  </button>
+                  <strong>{laneCount}</strong>
+                  <button
+                    type="button"
+                    title="Add lane"
+                    onClick={() =>
+                      setLaneCount((count) => Math.min(5, count + 1))
+                    }
+                  >
+                    <Plus size={15} />
+                  </button>
+                </div>
+              </div>
+              <div className="control-group compact">
+                <label htmlFor="speed">Speed limit</label>
+                <div className="unit-input">
+                  <input id="speed" type="number" defaultValue="65" />
+                  <span>MPH</span>
+                </div>
+              </div>
             </div>
             <div className="control-group map-layers">
               <label>Map layers</label>
-              <label className="toggle-row"><span><Layers3 size={16} /> Road geometry</span><input type="checkbox" checked={roadLayerVisibility.roadGeometry} onChange={(event) => setRoadLayerVisibilityValue('roadGeometry', event.target.checked)} /></label>
-              <label className="toggle-row"><span><span className="barrier-symbol" /> Barriers</span><input type="checkbox" checked={roadLayerVisibility.barriers} onChange={(event) => setRoadLayerVisibilityValue('barriers', event.target.checked)} /></label>
-              <label className="toggle-row"><span><span className="flow-symbol">→</span> Traffic flow</span><input type="checkbox" checked={roadLayerVisibility.trafficFlow} onChange={(event) => setRoadLayerVisibilityValue('trafficFlow', event.target.checked)} /></label>
-              <label className="toggle-row"><span><MapPinned size={16} /> {highwayLabelsAvailable ? 'Highway labels' : 'Highway labels unavailable in preview'}</span><input type="checkbox" checked={roadLayerVisibility.highwayLabels && highwayLabelsAvailable} disabled={!highwayLabelsAvailable} onChange={(event) => setRoadLayerVisibilityValue('highwayLabels', event.target.checked)} /></label>
-              <label className="toggle-row"><span><Pencil size={16} /> Drawings</span><input type="checkbox" checked={roadLayerVisibility.drawings} onChange={(event) => setRoadLayerVisibilityValue('drawings', event.target.checked)} /></label>
+              <label className="toggle-row">
+                <span>
+                  <Layers3 size={16} /> Road geometry
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.roadGeometry}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "roadGeometry",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <span className="barrier-symbol" /> Barriers
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.barriers}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "barriers",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <span className="flow-symbol">→</span> Traffic flow
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.trafficFlow}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "trafficFlow",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <MapPinned size={16} />{" "}
+                  {highwayLabelsAvailable
+                    ? "Highway labels"
+                    : "Highway labels unavailable in preview"}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={
+                    roadLayerVisibility.highwayLabels && highwayLabelsAvailable
+                  }
+                  disabled={!highwayLabelsAvailable}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "highwayLabels",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <Pencil size={16} /> Drawings
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.drawings}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "drawings",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
             </div>
           </section>
           {roadSections.length > 1 && (
-            <section className={`section-control${sectionSelectionEnabled ? ' selecting' : ''}`} aria-label="Controlled roadway section">
-              <div><span>Controlled sector</span><b>{selectedRoadSection ? roadSectionLabel(selectedRoadSection) : 'No section selected'}</b></div>
-              <button type="button" onClick={() => setSectionSelectionEnabled((enabled) => !enabled)}><MousePointer2 size={15} />{sectionSelectionEnabled ? 'Cancel selection' : 'Select section'}</button>
+            <section
+              className={`section-control${sectionSelectionEnabled ? " selecting" : ""}`}
+              aria-label="Controlled roadway section"
+            >
+              <div>
+                <span>Controlled sector</span>
+                <b>
+                  {selectedRoadSection
+                    ? roadSectionLabel(selectedRoadSection)
+                    : "No section selected"}
+                </b>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setSectionSelectionEnabled((enabled) => !enabled)
+                }
+              >
+                <MousePointer2 size={15} />
+                {sectionSelectionEnabled
+                  ? "Cancel selection"
+                  : "Select section"}
+              </button>
             </section>
           )}
-          <div className="mode-selector" role="tablist" aria-label="Compliance mode">
-            {modes.map((item) => <button type="button" role="tab" aria-selected={mode === item.id} className={mode === item.id ? `mode-${item.id} active` : `mode-${item.id}`} key={item.id} onClick={() => setMode(item.id)}><span>{item.id === 'violate' ? <AlertTriangle size={15} /> : <ShieldCheck size={15} />}{item.label}</span><small>{item.detail}</small></button>)}
+          <div
+            className="mode-selector"
+            role="tablist"
+            aria-label="Compliance mode"
+          >
+            {modes.map((item) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === item.id}
+                className={
+                  mode === item.id
+                    ? `mode-${item.id} active`
+                    : `mode-${item.id}`
+                }
+                key={item.id}
+                onClick={() => setMode(item.id)}
+              >
+                <span>
+                  {item.id === "violate" ? (
+                    <AlertTriangle size={15} />
+                  ) : (
+                    <ShieldCheck size={15} />
+                  )}
+                  {item.label}
+                </span>
+                <small>{item.detail}</small>
+              </button>
+            ))}
           </div>
-          <section className={`audit-card ${audit.status}`}><div className="audit-title">{audit.status === 'compliant' ? <CheckCircle2 size={22} /> : <AlertTriangle size={22} />}<div><span>Real-time audit</span><h3>{audit.title}</h3></div></div><ul>{audit.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul></section>
-          <section className="metrics-section"><div className="section-title"><span>Scene metrics</span><b>LIVE</b></div><div className="metric-grid"><div><span>Taper length</span><strong>{taperLength}<small> FT</small></strong><i className="metric-good">{mode === 'modified' ? 'Enhanced' : mode === 'violate' ? 'Training state' : 'Standard'}</i></div><div><span>Upstream cones</span><strong>{upstreamCount}<small> / {scenario === 'right-lane' ? '8 MIN' : 4}</small></strong><i className={upstreamCount >= 8 || scenario !== 'right-lane' ? 'metric-good' : 'metric-risk'}>{upstreamCount >= 8 || scenario !== 'right-lane' ? 'Minimum met' : 'Below SOP'}</i></div><div><span>Buffer zone</span><strong>{scenario === 'right-lane' ? `${bufferCount} / 3` : 'N/A'}</strong><i>Anchor + 2 cones</i></div><div><span>Taper cones</span><strong>{scenario === 'right-lane' ? `${taperCount} / 5 MIN` : '3 / 3'}</strong><i>{mode === 'modified' ? 'Additional allowed' : 'Standard count'}</i></div><div><span>Forward spacing</span><strong>{downstreamSpacing}<small> FT</small></strong><i>{mode === 'modified' ? 'Expanded allowed' : 'Standard 40 ft'}</i></div><div><span>Shoulder access</span><strong>{scenario === 'right-lane' ? 'CLEAR' : 'N/A'}</strong><i className="metric-good">Responder route</i></div></div></section>
-          <section className="radio-section"><div className="section-title"><span>Communications</span><Radio size={15} /></div><div className="communications-fields"><label htmlFor="communications-direction">Travel direction<select id="communications-direction" value={locationRequest.direction === 'all' ? 'northbound' : locationRequest.direction} onChange={(event) => setLocationRequest((current) => ({ ...current, direction: event.target.value as CommunicationDirection }))}>{communicationDirections.map((direction) => <option value={direction.value} key={direction.value}>{direction.label}</option>)}</select></label><label htmlFor="incident-type">Incident type<select id="incident-type" value={incidentType} onChange={(event) => setIncidentType(event.target.value as IncidentType)}>{INCIDENT_TYPE_OPTIONS.map((incident) => <option value={incident.value} key={incident.value}>{incident.label}</option>)}</select></label></div>{(incidentType === 'crash' || incidentType === 'severe-crash') && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Vehicle count<input type="number" min="1" value={tocIncidentDetails.crashVehicleCount} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, crashVehicleCount: Math.max(1, Number(event.target.value)) }))} /></label><label>Transported by EMS<input type="number" min="0" value={tocIncidentDetails.emsTransportCount} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, emsTransportCount: Math.max(0, Number(event.target.value)) }))} /></label><label>Injuries<select value={tocIncidentDetails.injuries} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, injuries: event.target.value as TocIncidentDetails['injuries'] }))}><option value="unknown">Unknown</option><option value="none">None reported</option><option value="reported">Reported</option></select></label></div>}{(incidentType === 'disabled-vehicle' || incidentType === 'blocking-disabled') && <div className="toc-detail-fields vehicle-details" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>License plate<input value={tocIncidentDetails.licensePlate} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, licensePlate: event.target.value }))} /></label><label>Plate state<input value={tocIncidentDetails.licensePlateState} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, licensePlateState: event.target.value }))} /></label><label>Vehicle make<input value={tocIncidentDetails.vehicleMake} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, vehicleMake: event.target.value }))} /></label><label>Vehicle model<input value={tocIncidentDetails.vehicleModel} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, vehicleModel: event.target.value }))} /></label><label>Vehicle color<input value={tocIncidentDetails.vehicleColor} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, vehicleColor: event.target.value }))} /></label></div>}{incidentType === 'plane-crash' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Lanes impacted<select value={tocIncidentDetails.planeLanesImpacted} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, planeLanesImpacted: event.target.value }))}>{impactedLaneOptions.slice(0, 5).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Plane size<select value={tocIncidentDetails.planeSize} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, planeSize: event.target.value }))}><option value="unknown size">Unknown</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label><label>Survivors<select value={tocIncidentDetails.survivors} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, survivors: event.target.value as TocIncidentDetails['survivors'] }))}><option value="unknown">Unknown</option><option value="yes">Reported</option><option value="no">None reported</option></select></label></div>}{incidentType === 'downed-tree' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Tree lanes blocked<select value={tocIncidentDetails.treeLanesBlocked} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, treeLanesBlocked: event.target.value }))}>{impactedLaneOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Tree size<input value={tocIncidentDetails.treeSize} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, treeSize: event.target.value }))} /></label><label>Resources to move tree<input value={tocIncidentDetails.treeResourcesNeeded} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, treeResourcesNeeded: event.target.value }))} /></label></div>}{incidentType === 'debris' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Hazardous debris<select value={tocIncidentDetails.debrisHazardous} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisHazardous: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>SSP can remove manually<select value={tocIncidentDetails.debrisManualRemoval} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisManualRemoval: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Needs VSP slow-roll<select value={tocIncidentDetails.debrisNeedsSlowRoll} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisNeedsSlowRoll: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>SSP has lane blade<select value={tocIncidentDetails.debrisHasLaneBlade} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisHasLaneBlade: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label></div>}{incidentType === 'car-fire' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Motorist out<select value={tocIncidentDetails.carFireMotoristOut} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireMotoristOut: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Fully engulfed<select value={tocIncidentDetails.carFireFullyEngulfed} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireFullyEngulfed: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Electric vehicle<select value={tocIncidentDetails.carFireIsEv} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireIsEv: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Fire lanes blocked<select value={tocIncidentDetails.carFireLanesBlocked} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireLanesBlocked: event.target.value }))}>{impactedLaneOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label></div>}{incidentType === 'tractor-trailer-fire' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Driver out<select value={tocIncidentDetails.tractorDriverOut} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorDriverOut: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Trailer hauling<input value={tocIncidentDetails.tractorTrailerCargo} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorTrailerCargo: event.target.value }))} /></label><label>HAZMAT<select value={tocIncidentDetails.tractorHazmat} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorHazmat: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Fully engulfed<select value={tocIncidentDetails.tractorFullyEngulfed} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorFullyEngulfed: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Truck fire lanes blocked<select value={tocIncidentDetails.tractorLanesBlocked} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorLanesBlocked: event.target.value }))}>{impactedLaneOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label></div>}<div className="radio-log">{radioEvents.map((event, index) => <div className="radio-event" key={`${event.time}-${index}`}><Clock3 size={14} /><div><span>{event.time} · {event.channel}</span><p>{event.text}</p></div></div>)}</div><button className="secondary-button" type="button" onClick={addRadioEvent}><Radio size={16} /> Build initial radio call</button></section>
+          <section className={`audit-card ${audit.status}`}>
+            <div className="audit-title">
+              {audit.status === "compliant" ? (
+                <CheckCircle2 size={22} />
+              ) : (
+                <AlertTriangle size={22} />
+              )}
+              <div>
+                <span>Real-time audit</span>
+                <h3>{audit.title}</h3>
+              </div>
+            </div>
+            <ul>
+              {audit.findings.map((finding) => (
+                <li key={finding}>{finding}</li>
+              ))}
+            </ul>
+          </section>
+          <section className="metrics-section">
+            <div className="section-title">
+              <span>Scene metrics</span>
+              <b>LIVE</b>
+            </div>
+            <div className="metric-grid">
+              <div>
+                <span>Taper length</span>
+                <strong>
+                  {taperLength}
+                  <small> FT</small>
+                </strong>
+                <i className="metric-good">
+                  {mode === "modified"
+                    ? "Enhanced"
+                    : mode === "violate"
+                      ? "Training state"
+                      : "Standard"}
+                </i>
+              </div>
+              <div>
+                <span>Upstream cones</span>
+                <strong>
+                  {upstreamCount}
+                  <small> / {scenario === "right-lane" ? "8 MIN" : 4}</small>
+                </strong>
+                <i
+                  className={
+                    upstreamCount >= 8 || scenario !== "right-lane"
+                      ? "metric-good"
+                      : "metric-risk"
+                  }
+                >
+                  {upstreamCount >= 8 || scenario !== "right-lane"
+                    ? "Minimum met"
+                    : "Below SOP"}
+                </i>
+              </div>
+              <div>
+                <span>Buffer zone</span>
+                <strong>
+                  {scenario === "right-lane" ? `${bufferCount} / 3` : "N/A"}
+                </strong>
+                <i>Anchor + 2 cones</i>
+              </div>
+              <div>
+                <span>Taper cones</span>
+                <strong>
+                  {scenario === "right-lane"
+                    ? `${taperCount} / 5 MIN`
+                    : "3 / 3"}
+                </strong>
+                <i>
+                  {mode === "modified"
+                    ? "Additional allowed"
+                    : "Standard count"}
+                </i>
+              </div>
+              <div>
+                <span>Forward spacing</span>
+                <strong>
+                  {downstreamSpacing}
+                  <small> FT</small>
+                </strong>
+                <i>
+                  {mode === "modified" ? "Expanded allowed" : "Standard 40 ft"}
+                </i>
+              </div>
+              <div>
+                <span>Shoulder access</span>
+                <strong>{scenario === "right-lane" ? "CLEAR" : "N/A"}</strong>
+                <i className="metric-good">Responder route</i>
+              </div>
+            </div>
+          </section>
+          <section className="radio-section">
+            <div className="section-title">
+              <span>Communications</span>
+              <button
+                className="communications-display-button"
+                type="button"
+                onClick={displayCommunications}
+                title="Open large classroom display"
+              >
+                <MonitorUp size={14} /> Display
+              </button>
+            </div>
+            <div className="communications-fields">
+              <label htmlFor="communications-direction">
+                Travel direction
+                <select
+                  id="communications-direction"
+                  value={
+                    locationRequest.direction === "all"
+                      ? "northbound"
+                      : locationRequest.direction
+                  }
+                  onChange={(event) =>
+                    setLocationRequest((current) => ({
+                      ...current,
+                      direction: event.target.value as CommunicationDirection,
+                    }))
+                  }
+                >
+                  {communicationDirections.map((direction) => (
+                    <option value={direction.value} key={direction.value}>
+                      {direction.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor="incident-type">
+                Incident type
+                <select
+                  id="incident-type"
+                  value={incidentType}
+                  onChange={(event) =>
+                    setIncidentType(event.target.value as IncidentType)
+                  }
+                >
+                  {INCIDENT_TYPE_OPTIONS.map((incident) => (
+                    <option value={incident.value} key={incident.value}>
+                      {incident.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {(incidentType === "crash" || incidentType === "severe-crash") && (
+              <div
+                className="toc-detail-fields"
+                aria-label="What TOC will need to know"
+              >
+                <strong>What TOC will need to know</strong>
+                <label>
+                  Vehicle count
+                  <input
+                    type="number"
+                    min="1"
+                    value={tocIncidentDetails.crashVehicleCount}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        crashVehicleCount: Math.max(
+                          1,
+                          Number(event.target.value),
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Transported by EMS
+                  <input
+                    type="number"
+                    min="0"
+                    value={tocIncidentDetails.emsTransportCount}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        emsTransportCount: Math.max(
+                          0,
+                          Number(event.target.value),
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Injuries
+                  <select
+                    value={tocIncidentDetails.injuries}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        injuries: event.target
+                          .value as TocIncidentDetails["injuries"],
+                      }))
+                    }
+                  >
+                    <option value="unknown">Unknown</option>
+                    <option value="none">None reported</option>
+                    <option value="reported">Reported</option>
+                  </select>
+                </label>
+              </div>
+            )}
+            {(incidentType === "disabled-vehicle" ||
+              incidentType === "blocking-disabled") && (
+              <div
+                className="toc-detail-fields vehicle-details"
+                aria-label="What TOC will need to know"
+              >
+                <strong>What TOC will need to know</strong>
+                <label>
+                  License plate
+                  <input
+                    value={tocIncidentDetails.licensePlate}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        licensePlate: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Plate state
+                  <input
+                    value={tocIncidentDetails.licensePlateState}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        licensePlateState: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Vehicle make
+                  <input
+                    value={tocIncidentDetails.vehicleMake}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        vehicleMake: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Vehicle model
+                  <input
+                    value={tocIncidentDetails.vehicleModel}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        vehicleModel: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Vehicle color
+                  <input
+                    value={tocIncidentDetails.vehicleColor}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        vehicleColor: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            )}
+            {incidentType === "plane-crash" && (
+              <div
+                className="toc-detail-fields"
+                aria-label="What TOC will need to know"
+              >
+                <strong>What TOC will need to know</strong>
+                <label>
+                  Lanes impacted
+                  <select
+                    value={tocIncidentDetails.planeLanesImpacted}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        planeLanesImpacted: event.target.value,
+                      }))
+                    }
+                  >
+                    {impactedLaneOptions.slice(0, 5).map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Plane size
+                  <select
+                    value={tocIncidentDetails.planeSize}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        planeSize: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="unknown size">Unknown</option>
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </label>
+                <label>
+                  Survivors
+                  <select
+                    value={tocIncidentDetails.survivors}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        survivors: event.target
+                          .value as TocIncidentDetails["survivors"],
+                      }))
+                    }
+                  >
+                    <option value="unknown">Unknown</option>
+                    <option value="yes">Reported</option>
+                    <option value="no">None reported</option>
+                  </select>
+                </label>
+              </div>
+            )}
+            {incidentType === "downed-tree" && (
+              <div
+                className="toc-detail-fields"
+                aria-label="What TOC will need to know"
+              >
+                <strong>What TOC will need to know</strong>
+                <label>
+                  Tree lanes blocked
+                  <select
+                    value={tocIncidentDetails.treeLanesBlocked}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        treeLanesBlocked: event.target.value,
+                      }))
+                    }
+                  >
+                    {impactedLaneOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Tree size
+                  <input
+                    value={tocIncidentDetails.treeSize}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        treeSize: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  Resources to move tree
+                  <input
+                    value={tocIncidentDetails.treeResourcesNeeded}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        treeResourcesNeeded: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            )}
+            {incidentType === "debris" && (
+              <div
+                className="toc-detail-fields"
+                aria-label="What TOC will need to know"
+              >
+                <strong>What TOC will need to know</strong>
+                <label>
+                  Hazardous debris
+                  <select
+                    value={tocIncidentDetails.debrisHazardous}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        debrisHazardous: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  SSP can remove manually
+                  <select
+                    value={tocIncidentDetails.debrisManualRemoval}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        debrisManualRemoval: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Needs VSP slow-roll
+                  <select
+                    value={tocIncidentDetails.debrisNeedsSlowRoll}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        debrisNeedsSlowRoll: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  SSP has lane blade
+                  <select
+                    value={tocIncidentDetails.debrisHasLaneBlade}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        debrisHasLaneBlade: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+            {incidentType === "car-fire" && (
+              <div
+                className="toc-detail-fields"
+                aria-label="What TOC will need to know"
+              >
+                <strong>What TOC will need to know</strong>
+                <label>
+                  Motorist out
+                  <select
+                    value={tocIncidentDetails.carFireMotoristOut}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        carFireMotoristOut: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Fully engulfed
+                  <select
+                    value={tocIncidentDetails.carFireFullyEngulfed}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        carFireFullyEngulfed: event.target
+                          .value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Electric vehicle
+                  <select
+                    value={tocIncidentDetails.carFireIsEv}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        carFireIsEv: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Fire lanes blocked
+                  <select
+                    value={tocIncidentDetails.carFireLanesBlocked}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        carFireLanesBlocked: event.target.value,
+                      }))
+                    }
+                  >
+                    {impactedLaneOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+            {incidentType === "tractor-trailer-fire" && (
+              <div
+                className="toc-detail-fields"
+                aria-label="What TOC will need to know"
+              >
+                <strong>What TOC will need to know</strong>
+                <label>
+                  Driver out
+                  <select
+                    value={tocIncidentDetails.tractorDriverOut}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        tractorDriverOut: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Trailer hauling
+                  <input
+                    value={tocIncidentDetails.tractorTrailerCargo}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        tractorTrailerCargo: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  HAZMAT
+                  <select
+                    value={tocIncidentDetails.tractorHazmat}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        tractorHazmat: event.target.value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Fully engulfed
+                  <select
+                    value={tocIncidentDetails.tractorFullyEngulfed}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        tractorFullyEngulfed: event.target
+                          .value as YesNoUnknown,
+                      }))
+                    }
+                  >
+                    {yesNoOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Truck fire lanes blocked
+                  <select
+                    value={tocIncidentDetails.tractorLanesBlocked}
+                    onChange={(event) =>
+                      setTocIncidentDetails((current) => ({
+                        ...current,
+                        tractorLanesBlocked: event.target.value,
+                      }))
+                    }
+                  >
+                    {impactedLaneOptions.map((option) => (
+                      <option value={option.value} key={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+            <div className="radio-log">
+              {radioEvents.map((event, index) => (
+                <div className="radio-event" key={`${event.time}-${index}`}>
+                  <Clock3 size={14} />
+                  <div>
+                    <span>
+                      {event.time} · {event.channel}
+                    </span>
+                    <p>{event.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={addRadioEvent}
+            >
+              <Radio size={16} /> Build initial radio call
+            </button>
+          </section>
         </aside>
       </section>
-      {designerOpen && <SceneDesigner onClose={() => setDesignerOpen(false)} onSave={saveTemplate} />}
+      {designerOpen && (
+        <SceneDesigner
+          onClose={() => setDesignerOpen(false)}
+          onSave={saveTemplate}
+        />
+      )}
     </main>
-  )
+  );
 }
 
 export default App

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createLocationPreviewScene,
+  createLocationReferenceScene,
   normalizeHighway,
   resolveRoadLocation,
   type RoadLocationRequest,
@@ -19,8 +19,8 @@ describe('road location resolution', () => {
     expect(normalizeHighway('Rt 28')).toBe('Route 28')
   })
 
-  it('creates a feet-based interchange preview with a 12 ft exit ramp', () => {
-    const scene = createLocationPreviewScene(request)
+  it('creates a feet-based interchange reference with a 12 ft exit ramp', () => {
+    const scene = createLocationReferenceScene(request)
     const ramp = scene.features.find((feature) => feature.id === 'preview-exit-ramp-surface')
 
     expect(scene.coordinateSystem.displayUnits).toBe('feet')
@@ -29,9 +29,9 @@ describe('road location resolution', () => {
     expect(scene.source.dataset).toContain('I-95 Northbound Exit 166')
   })
 
-  it('prefers a valid live map scene over preview geometry', async () => {
+  it('prefers a valid live map scene over reference geometry', async () => {
     const compiledScene = {
-      ...createLocationPreviewScene(request),
+      ...createLocationReferenceScene(request),
       source: {
         type: 'osm-pbf' as const,
         dataset: 'nova-highways',
@@ -64,15 +64,15 @@ describe('road location resolution', () => {
   it('falls back explicitly when compiled geometry is unavailable', async () => {
     const result = await resolveRoadLocation(request, () => Promise.reject(new Error('missing')))
 
-    expect(result.source).toBe('development-preview')
+    expect(result.source).toBe('reference-layout')
     expect(result.message).toContain('missing')
     expect(result.message).toContain('I-95, exit 166')
-    expect(result.message).toContain('scale-accurate development preview')
+    expect(result.message).toContain('scale-accurate reference layout')
     expect(result.message).toContain('without map-derived labels')
   })
 
-  it('provides a layered Mixing Bowl acceptance preview for I-95 northbound MM 170', () => {
-    const scene = createLocationPreviewScene({
+  it('provides a layered Mixing Bowl scale reference for I-95 northbound MM 170', () => {
+    const scene = createLocationReferenceScene({
       highway: 'I-95',
       direction: 'northbound',
       referenceType: 'mile-marker',

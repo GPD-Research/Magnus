@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROADWAY_DIMENSIONS_FEET,
-  createDevelopmentRoadScene,
+  createReferenceRoadScene,
   roadLayerForFeature,
 } from './roadScene'
 
 describe('road scene IPC contract', () => {
   it('orders bottom-to-top roadway features by structural layer', () => {
-    const scene = createDevelopmentRoadScene()
+    const scene = createReferenceRoadScene()
     const layers = [...scene.features].sort((first, second) => first.layer - second.layer)
 
     expect(scene.coordinateSystem.trafficFlow).toBe('bottom-to-top')
@@ -16,7 +16,7 @@ describe('road scene IPC contract', () => {
   })
 
   it('keeps the blocked right lane between the skip and fog lines', () => {
-    const scene = createDevelopmentRoadScene()
+    const scene = createReferenceRoadScene()
     const rightSkip = scene.features.find((feature) => feature.id === 'right-center-skip')
     const rightFog = scene.features.find((feature) => feature.id === 'right-fog-line')
 
@@ -34,7 +34,7 @@ describe('road scene IPC contract', () => {
   })
 
   it('uses one scene unit per foot for standard highway dimensions', () => {
-    const scene = createDevelopmentRoadScene()
+    const scene = createReferenceRoadScene()
     const skipLines = scene.features.filter((feature) => feature.kind === 'skip-line')
 
     expect(scene.viewport).toEqual({ width: 72, height: 760 })
@@ -47,7 +47,7 @@ describe('road scene IPC contract', () => {
   })
 
   it('classifies rendered features into configurable map layers', () => {
-    const scene = createDevelopmentRoadScene()
+    const scene = createReferenceRoadScene()
     const layers = Object.fromEntries(
       scene.features.map((feature) => [feature.id, roadLayerForFeature(feature)]),
     )

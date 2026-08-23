@@ -22,7 +22,7 @@ The pipeline is:
 6. Index compiled features with `rstar`.
 7. Send bounded, IPC-safe `RoadScene` JSON to the HTML5/SVG renderer.
 
-The frontend sends highway, direction, and mile-marker/exit parameters to the stateless Rust spatial API. The API generates an escaped Overpass query, locates the requested junction or milestone against matching OSM route refs, and converts only nearby returned ways into `RoadScene`. It does not maintain a second database of named locations. A failed live query produces a visibly labeled development preview; it must never silently masquerade as OSM geometry.
+The frontend sends highway, direction, and mile-marker/exit parameters to the stateless Rust spatial API. The API generates an escaped Overpass query, locates the requested junction or milestone against matching OSM route refs, and converts only nearby returned ways into `RoadScene`. It does not maintain a second database of named locations. A failed map query produces a visibly labeled scale reference that never masquerades as OSM geometry.
 
 ## Data preparation
 
@@ -47,7 +47,7 @@ cargo run -p magnus-spatial-core --bin compile_scene -- \
   -77.20
 ```
 
-The initial compiler uses a local tangent-plane approximation in feet around the requested center. Before production interchange rendering, replace that approximation with a verified EPSG:2283 projection implementation and record the transformation parameters in the scene metadata.
+The compiler projects WGS84 coordinates into a local east-north-up plane measured in feet around the requested center. Prepared-map scans are bounded to 4,000 feet, keeping distortion negligible for the rendered corridor while preserving a simple, explicit `LOCAL_ENU_FT_FROM_EPSG:4326` scene contract.
 
 ## Rendering contract
 
@@ -55,7 +55,7 @@ The initial compiler uses a local tangent-plane approximation in feet around the
 
 Each OSM road surface retains its way ID, highway class, structural layer, and bridge/tunnel metadata. In complex scenes, the renderer can arm section-selection mode and use a selected way's center tangent as the transform origin for the SSP equipment overlay. The `I-95 Northbound / MM 170` Mixing Bowl request is the acceptance case for layered flyover selection.
 
-The current UI fixture is explicitly marked `development-fixture`. It exists only to exercise the contract and must not be presented as actual Northern Virginia geometry. Production scenes must carry `source.type = osm-api` or `osm-pbf` and OpenStreetMap attribution.
+When map-derived geometry is unavailable, the UI uses a `reference-layout` with standard highway dimensions so scene-building can continue at an accurate scale. It is explicitly identified as not map-derived and suppresses highway labels. Map scenes carry `source.type = osm-api` or `osm-pbf` and OpenStreetMap attribution.
 
 ## Public data licenses
 

@@ -1,12 +1,12 @@
-# Magnus 5.0.0-rc.1
+# Magnus 6.0.0
 
 <img src="public/favicon.svg" alt="Magnus arrow-M logo" width="96" height="96">
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 5.0.0-rc.1 is the release candidate built on the stable Version 4.5 foundation.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 6.0.0 is the current production release.
 
-Version 5 planning and remaining work are tracked in [docs/version-5-roadmap.md](docs/version-5-roadmap.md).
+The completed release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md).
 
-## Version 5.0 release candidate
+## Version 6.0 release
 
 This release includes:
 
@@ -55,11 +55,11 @@ This release includes:
 
 Center-view rotation now applies one shared map transform to roadway geometry, labels, and scene equipment. Placement and dragging use the inverse transform, the compass follows the selected orientation, and portable scene files retain the rotation value.
 
-Prepared PBF packages are downloaded and inventoried by the app, while arbitrary offline highway/reference lookup still depends on a previously cached `RoadScene`. A cache miss is reported explicitly and never falls through to an internet provider in LAN or Offline mode.
+Prepared PBF packages are downloaded and inventoried by the app. Offline highway/reference lookup first uses compiled PBF geometry and then a previously cached `RoadScene`; a miss is reported explicitly and never falls through to an internet provider in LAN or Offline mode.
 
 ## Brand identity
 
-The Magnus mark uses a black M with downward arrow terminals on a high-visibility orange field. In the application header, the mark serves as the first letter of the `M`agnus wordmark and is followed by `AGNUS` and the current short release label. The label is derived from the package version: Version 5.0.0 displays as `v5`, while this release candidate displays as `v5 RC1`.
+The Magnus mark uses a black M with downward arrow terminals on a high-visibility orange field. In the application header, the mark serves as the first letter of the `M`agnus wordmark and is followed by `AGNUS` and the current short release label. The label is derived from the package version, so Version 6.0.0 displays as `v6`.
 
 The same vector asset at `public/favicon.svg` is used for the application header, browser favicon, and installed Linux application icon.
 
@@ -139,11 +139,11 @@ Use the top-bar selector to choose how Magnus obtains roadway geometry:
 
 Open **Settings** in the top bar to inspect local scene-cache storage or prepare a Northern Virginia highway package or Virginia statewide source package. Preparation requires an internet connection. The Northern Virginia filtered package also requires `osmium-tool` on the device running the spatial service. Packages are stored under `data/`, remain outside Git, and can be refreshed from the same panel.
 
-For dependable field use, open each required corridor in Online mode before disconnecting and confirm its scene appears in the prepared-scene count. Then select Offline mode and resolve the location again. A location not yet cached produces a clearly labeled development preview rather than unverified roadway geometry.
+For dependable field use, prepare the required region before disconnecting, then select Offline mode and resolve the location again. If neither prepared nor cached map geometry contains that location, Magnus displays a clearly labeled, scale-accurate reference layout without map-derived labels.
 
 ## Development and validation
 
-The development command starts both the Rust spatial API and Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately. The left-pane service indicator reports whether spatial resolution is connected; clearly labeled development-preview geometry remains available when it is not.
+The development command starts both the Rust spatial API and Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately. The left-pane service indicator reports whether spatial resolution is connected; a clearly labeled scale reference remains available when it is not.
 
 To produce the optimized server binary and frontend assets without launching them, run `npm run build:release`. Keep the generated `dist/` directory beside the repository when running `target/release/spatial_server`, or set `MAGNUS_WEB_DIR` to its location.
 

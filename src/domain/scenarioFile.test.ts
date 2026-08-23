@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createDevelopmentRoadScene } from './roadScene'
+import { createReferenceRoadScene } from './roadScene'
 import { DEFAULT_TOC_INCIDENT_DETAILS } from './communications'
 import { createPortableScenario, parsePortableScenario, type PortableScenarioState } from './scenarioFile'
 
@@ -18,7 +18,7 @@ const state: PortableScenarioState = {
   radioEvents: [],
   incidentType: 'crash',
   tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
-  roadScene: createDevelopmentRoadScene(),
+  roadScene: createReferenceRoadScene(),
   locationRequest: { highway: 'I-95', direction: 'northbound', referenceType: 'exit', reference: '166A' },
   resolvedLocation: null,
   roadLayerVisibility: { roadGeometry: true, barriers: true, trafficFlow: true, highwayLabels: true, drawings: true },
@@ -65,6 +65,32 @@ describe('portable scenario files', () => {
 
     expect(parsePortableScenario(serialized).state.incidentType).toBe('crash')
     expect(parsePortableScenario(serialized).state.tocIncidentDetails).toEqual(DEFAULT_TOC_INCIDENT_DETAILS)
+  })
+
+  it('migrates release-candidate reference geometry labels', () => {
+    const document = createPortableScenario(state, '5.0.0-rc.1')
+    const legacyScene = {
+      ...document.state.roadScene,
+      source: { ...document.state.roadScene.source, type: 'development-fixture' },
+    }
+    const serialized = JSON.stringify({
+      ...document,
+      state: {
+        ...document.state,
+        roadScene: legacyScene,
+        resolvedLocation: {
+          request: document.state.locationRequest,
+          scene: legacyScene,
+          source: 'development-preview',
+          message: 'Legacy fallback',
+        },
+      },
+    })
+
+    const parsed = parsePortableScenario(serialized).state
+    expect(parsed.roadScene.source.type).toBe('reference-layout')
+    expect(parsed.resolvedLocation?.source).toBe('reference-layout')
+    expect(parsed.resolvedLocation?.scene.source.type).toBe('reference-layout')
   })
 
   it('rejects unsupported and incomplete files', () => {

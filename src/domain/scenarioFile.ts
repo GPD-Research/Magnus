@@ -44,6 +44,19 @@ export function createPortableScenario(
   return { kind: 'magnus-scene', version: 2, appVersion, createdAt, state }
 }
 
+function normalizeRoadScene(scene: RoadScene): RoadScene {
+  const sourceType = (scene.source as { type: string }).type
+  if (sourceType !== 'development-fixture') return scene
+  return {
+    ...scene,
+    source: {
+      ...scene.source,
+      type: 'reference-layout',
+      attribution: 'Magnus scale reference; geometry is not map-derived.',
+    },
+  }
+}
+
 export function parsePortableScenario(value: string): PortableScenarioDocument {
   const parsed: unknown = JSON.parse(value)
   if (!parsed || typeof parsed !== 'object') throw new Error('Scene file is not a JSON object.')
@@ -78,6 +91,16 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
       drawingStrokes: Array.isArray(state.drawingStrokes) ? state.drawingStrokes : [],
       incidentType: isIncidentType(state.incidentType) ? state.incidentType : 'crash',
       tocIncidentDetails: normalizeTocIncidentDetails(state.tocIncidentDetails),
+      roadScene: normalizeRoadScene(state.roadScene),
+      resolvedLocation: state.resolvedLocation
+        ? {
+            ...state.resolvedLocation,
+            source: (state.resolvedLocation.source as string) === 'development-preview'
+              ? 'reference-layout'
+              : state.resolvedLocation.source,
+            scene: normalizeRoadScene(state.resolvedLocation.scene),
+          }
+        : null,
       roadLayerVisibility: {
         ...state.roadLayerVisibility,
         drawings: state.roadLayerVisibility.drawings !== false,

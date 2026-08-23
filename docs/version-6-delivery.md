@@ -1,10 +1,10 @@
-# Magnus Version 5 Roadmap
+# Magnus Version 6 Delivery Record
 
-Version 5 is focused on lecture-based demonstration, large-scene navigation, richer scene inventories, live annotation, and distributable output. Version 5.0.0-rc.1 builds on the released Version 4.5 operational baseline.
+Version 6 delivers lecture-based demonstration, large-scene navigation, richer scene inventories, live annotation, distributable output, reliable online/offline roadway resolution, and incident-specific communications. It builds on the released Version 4.5 operational baseline and the completed Version 5 development cycle.
 
-The expandable center workspace shipped in Version 4.5. Roadway rotation followed in Version 5 after its shared transform requirements were isolated and regression-tested.
+The expandable center workspace shipped in Version 4.5. Roadway rotation followed after its shared transform requirements were isolated and regression-tested.
 
-The Version 5.0.0 release candidate adds keyboard deletion, a truthful map scale, center-toolbar compass and traffic-flow instruments, toggleable roadway labels, collapsible Scene Type controls, portable scene save/load with PNG, JPG, and SVG output, interactive center-view rotation, centered 500-foot startup framing, and the four-part scene catalog.
+Version 6.0.0 includes keyboard deletion, a truthful map scale, center-toolbar compass and traffic-flow instruments, toggleable roadway labels, collapsible Scene Type controls, portable scene save/load with PNG, JPG, and SVG output, interactive center-view rotation, centered 500-foot startup framing, the four-part scene catalog, and large-format classroom displays.
 
 ## Product goals
 
@@ -19,7 +19,7 @@ The Version 5.0.0 release candidate adds keyboard deletion, a truthful map scale
 
 **Status: delivered in Version 4.5.0.**
 
-The left configuration pane and right operations pane will collapse independently toward their nearest screen edge.
+The left configuration pane and right operations pane collapse independently toward their nearest screen edge.
 
 ### Interaction
 
@@ -40,9 +40,9 @@ The left configuration pane and right operations pane will collapse independentl
 
 ## 2. Roadway rotation
 
-**Status: delivered in Version 5.0.0-rc.1.**
+**Status: delivered in Version 6.0.0.**
 
-Add roadway rotation controls beside the existing zoom controls in the top bar.
+Roadway rotation controls sit beside the zoom controls in the top bar.
 
 ### Behavior
 
@@ -63,7 +63,9 @@ Add roadway rotation controls beside the existing zoom controls in the top bar.
 
 ## 3. Four-part scene catalog
 
-Replace the current `asset | hazard` toolkit category with:
+**Status: delivered in Version 6.0.0.**
+
+The scene catalog uses four operational categories:
 
 1. SSP Assets
 2. External Assets
@@ -82,18 +84,18 @@ Existing SSP items:
 - Emergency Scene Ahead collapsible diamond signs, 2 per SSP truck
 - SSP patroller
 
-New SSP items:
+Additional SSP items:
 
 - Gas cans, 3 per SSP truck
 - Floor jack
 - Tool bag
 - Portable compressor
 
-Unless an SOP capacity is supplied before implementation, floor jacks, tool bags, and portable compressors should begin with a provisional capacity of one per SSP truck and be easy to revise in catalog data.
+Floor jacks, tool bags, and portable compressors have a catalog capacity of one per SSP truck; gas cans have a capacity of three per truck.
 
 ### External Assets
 
-All existing non-SSP entries currently categorized as assets move here, including law enforcement, fire and rescue, EMS, towing, incident command, TMA, and their supplied equipment.
+External Assets include law enforcement, fire and rescue, EMS, towing, incident command, TMA, and their supplied equipment.
 
 ### Hazards
 
@@ -101,13 +103,13 @@ Existing involved vehicles, vehicle fire, injured person, animals, aircraft, and
 
 ### Incidentals
 
-Initial incidental objects:
+Incidentals include:
 
 - Removed wheel or separated tire shown flat on the roadway
 - Crash debris area represented by a resizable, rotatable hatched rectangle
 - Motorist or passenger shown as a top-down standing person
 
-The SSP tool bag belongs to SSP Assets. A separate unowned loose bag should only be added to Incidentals if operational review identifies a distinct need.
+The SSP tool bag belongs to SSP Assets.
 
 ### Catalog acceptance
 
@@ -118,9 +120,9 @@ The SSP tool bag belongs to SSP Assets. A separate unowned loose bag should only
 
 ## 4. Drawing and temporary annotation
 
-**Status: delivered for Version 5.0.0.**
+**Status: delivered in Version 6.0.0.**
 
-Add a Drawing menu to the center top bar. Tapping the menu toggles it open or closed; selecting a drawing option does not close it.
+The Drawing menu in the center top bar toggles independently; selecting a drawing option does not close it.
 
 Implemented strokes are SVG polylines sampled in map-world coordinates at approximately 10-foot intervals, with a final shorter segment retained at pointer-up. This keeps scene files compact while preserving smooth printed SVG output. Stroke widths are stored in feet, and the complete drawing layer can be hidden from Map Layers.
 
@@ -157,39 +159,11 @@ Each pointer-down through pointer-up interaction creates one stroke containing:
 - Strokes remain aligned while the map is panned, zoomed, rotated, or expanded by pane collapse.
 - Touch input uses pointer capture and does not trigger browser scrolling while drawing.
 
-## 5. Adjacent roadway loading
+## 5. SVG and PNG output
 
-**Status: deferred to Version 5.1.0.**
+**Status: delivered in Version 6.0.0.**
 
-Version 5 will load a 3 by 3 neighborhood centered on the requested roadway area: the selected map section plus its eight adjacent sections.
-
-### Spatial contract
-
-- Define deterministic section IDs from a common projected coordinate grid.
-- Return section bounds, world origin, coordinate reference system, and revision metadata with every section.
-- Normalize all nine sections into one shared world-coordinate space.
-- Deduplicate road features crossing section boundaries by stable source and geometry identifiers.
-- Cache sections independently so subsequent pans request only missing neighbors.
-
-### Runtime behavior
-
-- Initial resolution requests the center section and its eight neighbors.
-- Panning into an outer section shifts the active neighborhood and fetches newly adjacent sections.
-- Previously loaded sections remain in a bounded least-recently-used memory cache.
-- Offline mode renders every locally available section and reports missing neighbors without attempting public network access.
-- A scene and its assets can cross section boundaries without being split or re-anchored.
-
-### Acceptance
-
-- No blank map band appears while panning across a loaded section boundary.
-- Matching roadway geometry joins without visible gaps, duplicate lane markings, or coordinate jumps.
-- Network and disk requests are deduplicated when multiple viewport updates require the same section.
-- Failure of one adjacent section does not discard the center section or other successful neighbors.
-- Automated tests cover all eight movement directions and a scene spanning at least two sections.
-
-## 6. SVG and PNG output
-
-Add an Output menu to the center top bar with SVG and PNG actions.
+The Save Scene workflow exports SVG, PNG, JPG, and a portable Magnus scene document.
 
 ### Export bounds
 
@@ -209,7 +183,7 @@ Add an Output menu to the center top bar with SVG and PNG actions.
 ### Acceptance
 
 - SVG and PNG show the same world bounds and orientation.
-- Export works with either pane state, every 45-degree rotation, and long scenes crossing section boundaries.
+- Export works with either pane state, every 45-degree rotation, and repositioned scenes across the loaded map.
 - PNG output is crisp at its declared size and does not depend on a screenshot of the full browser window.
 - Exporting does not mutate the active scene or dismiss the current layout.
 
@@ -239,15 +213,7 @@ Add an Output menu to the center top bar with SVG and PNG actions.
 - Temporary strokes and expiration lifecycle
 - Rotation, zoom, touch, save, and restore coverage
 
-### Milestone 4: Spatial neighborhood
-
-- Grid-section contract and stable IDs
-- 3 by 3 server resolution
-- Shared-coordinate composition and feature deduplication
-- Incremental neighbor loading and bounded cache
-- Online, LAN, and Offline behavior tests
-
-### Milestone 5: Output and release hardening
+### Milestone 4: Output and release hardening
 
 - SVG composition export
 - PNG raster output

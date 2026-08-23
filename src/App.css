@@ -410,6 +410,8 @@
 .metric-grid i.metric-good { color: var(--green); }
 .metric-grid i.metric-risk { color: var(--red); font-weight: 600; }
 .radio-section { padding-top: 14px; border-top: 1px solid var(--line); }
+.communications-display-button { display: inline-flex; align-items: center; gap: 5px; min-height: 27px; padding: 0 8px; color: var(--green); background: var(--control-bg); border: 1px solid var(--line); border-radius: 3px; font-size: 8px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+.communications-display-button:hover, .communications-display-button:focus-visible { border-color: var(--green); outline: 2px solid color-mix(in srgb, var(--green) 35%, transparent); outline-offset: 1px; }
 .communications-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 9px; }
 .communications-fields label { min-width: 0; display: grid; gap: 5px; color: #68736f; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
 .communications-fields select { min-width: 0; width: 100%; height: 33px; padding: 0 8px; color: var(--ink); background: #fff; border: 1px solid #cbd3d0; border-radius: 3px; font-size: 10px; }

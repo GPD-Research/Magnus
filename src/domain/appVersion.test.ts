@@ -7,7 +7,7 @@ describe('application version label', () => {
   })
 
   it('simplifies a new major milestone', () => {
-    expect(releaseVersionLabel('5.0.0')).toBe('v5')
+    expect(releaseVersionLabel('6.0.0')).toBe('v6')
   })
 
   it('identifies release candidates', () => {

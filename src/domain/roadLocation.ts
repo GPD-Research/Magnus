@@ -1,6 +1,6 @@
 import {
   ROADWAY_DIMENSIONS_FEET,
-  createDevelopmentRoadScene,
+  createReferenceRoadScene,
   type RoadFeature,
   type RoadScene,
 } from './roadScene'
@@ -19,7 +19,7 @@ export interface RoadLocationRequest {
 export interface ResolvedRoadLocation {
   request: RoadLocationRequest
   scene: RoadScene
-  source: 'live-map' | 'development-preview'
+  source: 'live-map' | 'reference-layout'
   message: string
 }
 
@@ -55,7 +55,7 @@ function createRampFeatures(): RoadFeature[] {
     coordinates: [[60, 760], [60, 410], [64, 350], [78, 290], [101, 220], [112, 155]],
   }
   const properties = {
-    name: 'Interchange ramp preview',
+    name: 'Interchange ramp scale reference',
     highway: 'motorway_link',
     lanes: 1,
     direction: 'forward' as const,
@@ -129,8 +129,8 @@ function createMixingBowlPreviewFeatures(): RoadFeature[] {
   })
 }
 
-export function createLocationPreviewScene(request: RoadLocationRequest): RoadScene {
-  const scene = createDevelopmentRoadScene()
+export function createLocationReferenceScene(request: RoadLocationRequest): RoadScene {
+  const scene = createReferenceRoadScene()
   const normalizedRequest = { ...request, highway: normalizeHighway(request.highway) }
   const referenceLabel = request.referenceType === 'exit'
     ? `Exit ${request.reference.trim()}`
@@ -149,8 +149,8 @@ export function createLocationPreviewScene(request: RoadLocationRequest): RoadSc
     ...scene,
     source: {
       ...scene.source,
-      dataset: `${normalizedRequest.highway} ${direction} ${referenceLabel} scale preview`,
-      attribution: 'Development preview geometry; load a compiled OSM scene before operational use.',
+      dataset: `${normalizedRequest.highway} ${direction} ${referenceLabel} scale reference`,
+      attribution: 'Magnus scale reference; geometry is not map-derived.',
     },
     viewport: { width: isMixingBowl ? 220 : 122, height: scene.viewport.height },
     features: [...scene.features, ...previewFeatures],
@@ -204,9 +204,9 @@ export async function resolveRoadLocation(
     const referenceLabel = normalizedRequest.referenceType === 'exit' ? 'exit' : 'mile marker'
     return {
       request: normalizedRequest,
-      scene: createLocationPreviewScene(normalizedRequest),
-      source: 'development-preview',
-      message: `${sourceMode === 'online' ? 'Online' : sourceMode === 'lan' ? 'LAN' : 'Offline'} map geometry is unavailable for ${normalizedRequest.highway}, ${referenceLabel} ${normalizedRequest.reference}: ${reason}. Showing a scale-accurate development preview without map-derived labels.`,
+      scene: createLocationReferenceScene(normalizedRequest),
+      source: 'reference-layout',
+      message: `${sourceMode === 'online' ? 'Online' : sourceMode === 'lan' ? 'LAN' : 'Offline'} map geometry is unavailable for ${normalizedRequest.highway}, ${referenceLabel} ${normalizedRequest.reference}: ${reason}. Showing a scale-accurate reference layout without map-derived labels.`,
     }
   }
 }
