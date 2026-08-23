@@ -216,8 +216,47 @@ test('saves and restores the complete scene configuration', async ({ page }) => 
 
   await page.reload()
   await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(1)
-  await page.getByRole('button', { name: 'Reset scene' }).click()
+  await page.getByRole('button', { name: 'Reset whole scene' }).click()
   await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(0)
+})
+
+test('preserves non-SSP objects when resetting or changing the SSP scene and allows loaded cones to move', async ({ page }) => {
+  await page.goto('/')
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
+  await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
+  await toolkit.getByRole('tab', { name: 'SSP Assets' }).click()
+  await toolkit.getByRole('button', { name: /Gas can/ }).click()
+
+  const ambulance = page.locator('[data-definition-id="ems-ambulance"]')
+  const gasCan = page.locator('[data-definition-id="gas-can"]')
+  await expect(ambulance).toHaveCount(1)
+  await expect(gasCan).toHaveCount(1)
+
+  await page.getByRole('button', { name: 'Reset SSP objects' }).click()
+  await expect(ambulance).toHaveCount(1)
+  await expect(gasCan).toHaveCount(0)
+
+  const loadedCone = page.locator('[data-cone-id="anchor"]')
+  const initialTransform = await loadedCone.getAttribute('transform')
+  const coneBounds = await loadedCone.boundingBox()
+  expect(coneBounds).not.toBeNull()
+  await page.mouse.move(coneBounds!.x + coneBounds!.width / 2, coneBounds!.y + coneBounds!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(coneBounds!.x + coneBounds!.width / 2 + 30, coneBounds!.y + coneBounds!.height / 2 + 20)
+  await page.mouse.up()
+  await expect(loadedCone).not.toHaveAttribute('transform', initialTransform ?? '')
+
+  await toolkit.getByRole('button', { name: /Gas can/ }).click()
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: /Shoulder closure/ }).click()
+  await page.getByRole('button', { name: 'Add scene' }).click()
+  await page.locator('#mainline-surface').click({ force: true })
+
+  await expect(ambulance).toHaveCount(1)
+  await expect(gasCan).toHaveCount(0)
+  await expect(page.locator('[data-cone-id="taper-3"]')).toBeVisible()
 })
 
 test('warns about unsaved changes before exiting and allows them to be discarded', async ({ page }) => {

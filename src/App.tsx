@@ -973,9 +973,9 @@ function App() {
     setPoints(createScene(nextScenario))
     setTrucks(createScenarioTrucks(nextScenario))
     setSelectedTruckId('ssp-truck-1')
-    setDeployedEquipment([])
-    setDrawingStrokes([])
-    setTemporaryDrawingStrokes([])
+    setDeployedEquipment((current) => current.filter(
+      (item) => equipmentDefinition(item.definitionId).category !== 'ssp-asset',
+    ))
     setSelectedEquipmentId(null)
     setSaveStatus('idle')
   }
@@ -1005,7 +1005,9 @@ function App() {
     const anchor = placement ?? { ...point, rotation: 0 }
     setPoints(createScene(scenario))
     setTrucks(createScenarioTrucks(scenario))
-    setDeployedEquipment([])
+    setDeployedEquipment((current) => current.filter(
+      (item) => equipmentDefinition(item.definitionId).category !== 'ssp-asset',
+    ))
     setSceneOrigin({
       x: anchor.x - sceneAnchorX,
       y: anchor.y - sceneAnchorY,
@@ -1013,6 +1015,20 @@ function App() {
     setSceneRotation(anchor.rotation)
     setSceneVisible(true)
     setScenePlacementActive(false)
+  }
+
+  function resetSspObjects() {
+    setPoints(createScene(scenario))
+    setTrucks(createScenarioTrucks(scenario))
+    setDeployedEquipment((current) => current.filter(
+      (item) => equipmentDefinition(item.definitionId).category !== 'ssp-asset',
+    ))
+    setSelectedTruckId('ssp-truck-1')
+    setSelectedConeId(null)
+    setSelectedEquipmentId(null)
+    setSceneVisible(true)
+    setScenePlacementActive(false)
+    setSaveStatus('idle')
   }
 
   function resetScenario() {
@@ -1233,7 +1249,7 @@ function App() {
   }
 
   function moveCone(event: React.PointerEvent<SVGSVGElement>) {
-    if ((!dragging || mode === 'gospel') && !draggingEquipmentId && !draggingTruckId && !rotatingEquipmentRef.current && !rotatingTruckRef.current) return
+    if (!dragging && !draggingEquipmentId && !draggingTruckId && !rotatingEquipmentRef.current && !rotatingTruckRef.current) return
     const bounds = event.currentTarget.getBoundingClientRect()
     const scenePoint = clientToMapPoint(
       { x: event.clientX, y: event.clientY },
@@ -1245,7 +1261,7 @@ function App() {
       rotation: sceneRotation,
     }
     const localPoint = scenePointToLocal(scenePoint, activeTransform, { x: sceneAnchorX, y: sceneAnchorY })
-    if (dragging && mode !== 'gospel') {
+    if (dragging) {
       setPoints((current) => current.map((point) => (point.id === dragging ? { ...point, ...localPoint } : point)))
     }
     if (draggingEquipmentId) {
@@ -1910,7 +1926,15 @@ function App() {
         <button
           className="icon-button"
           type="button"
-          title="Reset scene"
+          title="Reset SSP objects"
+          onClick={resetSspObjects}
+        >
+          <TrafficCone size={18} />
+        </button>
+        <button
+          className="icon-button"
+          type="button"
+          title="Reset whole scene"
           onClick={resetScenario}
         >
           <RotateCcw size={18} />
@@ -2784,7 +2808,7 @@ function App() {
                           : { ...point, rotation: 0 }
                         return (
                         <g
-                          className={`cone${point.id === selectedConeId ? " selected" : ""}${mode === "gospel" ? " locked" : ""}`}
+                          className={`cone${point.id === selectedConeId ? " selected" : ""}`}
                           data-cone-id={point.id}
                           key={point.id}
                           role="button"
@@ -2808,7 +2832,6 @@ function App() {
                             setSelectedConeId(point.id);
                             setSelectedEquipmentId(null);
                             setSelectedTruckId("");
-                            if (mode === "gospel") return;
                             event.currentTarget.setPointerCapture(
                               event.pointerId,
                             );
