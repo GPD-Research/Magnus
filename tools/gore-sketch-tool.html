@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magnus Gore Geometry Sketch Tool</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #1b201f;
+    --panel: #242b29;
+    --panel-border: #384039;
+    --field: #3a4340;
+    --text: #eef1ec;
+    --muted: #9aa8a2;
+    --accent: #f4cb34;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 14px/1.4 'Segoe UI', 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--panel-border);
+    background: var(--panel);
+  }
+  header h1 { margin: 0 0 4px; font-size: 18px; }
+  header p { margin: 4px 0; color: var(--muted); max-width: 900px; }
+  header ol { margin: 6px 0 0; padding-left: 20px; color: var(--muted); max-width: 900px; }
+  .scene-tabs { display: flex; gap: 6px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--panel-border); }
+  .scene-tabs button {
+    background: var(--field); color: var(--text); border: 1px solid var(--panel-border);
+    border-radius: 6px; padding: 8px 14px; cursor: pointer; font-weight: 600;
+  }
+  .scene-tabs button.active { background: var(--accent); color: #1b201f; border-color: var(--accent); }
+  .layout { display: flex; gap: 0; align-items: stretch; height: calc(100vh - 140px); }
+  .canvas-wrap { flex: 1 1 auto; overflow: auto; background: #14181a; padding: 16px; }
+  svg#canvas { background: #4c5a4a; display: block; cursor: crosshair; }
+  .sidebar {
+    width: 340px; flex: 0 0 340px; background: var(--panel); border-left: 1px solid var(--panel-border);
+    overflow-y: auto; padding: 12px;
+  }
+  .sidebar h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px; }
+  .sidebar h2:first-child { margin-top: 0; }
+  .line-type-list { display: flex; flex-direction: column; gap: 4px; }
+  .line-type-list button {
+    display: flex; align-items: center; gap: 8px; text-align: left;
+    background: var(--field); color: var(--text); border: 1px solid var(--panel-border);
+    border-radius: 6px; padding: 6px 8px; cursor: pointer; font-size: 12.5px;
+  }
+  .line-type-list button.active { outline: 2px solid var(--accent); }
+  .swatch { width: 18px; height: 4px; border-radius: 2px; flex: 0 0 auto; }
+  .swatch.dashed { background-image: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 8px); background-color: transparent !important; height: 2px; }
+  .actions, .io-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .actions button, .io-actions button {
+    background: var(--field); color: var(--text); border: 1px solid var(--panel-border);
+    border-radius: 6px; padding: 7px 10px; cursor: pointer; font-size: 12.5px;
+  }
+  .actions button:hover, .io-actions button:hover, .line-type-list button:hover, .scene-tabs button:hover { filter: brightness(1.15); }
+  .danger { color: #ff9d8a; }
+  .lines-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .lines-list li {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    background: var(--field); border: 1px solid var(--panel-border); border-radius: 6px; padding: 5px 8px; font-size: 12px;
+  }
+  .lines-list li span.label { display: flex; align-items: center; gap: 6px; }
+  .lines-list li button { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; }
+  .lines-list li button:hover { color: #ff9d8a; }
+  .status { padding: 8px 16px; background: var(--panel); border-top: 1px solid var(--panel-border); color: var(--muted); font-size: 12.5px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .row label { color: var(--muted); font-size: 12px; }
+  .row input[type="number"] { width: 64px; background: var(--field); color: var(--text); border: 1px solid var(--panel-border); border-radius: 4px; padding: 4px 6px; }
+  .coord-readout { position: absolute; pointer-events: none; background: rgba(20,24,22,.9); color: var(--text); padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Magnus Gore Geometry Sketch Tool</h1>
+  <p>Draw the exact fog-line / shoulder-edge / gore-area relationships you mean, point by point on a grid, then export a JSON (and/or SVG) file for Copilot to analyze as real coordinate data instead of another verbal description.</p>
+  <ol>
+    <li>Pick a scene tab: <strong>On-ramp</strong>, <strong>Off-ramp</strong>, or <strong>On-ramp + Off-ramp</strong>.</li>
+    <li>Pick a line type in the right panel (its color/style shows on the grid). Draw lines in the direction of travel.</li>
+    <li>Click grid points on the canvas to add straight segments. Click <strong>Finish line</strong> when that line is done, then pick the next type.</li>
+    <li>Repeat for every line relevant to this scene, then switch tabs and repeat for the others.</li>
+    <li>Click <strong>Download JSON</strong> (and optionally <strong>Download SVG</strong>) and send the file back.</li>
+  </ol>
+</header>
+
+<div class="scene-tabs" id="sceneTabs"></div>
+
+<div class="layout">
+  <div class="canvas-wrap">
+    <svg id="canvas"></svg>
+  </div>
+  <div class="sidebar">
+    <h2>Grid</h2>
+    <div class="row">
+      <label>Columns</label><input type="number" id="cols" min="10" max="300" step="5">
+      <label>Rows</label><input type="number" id="rows" min="10" max="300" step="5">
+    </div>
+    <div class="row">
+      <label>Cell size (px)</label><input type="number" id="cellSize" min="6" max="48" step="1">
+      <label>Feet per cell</label><input type="number" id="gridUnitFeet" min="1" max="100" step="1">
+    </div>
+
+    <h2>Line type to draw</h2>
+    <div class="line-type-list" id="lineTypeList"></div>
+
+    <h2>Drawing</h2>
+    <div class="actions">
+      <button id="finishLine">Finish line</button>
+      <button id="undoPoint">Undo point</button>
+      <button id="cancelLine" class="danger">Cancel current line</button>
+    </div>
+
+    <h2>Lines in this scene</h2>
+    <ul class="lines-list" id="linesList"></ul>
+
+    <h2>Export / Import</h2>
+    <div class="io-actions">
+      <button id="downloadJson">Download JSON</button>
+      <button id="downloadSvg">Download SVG</button>
+      <button id="importJsonBtn">Import JSON</button>
+      <input type="file" id="importJsonFile" accept="application/json" style="display:none">
+      <button id="clearScene" class="danger">Clear this scene</button>
+      <button id="clearAll" class="danger">Clear all scenes</button>
+    </div>
+  </div>
+</div>
+
+<div class="status" id="status">Ready.</div>
+
+<script>
+(function () {
+  const LINE_TYPES = [
+    { key: 'mainline-centerline', label: 'Mainline centerline (reference only)', color: '#8a94a6', dashed: true, width: 1 },
+    { key: 'mainline-left-fog-line', label: 'Mainline LEFT fog line (yellow)', color: '#e8c93a', dashed: false, width: 2.5 },
+    { key: 'mainline-left-shoulder-edge', label: 'Mainline LEFT shoulder edge', color: '#c7ccd1', dashed: true, width: 1.5 },
+    { key: 'mainline-right-fog-line', label: 'Mainline RIGHT fog line (white)', color: '#f2f4f2', dashed: false, width: 2.5 },
+    { key: 'mainline-right-shoulder-edge', label: 'Mainline RIGHT shoulder edge', color: '#c7ccd1', dashed: true, width: 1.5 },
+    { key: 'ramp-centerline', label: 'Ramp centerline (reference only)', color: '#8a94a6', dashed: true, width: 1 },
+    { key: 'ramp-left-fog-line', label: 'Ramp LEFT fog line (yellow)', color: '#e8c93a', dashed: false, width: 2.5 },
+    { key: 'ramp-left-shoulder-edge', label: 'Ramp LEFT shoulder edge', color: '#c7ccd1', dashed: true, width: 1.5 },
+    { key: 'ramp-right-fog-line', label: 'Ramp RIGHT fog line (white)', color: '#f2f4f2', dashed: false, width: 2.5 },
+    { key: 'ramp-right-shoulder-edge', label: 'Ramp RIGHT shoulder edge', color: '#c7ccd1', dashed: true, width: 1.5 },
+    { key: 'gore-area', label: 'Gore area outline (closed polygon)', color: '#ff8a3d', dashed: false, width: 2.5, closed: true, fill: 'rgba(255,138,61,0.28)' },
+  ];
+  const LINE_TYPE_BY_KEY = Object.fromEntries(LINE_TYPES.map((type) => [type.key, type]));
+
+  const SCENE_TYPES = [
+    { key: 'onramp', label: 'On-ramp only' },
+    { key: 'offramp', label: 'Off-ramp only' },
+    { key: 'combined', label: 'On-ramp + Off-ramp' },
+  ];
+
+  const STORAGE_KEY = 'magnus-gore-sketch-v1';
+
+  const state = {
+    activeScene: 'onramp',
+    activeLineType: 'mainline-right-fog-line',
+    gridUnitFeet: 10,
+    cols: 80,
+    rows: 50,
+    cellSize: 16,
+    scenes: {
+      onramp: { lines: [] },
+      offramp: { lines: [] },
+      combined: { lines: [] },
+    },
+    currentPoints: [],
+    hoverPoint: null,
+  };
+
+  function loadFromStorage() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved && saved.scenes) {
+        Object.assign(state.scenes, saved.scenes);
+        if (typeof saved.gridUnitFeet === 'number') state.gridUnitFeet = saved.gridUnitFeet;
+        if (typeof saved.cols === 'number') state.cols = saved.cols;
+        if (typeof saved.rows === 'number') state.rows = saved.rows;
+        if (typeof saved.cellSize === 'number') state.cellSize = saved.cellSize;
+      }
+    } catch (error) {
+      console.warn('Could not restore saved sketch', error);
+    }
+  }
+
+  function saveToStorage() {
+    const payload = {
+      gridUnitFeet: state.gridUnitFeet,
+      cols: state.cols,
+      rows: state.rows,
+      cellSize: state.cellSize,
+      scenes: state.scenes,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }
+
+  function setStatus(message) {
+    document.getElementById('status').textContent = message;
+  }
+
+  function activeLines() {
+    return state.scenes[state.activeScene].lines;
+  }
+
+  // ---- Rendering ----
+
+  const svgns = 'http://www.w3.org/2000/svg';
+
+  function el(tag, attrs) {
+    const node = document.createElementNS(svgns, tag);
+    for (const key in attrs) node.setAttribute(key, attrs[key]);
+    return node;
+  }
+
+  function toPixel(point) {
+    return [point[0] * state.cellSize, point[1] * state.cellSize];
+  }
+
+  function pointsToPath(points, closed) {
+    if (points.length === 0) return '';
+    const pixels = points.map(toPixel);
+    let d = `M ${pixels[0][0]} ${pixels[0][1]}`;
+    for (let i = 1; i < pixels.length; i += 1) d += ` L ${pixels[i][0]} ${pixels[i][1]}`;
+    if (closed && pixels.length > 1) d += ' Z';
+    return d;
+  }
+
+  function renderGrid(svg) {
+    const width = state.cols * state.cellSize;
+    const height = state.rows * state.cellSize;
+    for (let x = 0; x <= state.cols; x += 1) {
+      const major = x % 5 === 0;
+      svg.appendChild(el('line', {
+        x1: x * state.cellSize, y1: 0, x2: x * state.cellSize, y2: height,
+        stroke: major ? '#3a453f' : '#414d46', 'stroke-width': major ? 1 : 0.5,
+      }));
+    }
+    for (let y = 0; y <= state.rows; y += 1) {
+      const major = y % 5 === 0;
+      svg.appendChild(el('line', {
+        x1: 0, y1: y * state.cellSize, x2: width, y2: y * state.cellSize,
+        stroke: major ? '#3a453f' : '#414d46', 'stroke-width': major ? 1 : 0.5,
+      }));
+    }
+  }
+
+  function renderLine(svg, type, points, options) {
+    options = options || {};
+    if (points.length === 0) return;
+    const definition = LINE_TYPE_BY_KEY[type] || { color: '#fff', width: 2 };
+    if (points.length > 1) {
+      const path = el('path', {
+        d: pointsToPath(points, definition.closed && !options.preview),
+        fill: definition.closed && !options.preview ? (definition.fill || 'none') : 'none',
+        stroke: definition.color,
+        'stroke-width': definition.width,
+        'stroke-dasharray': definition.dashed ? '5 5' : (options.preview ? '3 3' : 'none'),
+        opacity: options.preview ? 0.6 : 1,
+      });
+      svg.appendChild(path);
+    }
+    points.forEach((point) => {
+      const [px, py] = toPixel(point);
+      svg.appendChild(el('circle', {
+        cx: px, cy: py, r: options.preview ? 3 : 4,
+        fill: definition.color, stroke: '#14181a', 'stroke-width': 1,
+      }));
+    });
+  }
+
+  function render() {
+    const svg = document.getElementById('canvas');
+    svg.innerHTML = '';
+    svg.setAttribute('width', state.cols * state.cellSize);
+    svg.setAttribute('height', state.rows * state.cellSize);
+    renderGrid(svg);
+
+    activeLines().forEach((line) => renderLine(svg, line.type, line.points));
+
+    if (state.currentPoints.length > 0) {
+      const previewPoints = state.hoverPoint ? [...state.currentPoints, state.hoverPoint] : state.currentPoints;
+      renderLine(svg, state.activeLineType, previewPoints, { preview: true });
+    }
+
+    renderSidebarLineTypes();
+    renderLinesList();
+    renderSceneTabs();
+  }
+
+  function renderSceneTabs() {
+    const container = document.getElementById('sceneTabs');
+    container.innerHTML = '';
+    SCENE_TYPES.forEach((scene) => {
+      const button = document.createElement('button');
+      button.textContent = `${scene.label} (${state.scenes[scene.key].lines.length})`;
+      button.className = scene.key === state.activeScene ? 'active' : '';
+      button.addEventListener('click', () => {
+        commitCurrentLineIfValid();
+        state.activeScene = scene.key;
+        render();
+      });
+      container.appendChild(button);
+    });
+  }
+
+  function renderSidebarLineTypes() {
+    const container = document.getElementById('lineTypeList');
+    container.innerHTML = '';
+    LINE_TYPES.forEach((type) => {
+      const button = document.createElement('button');
+      button.className = type.key === state.activeLineType ? 'active' : '';
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch' + (type.dashed ? ' dashed' : '');
+      swatch.style.background = type.dashed ? 'none' : type.color;
+      swatch.style.color = type.color;
+      button.appendChild(swatch);
+      button.appendChild(document.createTextNode(type.label));
+      button.addEventListener('click', () => {
+        commitCurrentLineIfValid();
+        state.activeLineType = type.key;
+        render();
+      });
+      container.appendChild(button);
+    });
+  }
+
+  function renderLinesList() {
+    const list = document.getElementById('linesList');
+    list.innerHTML = '';
+    activeLines().forEach((line, index) => {
+      const definition = LINE_TYPE_BY_KEY[line.type] || { label: line.type, color: '#fff' };
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      label.className = 'label';
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = definition.color;
+      label.appendChild(swatch);
+      label.appendChild(document.createTextNode(`${definition.label || line.type} (${line.points.length} pts)`));
+      const remove = document.createElement('button');
+      remove.textContent = '✕';
+      remove.title = 'Delete this line';
+      remove.addEventListener('click', () => {
+        activeLines().splice(index, 1);
+        saveToStorage();
+        render();
+      });
+      item.appendChild(label);
+      item.appendChild(remove);
+      list.appendChild(item);
+    });
+  }
+
+  // ---- Interaction ----
+
+  function snap(event) {
+    const svg = document.getElementById('canvas');
+    const rect = svg.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const gx = Math.round(x / state.cellSize);
+    const gy = Math.round(y / state.cellSize);
+    return [
+      Math.max(0, Math.min(state.cols, gx)),
+      Math.max(0, Math.min(state.rows, gy)),
+    ];
+  }
+
+  function commitCurrentLineIfValid() {
+    const definition = LINE_TYPE_BY_KEY[state.activeLineType];
+    const minPoints = definition && definition.closed ? 3 : 2;
+    if (state.currentPoints.length >= minPoints) {
+      activeLines().push({ type: state.activeLineType, points: state.currentPoints });
+      setStatus(`Added "${definition ? definition.label : state.activeLineType}" with ${state.currentPoints.length} points.`);
+    } else if (state.currentPoints.length > 0) {
+      setStatus('Line discarded (needs at least ' + minPoints + ' points).');
+    }
+    state.currentPoints = [];
+    saveToStorage();
+  }
+
+  function setup() {
+    loadFromStorage();
+    document.getElementById('cols').value = state.cols;
+    document.getElementById('rows').value = state.rows;
+    document.getElementById('cellSize').value = state.cellSize;
+    document.getElementById('gridUnitFeet').value = state.gridUnitFeet;
+
+    const svg = document.getElementById('canvas');
+    svg.addEventListener('click', (event) => {
+      const point = snap(event);
+      state.currentPoints.push(point);
+      render();
+    });
+    svg.addEventListener('mousemove', (event) => {
+      state.hoverPoint = snap(event);
+      render();
+    });
+    svg.addEventListener('mouseleave', () => {
+      state.hoverPoint = null;
+      render();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        state.currentPoints = [];
+        setStatus('Current line canceled.');
+        render();
+      } else if (event.key === 'Enter') {
+        commitCurrentLineIfValid();
+        render();
+      }
+    });
+
+    document.getElementById('finishLine').addEventListener('click', () => { commitCurrentLineIfValid(); render(); });
+    document.getElementById('undoPoint').addEventListener('click', () => { state.currentPoints.pop(); render(); });
+    document.getElementById('cancelLine').addEventListener('click', () => { state.currentPoints = []; render(); });
+
+    document.getElementById('clearScene').addEventListener('click', () => {
+      if (!confirm('Clear all lines in the current scene?')) return;
+      state.scenes[state.activeScene].lines = [];
+      state.currentPoints = [];
+      saveToStorage();
+      render();
+    });
+    document.getElementById('clearAll').addEventListener('click', () => {
+      if (!confirm('Clear ALL scenes? This cannot be undone.')) return;
+      SCENE_TYPES.forEach((scene) => { state.scenes[scene.key].lines = []; });
+      state.currentPoints = [];
+      saveToStorage();
+      render();
+    });
+
+    ['cols', 'rows', 'cellSize', 'gridUnitFeet'].forEach((id) => {
+      document.getElementById(id).addEventListener('change', (event) => {
+        const value = Number(event.target.value);
+        if (Number.isFinite(value) && value > 0) {
+          state[id] = value;
+          saveToStorage();
+          render();
+        }
+      });
+    });
+
+    document.getElementById('downloadJson').addEventListener('click', () => {
+      commitCurrentLineIfValid();
+      const payload = {
+        gridUnitFeet: state.gridUnitFeet,
+        gridColumns: state.cols,
+        gridRows: state.rows,
+        note: 'Point coordinates are in grid units; multiply by gridUnitFeet for real-world feet. Origin is top-left; y increases downward.',
+        scenes: state.scenes,
+      };
+      downloadFile('magnus-gore-sketch.json', JSON.stringify(payload, null, 2), 'application/json');
+      render();
+    });
+
+    document.getElementById('downloadSvg').addEventListener('click', () => {
+      commitCurrentLineIfValid();
+      const clone = document.getElementById('canvas').cloneNode(true);
+      clone.setAttribute('xmlns', svgns);
+      const serialized = new XMLSerializer().serializeToString(clone);
+      downloadFile(`magnus-gore-sketch-${state.activeScene}.svg`, serialized, 'image/svg+xml');
+      render();
+    });
+
+    document.getElementById('importJsonBtn').addEventListener('click', () => {
+      document.getElementById('importJsonFile').click();
+    });
+    document.getElementById('importJsonFile').addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          if (parsed.scenes) {
+            Object.assign(state.scenes, parsed.scenes);
+            if (typeof parsed.gridUnitFeet === 'number') state.gridUnitFeet = parsed.gridUnitFeet;
+            saveToStorage();
+            setStatus('Imported ' + file.name + '.');
+            render();
+          } else {
+            setStatus('That file does not look like a gore-sketch export.');
+          }
+        } catch (error) {
+          setStatus('Could not parse that file: ' + error.message);
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    });
+
+    render();
+  }
+
+  function downloadFile(filename, contents, mimeType) {
+    const blob = new Blob([contents], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setStatus('Downloaded ' + filename + '.');
+  }
+
+  setup();
+})();
+</script>
+</body>
+</html>
