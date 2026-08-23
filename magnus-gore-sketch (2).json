@@ -1,0 +1,660 @@
+{
+  "gridUnitFeet": 10,
+  "gridColumns": 80,
+  "gridRows": 50,
+  "note": "Point coordinates are in grid units; multiply by gridUnitFeet for real-world feet. Origin is top-left; y increases downward.",
+  "scenes": {
+    "onramp": {
+      "lines": [
+        {
+          "type": "mainline-right-fog-line",
+          "points": [
+            [
+              10,
+              20
+            ],
+            [
+              50,
+              20
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-fog-line",
+          "points": [
+            [
+              19,
+              38
+            ],
+            [
+              50,
+              20
+            ]
+          ]
+        },
+        {
+          "type": "gore-area",
+          "points": [
+            [
+              33,
+              20
+            ],
+            [
+              33,
+              30
+            ],
+            [
+              50,
+              20
+            ],
+            [
+              33,
+              20
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-shoulder-edge",
+          "points": [
+            [
+              33,
+              25
+            ],
+            [
+              15,
+              34
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-shoulder-edge",
+          "points": [
+            [
+              33,
+              25
+            ],
+            [
+              9,
+              25
+            ]
+          ]
+        },
+        {
+          "type": "ramp-right-fog-line",
+          "points": [
+            [
+              22,
+              42
+            ],
+            [
+              50,
+              25
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-shoulder-edge",
+          "points": [
+            [
+              50,
+              30
+            ],
+            [
+              73,
+              30
+            ]
+          ]
+        },
+        {
+          "type": "mainline-centerline",
+          "points": [
+            [
+              10,
+              15
+            ],
+            [
+              78,
+              15
+            ]
+          ]
+        },
+        {
+          "type": "mainline-centerline",
+          "points": [
+            [
+              10,
+              10
+            ],
+            [
+              78,
+              10
+            ]
+          ]
+        },
+        {
+          "type": "mainline-left-fog-line",
+          "points": [
+            [
+              10,
+              5
+            ],
+            [
+              78,
+              5
+            ]
+          ]
+        },
+        {
+          "type": "mainline-left-shoulder-edge",
+          "points": [
+            [
+              10,
+              1
+            ],
+            [
+              78,
+              1
+            ]
+          ]
+        },
+        {
+          "type": "ramp-right-shoulder-edge",
+          "points": [
+            [
+              25,
+              45
+            ],
+            [
+              50,
+              30
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-fog-line",
+          "points": [
+            [
+              50,
+              25
+            ],
+            [
+              76,
+              25
+            ]
+          ]
+        },
+        {
+          "type": "auxiliary-lane-tight-dash",
+          "points": [
+            [
+              50,
+              20
+            ],
+            [
+              79,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "offramp": {
+      "lines": [
+        {
+          "type": "mainline-left-shoulder-edge",
+          "points": [
+            [
+              3,
+              5
+            ],
+            [
+              77,
+              5
+            ]
+          ]
+        },
+        {
+          "type": "mainline-left-fog-line",
+          "points": [
+            [
+              3,
+              10
+            ],
+            [
+              78,
+              10
+            ]
+          ]
+        },
+        {
+          "type": "mainline-centerline",
+          "points": [
+            [
+              3,
+              15
+            ],
+            [
+              77,
+              15
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-fog-line",
+          "points": [
+            [
+              3,
+              20
+            ],
+            [
+              23,
+              20
+            ]
+          ]
+        },
+        {
+          "type": "auxiliary-lane-tight-dash",
+          "points": [
+            [
+              23,
+              20
+            ],
+            [
+              60,
+              20
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-fog-line",
+          "points": [
+            [
+              60,
+              20
+            ],
+            [
+              77,
+              20
+            ]
+          ]
+        },
+        {
+          "type": "ramp-right-fog-line",
+          "points": [
+            [
+              23,
+              20
+            ],
+            [
+              29,
+              25
+            ],
+            [
+              50,
+              25
+            ],
+            [
+              77,
+              45
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-fog-line",
+          "points": [
+            [
+              60,
+              20
+            ],
+            [
+              79,
+              33
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-shoulder-edge",
+          "points": [
+            [
+              3,
+              25
+            ],
+            [
+              20,
+              25
+            ],
+            [
+              25,
+              30
+            ]
+          ]
+        },
+        {
+          "type": "ramp-right-shoulder-edge",
+          "points": [
+            [
+              25,
+              30
+            ],
+            [
+              50,
+              30
+            ],
+            [
+              75,
+              48
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-shoulder-edge",
+          "points": [
+            [
+              70,
+              23
+            ],
+            [
+              79,
+              23
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-shoulder-edge",
+          "points": [
+            [
+              70,
+              23
+            ],
+            [
+              79,
+              29
+            ]
+          ]
+        },
+        {
+          "type": "gore-area",
+          "points": [
+            [
+              70,
+              20
+            ],
+            [
+              70,
+              20
+            ],
+            [
+              70,
+              26
+            ],
+            [
+              61,
+              20
+            ],
+            [
+              70,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    "combined": {
+      "lines": [
+        {
+          "type": "mainline-left-shoulder-edge",
+          "points": [
+            [
+              5,
+              5
+            ],
+            [
+              76,
+              5
+            ]
+          ]
+        },
+        {
+          "type": "mainline-left-fog-line",
+          "points": [
+            [
+              5,
+              10
+            ],
+            [
+              76,
+              10
+            ]
+          ]
+        },
+        {
+          "type": "mainline-centerline",
+          "points": [
+            [
+              5,
+              15
+            ],
+            [
+              76,
+              15
+            ]
+          ]
+        },
+        {
+          "type": "mainline-centerline",
+          "points": [
+            [
+              5,
+              20
+            ],
+            [
+              77,
+              20
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-fog-line",
+          "points": [
+            [
+              5,
+              25
+            ],
+            [
+              23,
+              25
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-fog-line",
+          "points": [
+            [
+              60,
+              25
+            ],
+            [
+              78,
+              25
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-fog-line",
+          "points": [
+            [
+              23,
+              25
+            ],
+            [
+              1,
+              35
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-fog-line",
+          "points": [
+            [
+              60,
+              25
+            ],
+            [
+              78,
+              36
+            ]
+          ]
+        },
+        {
+          "type": "ramp-right-fog-line",
+          "points": [
+            [
+              3,
+              41
+            ],
+            [
+              25,
+              30
+            ],
+            [
+              55,
+              30
+            ],
+            [
+              76,
+              43
+            ]
+          ]
+        },
+        {
+          "type": "ramp-right-shoulder-edge",
+          "points": [
+            [
+              5,
+              46
+            ],
+            [
+              26,
+              35
+            ],
+            [
+              52,
+              35
+            ],
+            [
+              73,
+              47
+            ]
+          ]
+        },
+        {
+          "type": "gore-area",
+          "points": [
+            [
+              70,
+              25
+            ],
+            [
+              70,
+              31
+            ],
+            [
+              60,
+              25
+            ],
+            [
+              70,
+              25
+            ]
+          ]
+        },
+        {
+          "type": "gore-area",
+          "points": [
+            [
+              12,
+              25
+            ],
+            [
+              12,
+              30
+            ],
+            [
+              23,
+              25
+            ],
+            [
+              12,
+              25
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-shoulder-edge",
+          "points": [
+            [
+              4,
+              28
+            ],
+            [
+              12,
+              28
+            ]
+          ]
+        },
+        {
+          "type": "mainline-right-shoulder-edge",
+          "points": [
+            [
+              70,
+              28
+            ],
+            [
+              79,
+              28
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-shoulder-edge",
+          "points": [
+            [
+              70,
+              28
+            ],
+            [
+              80,
+              33
+            ]
+          ]
+        },
+        {
+          "type": "ramp-left-shoulder-edge",
+          "points": [
+            [
+              1,
+              32
+            ],
+            [
+              12,
+              28
+            ]
+          ]
+        },
+        {
+          "type": "auxiliary-lane-tight-dash",
+          "points": [
+            [
+              23,
+              25
+            ],
+            [
+              60,
+              25
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}
