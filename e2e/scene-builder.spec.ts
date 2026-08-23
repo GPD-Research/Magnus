@@ -198,8 +198,9 @@ test('scales workspace panes and renders animated directional equipment', async 
   await expect(laneBlade).toHaveCount(1)
   await expect(laneBlade.locator('.truck-lane-blade')).toHaveCount(1)
   await expect(laneBlade.locator('.signboard-frame-a')).toHaveCSS('animation-name', 'signboard-flash')
+  const initialRotation = Number(/rotate\(([^)]+)\)/.exec(await laneBlade.getAttribute('transform') ?? '')?.[1])
   await page.getByLabel(/Rotation for Lane Blade Truck/).selectOption('90')
-  await expect(laneBlade).toHaveAttribute('transform', /rotate\(90\)/)
+  await expect.poll(async () => Number(/rotate\(([^)]+)\)/.exec(await laneBlade.getAttribute('transform') ?? '')?.[1])).toBeCloseTo(initialRotation + 90, 4)
   await expect(laneBlade.getByLabel(/Rotate Lane Blade Truck/)).toBeVisible()
 })
 
@@ -708,7 +709,22 @@ test('removes the scene and places the selected scene on the next map tap', asyn
 })
 
 test('instantiates lane-specific geometry and signboards when adding a scene', async ({ page }) => {
-  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: 1,
+      source: { type: 'osm-pbf', dataset: 'lane template test road', generatedAt: '2026-08-22T00:00:00.000Z', attribution: 'Test fixture' },
+      coordinateSystem: { worldCrs: 'LOCAL', displayUnits: 'feet', origin: 'top-left', trafficFlow: 'bottom-to-top' },
+      viewport: { width: 72, height: 760 },
+      features: [{
+        id: 'mainline-surface',
+        kind: 'road-surface',
+        layer: 0,
+        geometry: { type: 'LineString', coordinates: [[36, 760], [36, 0]] },
+        properties: { name: 'Straight road', highway: 'motorway', lanes: 3, direction: 'forward', renderWidthFeet: 36 },
+      }],
+    }),
+  }))
   await page.goto('/')
 
   await page.getByRole('button', { name: 'Remove scene' }).click()
@@ -774,12 +790,72 @@ test('aligns right-lane cones to skip and fog lines on a four-lane road', async 
 
   await expect(page.locator('.scene-equipment')).toHaveAttribute(
     'transform',
-    'translate(106 200) rotate(0) translate(-36 -260)',
+    'translate(100 200) rotate(0) translate(6 0) translate(-36 -260)',
   )
   await expect(page.locator('[data-cone-id="anchor"]')).toHaveAttribute('transform', 'translate(42 282)')
   await expect(page.locator('[data-cone-id="taper-5"]')).toHaveAttribute('transform', 'translate(54 562)')
   await expect(page.locator('#four-lane-right-skip')).toHaveAttribute('d', 'M 112 350 L 112 50')
   await expect(page.locator('#four-lane-right-fog')).toHaveAttribute('d', 'M 124 350 L 124 50')
+})
+
+test('bends lane and shoulder tapers between curved roadway boundaries', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: 1,
+      source: { type: 'osm-api', dataset: 'Curved alignment fixture', generatedAt: 'test', attribution: 'Test geometry' },
+      coordinateSystem: { worldCrs: 'LOCAL', displayUnits: 'feet', origin: 'top-left', trafficFlow: 'bottom-to-top' },
+      viewport: { width: 500, height: 800 },
+      features: [
+        { id: 'curved-surface', kind: 'road-surface', layer: 0, geometry: { type: 'LineString', coordinates: [[200, 780], [200, 500], [220, 300], [280, 20]] }, properties: { highway: 'motorway', lanes: 3, renderWidthFeet: 60 } },
+        { id: 'curved-right-fog', kind: 'right-fog-line', layer: 1, geometry: { type: 'LineString', coordinates: [[218, 780], [218, 500], [237.91, 301.79], [297.6, 23.77]] }, properties: { highway: 'motorway', lanes: 3, renderWidthFeet: 0.5 } },
+        { id: 'curved-shoulder-edge', kind: 'shoulder-edge', layer: 1, geometry: { type: 'LineString', coordinates: [[230, 780], [230, 500], [249.85, 302.99], [309.34, 26.28]] }, properties: { highway: 'motorway', lanes: 3, renderWidthFeet: 0.5 } },
+      ],
+    }),
+  }))
+  await page.goto('/')
+  await expect(page.getByText('Curved alignment fixture')).toBeVisible()
+
+  const distanceToFogLine = await page.locator('[data-cone-id="taper-5"]').evaluate((cone) => {
+    const coneMatrix = (cone as SVGGraphicsElement).getCTM()
+    const fogLine = document.querySelector<SVGPathElement>('#curved-right-fog')
+    if (!coneMatrix || !fogLine) return Number.POSITIVE_INFINITY
+    const coneCenter = new DOMPoint(0, 0).matrixTransform(coneMatrix)
+    const fogMatrix = fogLine.getCTM()
+    if (!fogMatrix) return Number.POSITIVE_INFINITY
+    let nearestDistance = Number.POSITIVE_INFINITY
+    const length = fogLine.getTotalLength()
+    for (let distance = 0; distance <= length; distance += 1) {
+      const point = fogLine.getPointAtLength(distance).matrixTransform(fogMatrix)
+      nearestDistance = Math.min(nearestDistance, Math.hypot(coneCenter.x - point.x, coneCenter.y - point.y))
+    }
+    return nearestDistance
+  })
+
+  expect(distanceToFogLine).toBeLessThan(1)
+  await expect(page.locator('[data-cone-id="taper-5"]')).not.toHaveAttribute('transform', 'translate(54 562)')
+
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: /Shoulder closure/ }).click()
+  await page.getByRole('button', { name: 'Add scene' }).click()
+  await page.locator('#curved-surface').click({ force: true })
+  await expect(page.locator('[data-cone-id="taper-3"]')).toBeVisible()
+  const distanceToShoulderEdge = await page.locator('[data-cone-id="taper-3"]').evaluate((cone) => {
+    const coneMatrix = (cone as SVGGraphicsElement).getCTM()
+    const shoulderEdge = document.querySelector<SVGPathElement>('#curved-shoulder-edge')
+    if (!coneMatrix || !shoulderEdge) return Number.POSITIVE_INFINITY
+    const coneCenter = new DOMPoint(0, 0).matrixTransform(coneMatrix)
+    const edgeMatrix = shoulderEdge.getCTM()
+    if (!edgeMatrix) return Number.POSITIVE_INFINITY
+    let nearestDistance = Number.POSITIVE_INFINITY
+    const length = shoulderEdge.getTotalLength()
+    for (let distance = 0; distance <= length; distance += 1) {
+      const point = shoulderEdge.getPointAtLength(distance).matrixTransform(edgeMatrix)
+      nearestDistance = Math.min(nearestDistance, Math.hypot(coneCenter.x - point.x, coneCenter.y - point.y))
+    }
+    return nearestDistance
+  })
+  expect(distanceToShoulderEdge).toBeLessThan(1)
 })
 
 test('deploys assets and hazards with live scene counters and deletion', async ({ page }) => {

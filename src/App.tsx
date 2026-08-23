@@ -87,6 +87,7 @@ import {
 } from './domain/equipmentCatalog'
 import {
   createReferenceRoadScene,
+  type RoadFeature,
   type RoadScene,
   type RoadLayerVisibility,
 } from './domain/roadScene'
@@ -106,9 +107,11 @@ import {
 } from './domain/offlinePackages'
 import {
   nearestRoadPlacement,
+  roadRelativePlacement,
   roadSectionLabel,
   roadSectionTransform,
   selectableRoadSections,
+  type RoadSectionTransform,
 } from './domain/roadSection'
 import {
   DEFAULT_VISIBLE_SCENE_WIDTH_FEET,
@@ -433,6 +436,34 @@ function laterallyAlignedPlacement(
   }
 }
 
+function roadAdaptedScenePosition(
+  feature: RoadFeature,
+  alignment: RoadSectionTransform,
+  scenario: ScenarioType,
+  lanes: number,
+  point: { x: number; y: number },
+) {
+  const lateralScenarioOffset = scenarioLateralOffset(scenario, lanes)
+  const placement = roadRelativePlacement(
+    feature,
+    alignment,
+    point.y - RIGHT_LANE_STANDARD.truck.y,
+    point.x - RIGHT_LANE_STANDARD.roadCenterX + lateralScenarioOffset,
+  )
+  if (!placement) return { ...point, rotation: 0 }
+  const radians = alignment.rotation * Math.PI / 180
+  const deltaX = placement.x - alignment.x
+  const deltaY = placement.y - alignment.y
+  const alignedX = Math.cos(radians) * deltaX + Math.sin(radians) * deltaY
+  const alignedY = -Math.sin(radians) * deltaX + Math.cos(radians) * deltaY
+  const normalizeCoordinate = (value: number) => Math.round(value * 1_000_000) / 1_000_000
+  return {
+    x: normalizeCoordinate(alignedX - lateralScenarioOffset + RIGHT_LANE_STANDARD.roadCenterX),
+    y: normalizeCoordinate(alignedY + RIGHT_LANE_STANDARD.truck.y),
+    rotation: normalizeCoordinate(placement.rotation - alignment.rotation),
+  }
+}
+
 function App() {
   const [savedScenario] = useState(loadSavedScenario)
   const [appSettings, setAppSettings] = useState(() => loadAppSettings(localStorage))
@@ -553,13 +584,24 @@ function App() {
     height: Math.max(1, sceneDisplaySize.height - 36) * sceneZoom,
   }
   const fortyFootScalePixels = 40 * sceneCanvasSize.width / sceneViewBox.width
+  const sceneAnchorX = RIGHT_LANE_STANDARD.roadCenterX
+  const sceneAnchorY = RIGHT_LANE_STANDARD.truck.y
   const roadSections = selectableRoadSections(roadScene)
   const selectedRoadSection = roadSections.find((feature) => feature.id === selectedRoadSectionId)
   const selectedSectionTransform = selectedRoadSection
     ? roadSectionTransform(selectedRoadSection)
     : null
-  const equipmentTransform = selectedSectionTransform
-    ? `translate(${selectedSectionTransform.x} ${selectedSectionTransform.y}) rotate(${selectedSectionTransform.rotation}) translate(${scenarioLateralOffset(scenario, selectedRoadSection?.properties.lanes)} ${0}) translate(${-RIGHT_LANE_STANDARD.roadCenterX} ${-RIGHT_LANE_STANDARD.truck.y})`
+  const nearestScenePlacement = selectedSectionTransform ? null : nearestRoadPlacement(roadScene, {
+    x: sceneOrigin.x + sceneAnchorX,
+    y: sceneOrigin.y + sceneAnchorY,
+  })
+  const alignedRoadSection = selectedRoadSection
+    ?? roadSections.find((feature) => feature.id === nearestScenePlacement?.featureId)
+  const roadAlignment = selectedSectionTransform ?? nearestScenePlacement
+  const alignedRoadLanes = alignedRoadSection?.properties.lanes ?? 3
+  const alignedScenarioOffset = scenarioLateralOffset(scenario, alignedRoadLanes)
+  const equipmentTransform = roadAlignment && alignedRoadSection
+    ? `translate(${roadAlignment.x} ${roadAlignment.y}) rotate(${roadAlignment.rotation})${alignedScenarioOffset === 0 ? '' : ` translate(${alignedScenarioOffset} 0)`} translate(${-RIGHT_LANE_STANDARD.roadCenterX} ${-RIGHT_LANE_STANDARD.truck.y})`
     : undefined
   const selectedTruck = trucks.find((truck) => truck.id === selectedTruckId) ?? null
   const selectedEquipment = deployedEquipment.find((item) => item.id === selectedEquipmentId)
@@ -585,16 +627,14 @@ function App() {
   }
   const selectedScenario = scenarioDefinition(scenario)
   const highwayLabelsAvailable = roadScene.source.type !== 'reference-layout'
-  const sceneAnchorX = RIGHT_LANE_STANDARD.roadCenterX
-  const sceneAnchorY = RIGHT_LANE_STANDARD.truck.y
-  const sceneFocusX = selectedSectionTransform?.x ?? sceneOrigin.x + sceneAnchorX
-  const sceneFocusY = selectedSectionTransform?.y ?? sceneOrigin.y + sceneAnchorY
+  const sceneFocusX = roadAlignment?.x ?? sceneOrigin.x + sceneAnchorX
+  const sceneFocusY = roadAlignment?.y ?? sceneOrigin.y + sceneAnchorY
   const sceneTransform = equipmentTransform ?? [
     `translate(${sceneOrigin.x + sceneAnchorX} ${sceneOrigin.y + sceneAnchorY})`,
     `rotate(${sceneRotation})`,
     `translate(${-sceneAnchorX} ${-sceneAnchorY})`,
   ].join(' ')
-  const effectiveSceneRotation = selectedSectionTransform?.rotation ?? sceneRotation
+  const effectiveSceneRotation = roadAlignment?.rotation ?? sceneRotation
   const mapTransform = `rotate(${mapRotation} ${roadScene.viewport.width / 2} ${roadScene.viewport.height / 2})`
   const scenarioSnapshot = scenarioStateSnapshot(currentScenarioState())
   const hasUnsavedChanges = savedSnapshot !== null && savedSnapshot !== scenarioSnapshot
@@ -2614,7 +2654,17 @@ function App() {
                       className={`scene-equipment${sectionSelectionEnabled ? " selection-paused" : ""}`}
                       transform={sceneTransform}
                     >
-                      {trucks.map((truck) => (
+                      {trucks.map((truck) => {
+                        const truckPosition = roadAlignment && alignedRoadSection
+                          ? roadAdaptedScenePosition(
+                              alignedRoadSection,
+                              roadAlignment,
+                              scenario,
+                              alignedRoadLanes,
+                              { x: truck.x + selectedScenario.truckOffsetX, y: truck.y },
+                            )
+                          : { x: truck.x + selectedScenario.truckOffsetX, y: truck.y, rotation: 0 }
+                        return (
                         <g
                           aria-label={`${truck.label}, signboard ${signboardLabel(truck.signboard)}`}
                           className={`ssp-truck${truck.id === selectedTruckId ? " selected" : ""}`}
@@ -2649,7 +2699,7 @@ function App() {
                           }}
                           role="button"
                           tabIndex={0}
-                          transform={`translate(${truck.x + selectedScenario.truckOffsetX} ${truck.y}) rotate(${truck.rotation})`}
+                          transform={`translate(${truckPosition.x} ${truckPosition.y}) rotate(${truck.rotation + truckPosition.rotation})`}
                         >
                           <rect
                             className="truck-body"
@@ -2720,15 +2770,26 @@ function App() {
                             />
                           )}
                         </g>
-                      ))}
-                      {points.map((point) => (
+                        )
+                      })}
+                      {points.map((point) => {
+                        const conePosition = roadAlignment && alignedRoadSection
+                          ? roadAdaptedScenePosition(
+                              alignedRoadSection,
+                              roadAlignment,
+                              scenario,
+                              alignedRoadLanes,
+                              point,
+                            )
+                          : { ...point, rotation: 0 }
+                        return (
                         <g
                           className={`cone${point.id === selectedConeId ? " selected" : ""}${mode === "gospel" ? " locked" : ""}`}
                           data-cone-id={point.id}
                           key={point.id}
                           role="button"
                           tabIndex={0}
-                          transform={`translate(${point.x} ${point.y})`}
+                          transform={`translate(${conePosition.x} ${conePosition.y})`}
                           onClick={(event) => {
                             event.stopPropagation();
                             setSelectedConeId(point.id);
@@ -2765,7 +2826,8 @@ function App() {
                             definition={setupConeDefinition}
                           />
                         </g>
-                      ))}
+                        )
+                      })}
                       {deployedEquipment.map((item) => {
                         const definition = equipmentDefinition(
                           item.definitionId,

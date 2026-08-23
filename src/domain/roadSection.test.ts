@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { nearestRoadPlacement, roadSectionTransform, selectableRoadSections } from './roadSection'
-import type { RoadScene } from './roadScene'
+import { nearestRoadPlacement, roadRelativePlacement, roadSectionTransform, selectableRoadSections } from './roadSection'
+import type { RoadFeature, RoadScene } from './roadScene'
 
 const scene: RoadScene = {
   version: 1,
@@ -55,5 +55,29 @@ describe('road section selection', () => {
       distance: Math.sqrt(800),
       lanes: 3,
     })
+  })
+
+  it('places longitudinal and lateral offsets against each local road tangent', () => {
+    const curvedRoad: RoadFeature = {
+      ...scene.features[1],
+      geometry: {
+        type: 'LineString',
+        coordinates: [[100, 400], [100, 300], [120, 200], [180, 120]],
+      },
+    }
+
+    expect(roadRelativePlacement(curvedRoad, { x: 100, y: 300 }, 40, 12)).toMatchObject({
+      x: 112,
+      y: 340,
+      rotation: 0,
+    })
+    const curvedPlacement = roadRelativePlacement(curvedRoad, { x: 100, y: 300 }, -140, 12)
+    expect(curvedPlacement?.rotation).toBeCloseTo(36.87, 2)
+    expect(curvedPlacement?.x).toBeCloseTo(152.41, 2)
+    expect(curvedPlacement?.y).toBeCloseTo(176.784, 3)
+    expect(roadRelativePlacement(curvedRoad, { x: 100, y: 300 }, -400, 0)).toMatchObject({
+      rotation: 36.86989764584402,
+    })
+    expect(roadRelativePlacement(curvedRoad, { x: 100, y: 300 }, -400, 0)?.y).toBeLessThan(120)
   })
 })
