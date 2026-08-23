@@ -284,6 +284,7 @@
 .road-feature-left-fog-line { fill: none; stroke: #e2c943; }
 .road-feature-right-fog-line { fill: none; stroke: #f0f1eb; }
 .road-feature-skip-line { fill: none; stroke: #edf0e8; }
+.road-feature-auxiliary-lane-line { fill: none; stroke: #edf0e8; }
 .road-feature-shoulder-edge { fill: none; stroke: #d8ddd9; }
 .road-feature-traffic-flow { fill: none; stroke: #dce3da; stroke-width: 1.5; stroke-dasharray: 65 85; marker-end: url(#flowArrow); opacity: .3; }
 .road-feature-ramp-gore { fill: url(#goreStripePattern); stroke: #f5f6ee; stroke-width: .75; }
