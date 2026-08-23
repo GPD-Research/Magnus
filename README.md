@@ -4,7 +4,7 @@
 
 Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 7.0.0 is the current production release.
 
-The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md).
+The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md). A full version-by-version development timeline reconstructed from git history is in [docs/development-history.md](docs/development-history.md).
 
 ## Version 7.0 release
 
