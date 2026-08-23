@@ -5,6 +5,7 @@ export type ScenarioType =
   | 'center-lane'
   | 'two-right-lanes'
   | 'two-left-lanes'
+  | 'all-lanes'
   | 'lane-shift'
   | 'ramp-closure'
 export type ComplianceMode = 'gospel' | 'modified' | 'violate'
@@ -15,7 +16,7 @@ export interface ScenarioDefinition {
   heading: string
   mutcdApplication: string
   truckOffsetX: number
-  signboard: 'left-arrow' | 'right-arrow' | 'split-arrow' | 'ramp-blocked'
+  signboard: 'left-arrow' | 'right-arrow' | 'split-arrow' | 'ramp-blocked' | 'incident-ahead'
 }
 
 export const SCENARIO_CATALOG: ScenarioDefinition[] = [
@@ -25,6 +26,7 @@ export const SCENARIO_CATALOG: ScenarioDefinition[] = [
   { id: 'center-lane', label: 'Center lane closure', heading: 'Center lane closure', mutcdApplication: 'Interior lane closed', truckOffsetX: -12, signboard: 'split-arrow' },
   { id: 'two-right-lanes', label: 'Two right lanes', heading: 'Two right lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12, signboard: 'left-arrow' },
   { id: 'two-left-lanes', label: 'Two left lanes', heading: 'Two left lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12, signboard: 'right-arrow' },
+  { id: 'all-lanes', label: 'All lanes closure', heading: 'All travel lanes closed', mutcdApplication: 'Full roadway closure', truckOffsetX: -12, signboard: 'incident-ahead' },
   { id: 'lane-shift', label: 'Lane shift', heading: 'Temporary lane shift', mutcdApplication: 'Temporary alignment', truckOffsetX: 0, signboard: 'split-arrow' },
   { id: 'ramp-closure', label: 'Ramp closure', heading: 'Entrance or exit ramp closure', mutcdApplication: 'Ramp closed', truckOffsetX: 12, signboard: 'ramp-blocked' },
 ]
@@ -99,6 +101,7 @@ const templates: Record<ScenarioType, ScenePoint[]> = {
   'center-lane': createLaneClosureTemplate(30, 42),
   'two-right-lanes': createLaneClosureTemplate(30, 54, 10),
   'two-left-lanes': createLaneClosureTemplate(42, 18, 10),
+  'all-lanes': createLaneClosureTemplate(18, 54, 15),
   'lane-shift': createLaneShiftTemplate(),
   'ramp-closure': createRampClosureTemplate(),
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDevelopmentRoadScene } from './roadScene'
+import { DEFAULT_TOC_INCIDENT_DETAILS } from './communications'
 import { createPortableScenario, parsePortableScenario, type PortableScenarioState } from './scenarioFile'
 
 const state: PortableScenarioState = {
@@ -15,6 +16,8 @@ const state: PortableScenarioState = {
   deployedEquipment: [],
   drawingStrokes: [{ id: 'stroke-1', points: [{ x: 10, y: 20 }, { x: 20, y: 30 }], color: '#ffffff', widthFeet: 4, createdAt: 1, persistence: 'persistent' }],
   radioEvents: [],
+  incidentType: 'crash',
+  tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
   roadScene: createDevelopmentRoadScene(),
   locationRequest: { highway: 'I-95', direction: 'northbound', referenceType: 'exit', reference: '166A' },
   resolvedLocation: null,
@@ -54,6 +57,14 @@ describe('portable scenario files', () => {
 
     expect(parsePortableScenario(serialized).state.drawingStrokes).toEqual([])
     expect(parsePortableScenario(serialized).state.roadLayerVisibility.drawings).toBe(true)
+  })
+
+  it('defaults files saved before incident selection to crash', () => {
+    const document = createPortableScenario(state, '5.0.0', '2026-08-20T00:00:00.000Z')
+    const serialized = JSON.stringify({ ...document, state: { ...document.state, incidentType: undefined } })
+
+    expect(parsePortableScenario(serialized).state.incidentType).toBe('crash')
+    expect(parsePortableScenario(serialized).state.tocIncidentDetails).toEqual(DEFAULT_TOC_INCIDENT_DETAILS)
   })
 
   it('rejects unsupported and incomplete files', () => {

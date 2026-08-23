@@ -50,6 +50,15 @@ import {
 } from './domain/appSettings'
 import { releaseVersionLabel } from './domain/appVersion'
 import {
+  buildInitialRadioExchange,
+  DEFAULT_TOC_INCIDENT_DETAILS,
+  INCIDENT_TYPE_OPTIONS,
+  type CommunicationDirection,
+  type IncidentType,
+  type TocIncidentDetails,
+  type YesNoUnknown,
+} from './domain/communications'
+import {
   createPortableScenario,
   parsePortableScenario,
   type PortableScenarioState,
@@ -151,6 +160,22 @@ const connectivityModes: { id: ConnectivityMode; label: string; icon: typeof Wif
 ]
 
 const themeIds: ThemeId[] = ['dark', 'light', 'custom-1', 'custom-2', 'custom-3']
+const communicationDirections = travelDirections.filter(
+  (direction): direction is { value: CommunicationDirection; label: string } => direction.value !== 'all',
+)
+const yesNoOptions: { value: YesNoUnknown; label: string }[] = [
+  { value: 'unknown', label: 'Unknown' },
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+]
+const impactedLaneOptions = [
+  { value: 'all lanes', label: 'All lanes' },
+  { value: 'multiple lanes', label: 'Multiple lanes' },
+  { value: 'the left lane', label: 'Left lane' },
+  { value: 'the center lane', label: 'Center lane' },
+  { value: 'the right lane', label: 'Right lane' },
+  { value: 'the right shoulder', label: 'Right shoulder' },
+]
 const appReleaseVersion = releaseVersionLabel(__APP_VERSION__)
 
 type SpatialServiceStatus = 'checking' | 'connected' | 'unavailable'
@@ -225,6 +250,8 @@ function loadSavedScenario(): PortableScenarioState | null {
           sceneRotation: scenario.sceneRotation ?? 0,
           mapRotation: 0,
           drawingStrokes: [],
+          incidentType: 'crash',
+          tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
           roadScene: createDevelopmentRoadScene(),
           locationRequest: DEFAULT_LOCATION_REQUEST,
           resolvedLocation: null,
@@ -260,6 +287,8 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     deployedEquipment: state.deployedEquipment,
     drawingStrokes: state.drawingStrokes,
     radioEvents: state.radioEvents,
+    incidentType: state.incidentType,
+    tocIncidentDetails: state.tocIncidentDetails,
     roadScene: state.roadScene,
     locationRequest: state.locationRequest,
     resolvedLocation: state.resolvedLocation,
@@ -483,6 +512,8 @@ function App() {
     drawings: true,
   })
   const [radioEvents, setRadioEvents] = useState(savedScenario?.radioEvents ?? [])
+  const [incidentType, setIncidentType] = useState<IncidentType>(savedScenario?.incidentType ?? 'crash')
+  const [tocIncidentDetails, setTocIncidentDetails] = useState<TocIncidentDetails>(savedScenario?.tocIncidentDetails ?? DEFAULT_TOC_INCIDENT_DETAILS)
 
   const audit = auditScene(scenario, mode, points)
   const upstreamCount = points.filter((point) => point.role !== 'perimeter').length
@@ -502,6 +533,7 @@ function App() {
     'center-lane',
     'two-right-lanes',
     'two-left-lanes',
+    'all-lanes',
   ].includes(scenario) ? taperCount * RIGHT_LANE_STANDARD.coneSpacing : 120
   const sceneViewBox = centeredSceneViewBox(roadScene.viewport, 1, sceneDisplaySize)
   const sceneViewBoxValue = `${sceneViewBox.x} ${sceneViewBox.y} ${sceneViewBox.width} ${sceneViewBox.height}`
@@ -760,42 +792,62 @@ function App() {
   }
 
   async function presentOnExternalDisplay() {
+    const stage = roadStageRef.current
+    if (!stage) {
+      window.alert('The Magnus scene is not ready to present.')
+      return
+    }
     const presentation = window.open('', 'magnus-presentation', 'popup,width=1280,height=720')
     if (!presentation) {
       window.alert('Allow pop-up windows to present Magnus on an external display.')
       return
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false,
-        preferCurrentTab: true,
-      } as DisplayMediaStreamOptions)
       const screenWindow = window as PresentationWindow
-      const details = screenWindow.getScreenDetails ? await screenWindow.getScreenDetails() : null
-      const externalScreen = details?.screens.find((screen) => screen !== details.currentScreen)
-      if (externalScreen) {
-        presentation.moveTo(externalScreen.availLeft, externalScreen.availTop)
-        presentation.resizeTo(externalScreen.availWidth, externalScreen.availHeight)
+      if (screenWindow.getScreenDetails) {
+        try {
+          const details = await screenWindow.getScreenDetails()
+          const externalScreen = details.screens.find((screen) => screen !== details.currentScreen)
+          if (externalScreen) {
+            presentation.moveTo(externalScreen.availLeft, externalScreen.availTop)
+            presentation.resizeTo(externalScreen.availWidth, externalScreen.availHeight)
+          }
+        } catch {
+          // The presentation remains usable when window-placement permission is denied.
+        }
       }
 
+      presentation.document.head.replaceChildren(...Array.from(document.head.children).map((node) => node.cloneNode(true)))
       presentation.document.title = 'Magnus Presentation'
       presentation.document.body.replaceChildren()
       presentation.document.body.style.cssText = 'margin:0;overflow:hidden;background:#101614;'
-      const video = presentation.document.createElement('video')
-      video.autoplay = true
-      video.muted = true
-      video.playsInline = true
-      video.srcObject = stream
-      video.style.cssText = 'width:100vw;height:100vh;display:block;object-fit:contain;background:#101614;'
-      presentation.document.body.append(video)
-      const stopPresentation = () => stream.getTracks().forEach((track) => track.stop())
-      presentation.addEventListener('beforeunload', stopPresentation, { once: true })
-      stream.getVideoTracks()[0]?.addEventListener('ended', () => presentation.close(), { once: true })
-      await video.play()
+      const presentationStyle = presentation.document.createElement('style')
+      presentationStyle.textContent = '.road-stage{width:100vw!important;height:100vh!important;max-height:none!important;border:0!important}.road-stage-controls{display:none!important}'
+      presentation.document.head.append(presentationStyle)
+
+      let renderFrame: number | null = null
+      const renderPresentation = () => {
+        if (presentation.closed) return
+        presentation.document.documentElement.dataset.theme = document.documentElement.dataset.theme
+        presentation.document.documentElement.style.cssText = document.documentElement.style.cssText
+        presentation.document.body.replaceChildren(stage.cloneNode(true))
+      }
+      const scheduleRender = () => {
+        if (renderFrame !== null || presentation.closed) return
+        renderFrame = window.requestAnimationFrame(() => {
+          renderFrame = null
+          renderPresentation()
+        })
+      }
+      renderPresentation()
+      const observer = new MutationObserver(scheduleRender)
+      observer.observe(stage, { attributes: true, childList: true, characterData: true, subtree: true })
+      presentation.addEventListener('beforeunload', () => {
+        observer.disconnect()
+        if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
+      }, { once: true })
     } catch (error) {
       presentation.close()
-      if (error instanceof DOMException && error.name === 'AbortError') return
       window.alert(error instanceof Error ? `Magnus could not start presentation mode: ${error.message}` : 'Magnus could not start presentation mode.')
     }
   }
@@ -880,6 +932,8 @@ function App() {
       deployedEquipment,
       drawingStrokes,
       radioEvents,
+      incidentType,
+      tocIncidentDetails,
       roadScene,
       locationRequest,
       resolvedLocation,
@@ -954,6 +1008,8 @@ function App() {
     setTemporaryDrawingStrokes([])
     setSelectedEquipmentId(null)
     setRadioEvents(state.radioEvents)
+    setIncidentType(state.incidentType)
+    setTocIncidentDetails(state.tocIncidentDetails)
     initializedZoomSceneRef.current = state.roadScene
     setRoadScene(state.roadScene)
     setLocationRequest(state.locationRequest)
@@ -1155,10 +1211,19 @@ function App() {
 
   function addRadioEvent() {
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    setRadioEvents((current) => [
-      ...current,
-      { time: now, text: 'Scene configuration updated', channel: 'TOC' },
-    ])
+    const direction = locationRequest.direction === 'all' ? 'northbound' : locationRequest.direction
+    const exchange = buildInitialRadioExchange({
+      unit: 'SSP970',
+      highway: locationRequest.highway,
+      direction,
+      referenceType: locationRequest.referenceType,
+      reference: locationRequest.reference,
+      incidentType,
+      details: tocIncidentDetails,
+      scenario,
+      travelLanes: laneCount,
+    })
+    setRadioEvents((current) => [...current, ...exchange.map((message) => ({ ...message, time: now }))])
   }
 
   function removeRearCone() {
@@ -1519,13 +1584,12 @@ function App() {
             <div className="location-tool-heading"><MapPinned size={16} /><div><label htmlFor="highway">Roadway location</label><span>Load scaled corridor geometry</span></div></div>
             <div className="location-fields">
               <label className="location-highway" htmlFor="highway">Highway<input id="highway" placeholder="I-95 or Route 28" value={locationRequest.highway} onChange={(event) => { setLocationRequest((current) => ({ ...current, highway: event.target.value, reference: current.highway === event.target.value ? current.reference : '' })); setResolvedLocation(null) }} /></label>
-              <label htmlFor="direction">Direction<select id="direction" value={locationRequest.direction} onChange={(event) => setLocationRequest((current) => ({ ...current, direction: event.target.value as RoadLocationRequest['direction'] }))}>{travelDirections.map((direction) => <option value={direction.value} key={direction.value}>{direction.label}</option>)}</select></label>
               <label htmlFor="reference-type">Reference<select id="reference-type" value={locationRequest.referenceType} onChange={(event) => setLocationRequest((current) => ({ ...current, referenceType: event.target.value as RoadLocationRequest['referenceType'], reference: '' }))}><option value="mile-marker">Mile marker</option><option value="exit">Exit number</option></select></label>
               <label htmlFor="reference">{locationRequest.referenceType === 'exit' ? 'Exit' : 'Mile marker'}<input id="reference" inputMode="decimal" placeholder={locationRequest.referenceType === 'exit' ? '166' : '168.0'} value={locationRequest.reference} onChange={(event) => setLocationRequest((current) => ({ ...current, reference: event.target.value }))} /></label>
             </div>
             {locationErrors.map((error) => <p className="location-error" role="alert" key={error}>{error}</p>)}
             <button className="location-load" type="submit" disabled={locationLoading}>{locationLoading ? <LoaderCircle className="location-spinner" size={15} /> : <MapPinned size={15} />}<span>{locationLoading ? 'Resolving location' : 'Render location'}</span></button>
-            {resolvedLocation && <div className={`location-result ${resolvedLocation.source}`} role="status"><strong>{resolvedLocation.request.highway} · {resolvedLocation.request.direction.replace('bound', 'bound ')}</strong><span>{resolvedLocation.message}</span></div>}
+            {resolvedLocation && <div className={`location-result ${resolvedLocation.source}`} role="status"><strong>{resolvedLocation.request.highway}</strong><span>{resolvedLocation.message}</span></div>}
           </form>
           <div className="control-group scene-type-control">
             <button className="scene-type-toggle" type="button" aria-expanded={sceneTypeOpen} aria-controls="scene-type-options" onClick={() => setSceneTypeOpen((open) => !open)}><span>Scene type</span>{sceneTypeOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</button>
@@ -1729,7 +1793,7 @@ function App() {
           </div>
           <section className={`audit-card ${audit.status}`}><div className="audit-title">{audit.status === 'compliant' ? <CheckCircle2 size={22} /> : <AlertTriangle size={22} />}<div><span>Real-time audit</span><h3>{audit.title}</h3></div></div><ul>{audit.findings.map((finding) => <li key={finding}>{finding}</li>)}</ul></section>
           <section className="metrics-section"><div className="section-title"><span>Scene metrics</span><b>LIVE</b></div><div className="metric-grid"><div><span>Taper length</span><strong>{taperLength}<small> FT</small></strong><i className="metric-good">{mode === 'modified' ? 'Enhanced' : mode === 'violate' ? 'Training state' : 'Standard'}</i></div><div><span>Upstream cones</span><strong>{upstreamCount}<small> / {scenario === 'right-lane' ? '8 MIN' : 4}</small></strong><i className={upstreamCount >= 8 || scenario !== 'right-lane' ? 'metric-good' : 'metric-risk'}>{upstreamCount >= 8 || scenario !== 'right-lane' ? 'Minimum met' : 'Below SOP'}</i></div><div><span>Buffer zone</span><strong>{scenario === 'right-lane' ? `${bufferCount} / 3` : 'N/A'}</strong><i>Anchor + 2 cones</i></div><div><span>Taper cones</span><strong>{scenario === 'right-lane' ? `${taperCount} / 5 MIN` : '3 / 3'}</strong><i>{mode === 'modified' ? 'Additional allowed' : 'Standard count'}</i></div><div><span>Forward spacing</span><strong>{downstreamSpacing}<small> FT</small></strong><i>{mode === 'modified' ? 'Expanded allowed' : 'Standard 40 ft'}</i></div><div><span>Shoulder access</span><strong>{scenario === 'right-lane' ? 'CLEAR' : 'N/A'}</strong><i className="metric-good">Responder route</i></div></div></section>
-          <section className="radio-section"><div className="section-title"><span>Communications</span><Radio size={15} /></div><div className="radio-log">{radioEvents.map((event, index) => <div className="radio-event" key={`${event.time}-${index}`}><Clock3 size={14} /><div><span>{event.time} · {event.channel}</span><p>{event.text}</p></div></div>)}</div><button className="secondary-button" type="button" onClick={addRadioEvent}><Plus size={16} /> Add radio event</button></section>
+          <section className="radio-section"><div className="section-title"><span>Communications</span><Radio size={15} /></div><div className="communications-fields"><label htmlFor="communications-direction">Travel direction<select id="communications-direction" value={locationRequest.direction === 'all' ? 'northbound' : locationRequest.direction} onChange={(event) => setLocationRequest((current) => ({ ...current, direction: event.target.value as CommunicationDirection }))}>{communicationDirections.map((direction) => <option value={direction.value} key={direction.value}>{direction.label}</option>)}</select></label><label htmlFor="incident-type">Incident type<select id="incident-type" value={incidentType} onChange={(event) => setIncidentType(event.target.value as IncidentType)}>{INCIDENT_TYPE_OPTIONS.map((incident) => <option value={incident.value} key={incident.value}>{incident.label}</option>)}</select></label></div>{(incidentType === 'crash' || incidentType === 'severe-crash') && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Vehicle count<input type="number" min="1" value={tocIncidentDetails.crashVehicleCount} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, crashVehicleCount: Math.max(1, Number(event.target.value)) }))} /></label><label>Transported by EMS<input type="number" min="0" value={tocIncidentDetails.emsTransportCount} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, emsTransportCount: Math.max(0, Number(event.target.value)) }))} /></label><label>Injuries<select value={tocIncidentDetails.injuries} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, injuries: event.target.value as TocIncidentDetails['injuries'] }))}><option value="unknown">Unknown</option><option value="none">None reported</option><option value="reported">Reported</option></select></label></div>}{(incidentType === 'disabled-vehicle' || incidentType === 'blocking-disabled') && <div className="toc-detail-fields vehicle-details" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>License plate<input value={tocIncidentDetails.licensePlate} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, licensePlate: event.target.value }))} /></label><label>Plate state<input value={tocIncidentDetails.licensePlateState} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, licensePlateState: event.target.value }))} /></label><label>Vehicle make<input value={tocIncidentDetails.vehicleMake} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, vehicleMake: event.target.value }))} /></label><label>Vehicle model<input value={tocIncidentDetails.vehicleModel} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, vehicleModel: event.target.value }))} /></label><label>Vehicle color<input value={tocIncidentDetails.vehicleColor} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, vehicleColor: event.target.value }))} /></label></div>}{incidentType === 'plane-crash' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Lanes impacted<select value={tocIncidentDetails.planeLanesImpacted} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, planeLanesImpacted: event.target.value }))}>{impactedLaneOptions.slice(0, 5).map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Plane size<select value={tocIncidentDetails.planeSize} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, planeSize: event.target.value }))}><option value="unknown size">Unknown</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></label><label>Survivors<select value={tocIncidentDetails.survivors} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, survivors: event.target.value as TocIncidentDetails['survivors'] }))}><option value="unknown">Unknown</option><option value="yes">Reported</option><option value="no">None reported</option></select></label></div>}{incidentType === 'downed-tree' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Tree lanes blocked<select value={tocIncidentDetails.treeLanesBlocked} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, treeLanesBlocked: event.target.value }))}>{impactedLaneOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Tree size<input value={tocIncidentDetails.treeSize} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, treeSize: event.target.value }))} /></label><label>Resources to move tree<input value={tocIncidentDetails.treeResourcesNeeded} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, treeResourcesNeeded: event.target.value }))} /></label></div>}{incidentType === 'debris' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Hazardous debris<select value={tocIncidentDetails.debrisHazardous} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisHazardous: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>SSP can remove manually<select value={tocIncidentDetails.debrisManualRemoval} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisManualRemoval: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Needs VSP slow-roll<select value={tocIncidentDetails.debrisNeedsSlowRoll} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisNeedsSlowRoll: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>SSP has lane blade<select value={tocIncidentDetails.debrisHasLaneBlade} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, debrisHasLaneBlade: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label></div>}{incidentType === 'car-fire' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Motorist out<select value={tocIncidentDetails.carFireMotoristOut} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireMotoristOut: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Fully engulfed<select value={tocIncidentDetails.carFireFullyEngulfed} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireFullyEngulfed: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Electric vehicle<select value={tocIncidentDetails.carFireIsEv} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireIsEv: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Fire lanes blocked<select value={tocIncidentDetails.carFireLanesBlocked} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, carFireLanesBlocked: event.target.value }))}>{impactedLaneOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label></div>}{incidentType === 'tractor-trailer-fire' && <div className="toc-detail-fields" aria-label="What TOC will need to know"><strong>What TOC will need to know</strong><label>Driver out<select value={tocIncidentDetails.tractorDriverOut} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorDriverOut: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Trailer hauling<input value={tocIncidentDetails.tractorTrailerCargo} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorTrailerCargo: event.target.value }))} /></label><label>HAZMAT<select value={tocIncidentDetails.tractorHazmat} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorHazmat: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Fully engulfed<select value={tocIncidentDetails.tractorFullyEngulfed} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorFullyEngulfed: event.target.value as YesNoUnknown }))}>{yesNoOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label>Truck fire lanes blocked<select value={tocIncidentDetails.tractorLanesBlocked} onChange={(event) => setTocIncidentDetails((current) => ({ ...current, tractorLanesBlocked: event.target.value }))}>{impactedLaneOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label></div>}<div className="radio-log">{radioEvents.map((event, index) => <div className="radio-event" key={`${event.time}-${index}`}><Clock3 size={14} /><div><span>{event.time} · {event.channel}</span><p>{event.text}</p></div></div>)}</div><button className="secondary-button" type="button" onClick={addRadioEvent}><Radio size={16} /> Build initial radio call</button></section>
         </aside>
       </section>
       {designerOpen && <SceneDesigner onClose={() => setDesignerOpen(false)} onSave={saveTemplate} />}

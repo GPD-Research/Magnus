@@ -1,14 +1,17 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::{HashMap, HashSet}, path::Path};
 
 use osmpbf::{Element, ElementReader};
+use serde_json::json;
 use thiserror::Error;
 
 use crate::{
     CoordinateSystem, FeatureProperties, Geometry, RoadFeature, RoadFeatureKind, RoadScene,
-    SceneSource, SceneSourceType, Viewport,
+    RoadLocationRequest, RoadReferenceType, SceneSource, SceneSourceType, Viewport,
+    compile_overpass_json,
 };
 
 const FEET_PER_METER: f64 = 3.280_839_895;
+const LOCAL_SCAN_RADIUS_FEET: f64 = 4_000.0;
 
 #[derive(Debug, Clone)]
 pub struct CompileOptions {
@@ -22,6 +25,16 @@ pub struct CompileOptions {
 pub enum SpatialError {
     #[error("could not read OSM PBF: {0}")]
     Pbf(#[from] osmpbf::Error),
+    #[error("prepared map does not contain the requested route location")]
+    LocationNotFound,
+    #[error("could not compile prepared map location: {0}")]
+    Scene(String),
+}
+
+#[derive(Debug, Clone)]
+struct LocationNode {
+    latitude: f64,
+    longitude: f64,
 }
 
 #[derive(Debug)]
@@ -157,6 +170,163 @@ pub fn compile_pbf(
     })
 }
 
+pub fn compile_pbf_location(
+    path: impl AsRef<Path>,
+    request: &RoadLocationRequest,
+) -> Result<RoadScene, SpatialError> {
+    let path = path.as_ref();
+    let mut candidates = Vec::new();
+    let mut route_node_ids = HashSet::new();
+    ElementReader::from_path(path)?.for_each(|element| match element {
+        Element::Node(node) => collect_location_candidate(
+            node.id(), node.lat(), node.lon(), node.tags(), request, &mut candidates,
+        ),
+        Element::DenseNode(node) => collect_location_candidate(
+            node.id(), node.lat(), node.lon(), node.tags(), request, &mut candidates,
+        ),
+        Element::Way(way) if route_reference_matches(way.tags().find(|(key, _)| *key == "ref").map(|(_, value)| value), &request.highway) => {
+            route_node_ids.extend(way.refs());
+        }
+        _ => {}
+    })?;
+
+    let mut route_nodes = Vec::new();
+    ElementReader::from_path(path)?.for_each(|element| match element {
+        Element::Node(node) if route_node_ids.contains(&node.id()) => {
+            route_nodes.push(LocationNode { latitude: node.lat(), longitude: node.lon() });
+        }
+        Element::DenseNode(node) if route_node_ids.contains(&node.id()) => {
+            route_nodes.push(LocationNode { latitude: node.lat(), longitude: node.lon() });
+        }
+        _ => {}
+    })?;
+    let anchor = candidates
+        .into_iter()
+        .filter_map(|candidate| {
+            let distance = route_nodes.iter()
+                .map(|route_node| geographic_distance_feet(&candidate, route_node))
+                .reduce(f64::min)?;
+            (distance <= 500.0).then_some((candidate, distance))
+        })
+        .min_by(|first, second| first.1.total_cmp(&second.1))
+        .map(|(candidate, _)| candidate)
+        .or_else(|| estimate_route_anchor(&route_nodes, request))
+        .ok_or(SpatialError::LocationNotFound)?;
+
+    let mut nearby_nodes = HashMap::new();
+    ElementReader::from_path(path)?.for_each(|element| match element {
+        Element::Node(node) if coordinate_distance_feet(node.lat(), node.lon(), &anchor) <= LOCAL_SCAN_RADIUS_FEET => {
+            nearby_nodes.insert(node.id(), json!({ "type": "node", "id": node.id(), "lat": node.lat(), "lon": node.lon(), "tags": node.tags().collect::<HashMap<_, _>>() }));
+        }
+        Element::DenseNode(node) if coordinate_distance_feet(node.lat(), node.lon(), &anchor) <= LOCAL_SCAN_RADIUS_FEET => {
+            nearby_nodes.insert(node.id(), json!({ "type": "node", "id": node.id(), "lat": node.lat(), "lon": node.lon(), "tags": node.tags().collect::<HashMap<_, _>>() }));
+        }
+        _ => {}
+    })?;
+
+    let mut elements = nearby_nodes.values().cloned().collect::<Vec<_>>();
+    ElementReader::from_path(path)?.for_each(|element| {
+        let Element::Way(way) = element else { return };
+        let tags = way.tags().collect::<HashMap<_, _>>();
+        if !tags.get("highway").is_some_and(|value| is_rendered_highway(value)) {
+            return;
+        }
+        let nodes = way.refs().collect::<Vec<_>>();
+        if nodes.iter().filter(|node_id| nearby_nodes.contains_key(node_id)).count() < 2 {
+            return;
+        }
+        elements.push(json!({ "type": "way", "id": way.id(), "nodes": nodes, "tags": tags }));
+    })?;
+
+    let body = serde_json::to_string(&json!({ "elements": elements }))
+        .map_err(|error| SpatialError::Scene(error.to_string()))?;
+    let mut scene = compile_overpass_json(&body, request)
+        .map_err(|error| SpatialError::Scene(error.to_string()))?;
+    scene.source.source_type = SceneSourceType::OsmPbf;
+    scene.source.dataset = path.file_name().and_then(|name| name.to_str()).unwrap_or("prepared OSM package").into();
+    scene.source.generated_at = "resolved-offline".into();
+    scene.source.attribution = "© OpenStreetMap contributors, ODbL 1.0; loaded from prepared local map data".into();
+    Ok(scene)
+}
+
+fn collect_location_candidate<'a>(
+    _id: i64,
+    latitude: f64,
+    longitude: f64,
+    tags: impl Iterator<Item = (&'a str, &'a str)>,
+    request: &RoadLocationRequest,
+    candidates: &mut Vec<LocationNode>,
+) {
+    let tags = tags.map(|(key, value)| (key.to_owned(), value.to_owned())).collect::<HashMap<_, _>>();
+    if anchor_reference_matches(&tags, request) {
+        candidates.push(LocationNode { latitude, longitude });
+    }
+}
+
+fn anchor_reference_matches(tags: &HashMap<String, String>, request: &RoadLocationRequest) -> bool {
+    let expected = request.reference.trim();
+    match request.reference_type {
+        RoadReferenceType::Exit => tags.get("highway").is_some_and(|value| value == "motorway_junction")
+            && tags.get("ref").is_some_and(|value| {
+                value.eq_ignore_ascii_case(expected)
+                    || value.strip_prefix(expected).is_some_and(|suffix| suffix.len() == 1 && suffix.chars().all(|character| character.is_ascii_alphabetic()))
+            }),
+        RoadReferenceType::MileMarker => tags.get("highway").is_some_and(|value| value == "milestone")
+            && tags.get("distance").is_some_and(|value| {
+                value.parse::<f64>().ok().zip(expected.parse::<f64>().ok()).is_some_and(|(actual, requested)| (actual - requested).abs() < 0.01)
+            }),
+    }
+}
+
+fn route_reference_matches(reference: Option<&str>, highway: &str) -> bool {
+    let compact_highway = compact_route_reference(highway);
+    reference.is_some_and(|reference| reference.split(';').any(|candidate| {
+        let compact_candidate = compact_route_reference(candidate);
+        compact_candidate == compact_highway
+            || compact_highway.strip_prefix("ROUTE").is_some_and(|number| compact_candidate == format!("VA{number}"))
+    }))
+}
+
+fn compact_route_reference(value: &str) -> String {
+    value.chars().filter(|character| character.is_ascii_alphanumeric()).flat_map(char::to_uppercase).collect()
+}
+
+fn estimate_route_anchor(route_nodes: &[LocationNode], request: &RoadLocationRequest) -> Option<LocationNode> {
+    if request.reference_type != RoadReferenceType::MileMarker {
+        return None;
+    }
+    let target_distance = request.reference.trim().parse::<f64>().ok()? * 5_280.0;
+    let north_south = coordinate_span(route_nodes, |node| node.latitude) >= coordinate_span(route_nodes, |node| node.longitude);
+    let origin = route_nodes.iter().min_by(|first, second| {
+        let first_axis = if north_south { first.latitude } else { first.longitude };
+        let second_axis = if north_south { second.latitude } else { second.longitude };
+        first_axis.total_cmp(&second_axis)
+    })?;
+    route_nodes.iter().min_by(|first, second| {
+        (geographic_distance_feet(origin, first) - target_distance).abs()
+            .total_cmp(&(geographic_distance_feet(origin, second) - target_distance).abs())
+    }).filter(|candidate| (geographic_distance_feet(origin, candidate) - target_distance).abs() <= 2_640.0).cloned()
+}
+
+fn coordinate_span(nodes: &[LocationNode], value: impl Fn(&LocationNode) -> f64) -> f64 {
+    let (minimum, maximum) = nodes.iter().map(value).fold((f64::INFINITY, f64::NEG_INFINITY), |(minimum, maximum), value| (minimum.min(value), maximum.max(value)));
+    maximum - minimum
+}
+
+fn geographic_distance_feet(first: &LocationNode, second: &LocationNode) -> f64 {
+    coordinate_distance_feet(second.latitude, second.longitude, first)
+}
+
+fn coordinate_distance_feet(latitude: f64, longitude: f64, anchor: &LocationNode) -> f64 {
+    let east = (longitude - anchor.longitude) * 111_320.0 * anchor.latitude.to_radians().cos() * FEET_PER_METER;
+    let north = (latitude - anchor.latitude) * 111_132.0 * FEET_PER_METER;
+    east.hypot(north)
+}
+
+fn is_rendered_highway(value: &str) -> bool {
+    matches!(value, "motorway" | "motorway_link" | "trunk" | "trunk_link" | "primary" | "primary_link" | "secondary" | "secondary_link")
+}
+
 fn normalize_to_viewport(features: &mut [RoadFeature]) -> Viewport {
     let bounds = features
         .iter()
@@ -245,5 +415,36 @@ mod tests {
             features[0].geometry,
             Geometry::LineString(vec![[20.0, 20.0], [120.0, 220.0]])
         );
+    }
+
+    #[test]
+    fn matches_local_interstate_and_virginia_route_references() {
+        assert!(route_reference_matches(Some("I 95;US 1"), "I-95"));
+        assert!(route_reference_matches(Some("VA 28"), "Route 28"));
+        assert!(!route_reference_matches(Some("VA 28"), "I-95"));
+    }
+
+    #[test]
+    fn matches_exit_suffixes_and_numeric_mile_markers() {
+        let exit_request = RoadLocationRequest {
+            highway: "I-95".into(),
+            direction: crate::TravelDirection::Northbound,
+            reference_type: RoadReferenceType::Exit,
+            reference: "166".into(),
+        };
+        assert!(anchor_reference_matches(&HashMap::from([
+            ("highway".into(), "motorway_junction".into()),
+            ("ref".into(), "166A".into()),
+        ]), &exit_request));
+
+        let mile_request = RoadLocationRequest {
+            reference_type: RoadReferenceType::MileMarker,
+            reference: "170".into(),
+            ..exit_request
+        };
+        assert!(anchor_reference_matches(&HashMap::from([
+            ("highway".into(), "milestone".into()),
+            ("distance".into(), "170.0".into()),
+        ]), &mile_request));
     }
 }

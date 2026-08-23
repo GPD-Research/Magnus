@@ -1,5 +1,6 @@
 import type { DeployedEquipment } from './equipmentCatalog'
 import type { DrawingStroke } from './drawing'
+import { isIncidentType, normalizeTocIncidentDetails, type IncidentType, type TocIncidentDetails } from './communications'
 import type { ResolvedRoadLocation, RoadLocationRequest } from './roadLocation'
 import type { RoadLayerVisibility, RoadScene } from './roadScene'
 import type { SspTruckState } from './signboard'
@@ -18,6 +19,8 @@ export interface PortableScenarioState {
   deployedEquipment: DeployedEquipment[]
   drawingStrokes: DrawingStroke[]
   radioEvents: { time: string; text: string; channel: string }[]
+  incidentType: IncidentType
+  tocIncidentDetails: TocIncidentDetails
   roadScene: RoadScene
   locationRequest: RoadLocationRequest
   resolvedLocation: ResolvedRoadLocation | null
@@ -73,6 +76,8 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
         assetType: truck.assetType === 'lane-blade-truck' ? 'lane-blade-truck' : 'ssp-truck',
       })),
       drawingStrokes: Array.isArray(state.drawingStrokes) ? state.drawingStrokes : [],
+      incidentType: isIncidentType(state.incidentType) ? state.incidentType : 'crash',
+      tocIncidentDetails: normalizeTocIncidentDetails(state.tocIncidentDetails),
       roadLayerVisibility: {
         ...state.roadLayerVisibility,
         drawings: state.roadLayerVisibility.drawings !== false,

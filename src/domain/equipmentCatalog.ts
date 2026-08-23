@@ -14,7 +14,7 @@ export type EquipmentGlyph =
   | 'tractor-trailer' | 'jackknife' | 'tractor' | 'bus' | 'trailer'
   | 'car-hauler' | 'vehicle-fire' | 'tanker' | 'debris' | 'deer' | 'airplane' | 'helipad'
   | 'tow-truck' | 'heavy-tow' | 'tma-crash' | 'tma-cone' | 'barrel' | 'motorcycle' | 'injured-person'
-  | 'gas-can' | 'floor-jack' | 'tool-bag' | 'compressor' | 'tire' | 'debris-area'
+  | 'gas-can' | 'floor-jack' | 'tool-bag' | 'compressor' | 'tire' | 'debris-area' | 'downed-tree'
 
 export interface EquipmentDefinition {
   id: string
@@ -89,6 +89,7 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'debris-grey', label: 'Grey debris', category: 'hazard', countClass: 'hazard', glyph: 'debris', color: '#b3b9b7', width: 8, length: 8 },
   { id: 'debris-red', label: 'Red debris', category: 'hazard', countClass: 'hazard', glyph: 'debris', color: '#c94b41', width: 8, length: 8 },
   { id: 'deer', label: 'Deer debris', category: 'hazard', countClass: 'hazard', glyph: 'deer', color: '#8a674b', width: 6, length: 9 },
+  { id: 'downed-tree', label: 'Downed tree', category: 'hazard', countClass: 'hazard', glyph: 'downed-tree', color: '#79563b', width: 10, length: 20, rotatable: true },
   { id: 'airplane', label: 'Damaged single-prop airplane', category: 'hazard', countClass: 'hazard', glyph: 'airplane', color: '#d9dddb', width: 34, length: 28 },
   { id: 'helicopter-zone', label: 'Helicopter landing zone', category: 'hazard', countClass: 'hazard', glyph: 'helipad', color: '#d24035', width: 36, length: 36 },
   { id: 'removed-wheel', label: 'Removed wheel / tire', category: 'incidental', countClass: 'equipment', glyph: 'tire', color: '#282d2c', width: 4, length: 4, rotatable: true },

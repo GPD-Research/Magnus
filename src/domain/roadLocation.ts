@@ -182,7 +182,7 @@ export async function resolveRoadLocation(
   try {
     const query = new URLSearchParams({
       highway: normalizedRequest.highway,
-      direction: normalizedRequest.direction,
+      direction: 'all',
       referenceType: normalizedRequest.referenceType,
       reference: normalizedRequest.reference.trim(),
       source: sourceMode,
@@ -206,7 +206,7 @@ export async function resolveRoadLocation(
       request: normalizedRequest,
       scene: createLocationPreviewScene(normalizedRequest),
       source: 'development-preview',
-      message: `${sourceMode === 'online' ? 'Online' : sourceMode === 'lan' ? 'LAN' : 'Offline'} map geometry is unavailable for ${normalizedRequest.highway} ${normalizedRequest.direction}, ${referenceLabel} ${normalizedRequest.reference}: ${reason}. Showing a scale-accurate development preview without map-derived labels.`,
+      message: `${sourceMode === 'online' ? 'Online' : sourceMode === 'lan' ? 'LAN' : 'Offline'} map geometry is unavailable for ${normalizedRequest.highway}, ${referenceLabel} ${normalizedRequest.reference}: ${reason}. Showing a scale-accurate development preview without map-derived labels.`,
     }
   }
 }

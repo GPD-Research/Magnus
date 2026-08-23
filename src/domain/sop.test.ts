@@ -46,10 +46,12 @@ describe('SOP scene audit', () => {
       'center-lane',
       'two-right-lanes',
       'two-left-lanes',
+      'all-lanes',
       'lane-shift',
       'ramp-closure',
     ])
     expect(createScene('two-right-lanes').filter((point) => point.role === 'taper')).toHaveLength(10)
+    expect(createScene('all-lanes').filter((point) => point.role === 'taper')).toHaveLength(15)
     expect(createScene('lane-shift').length).toBeGreaterThan(createScene('right-lane').length)
     expect(createScene('left-lane').find((point) => point.id === 'anchor')?.x).toBe(30)
     expect(createScene('left-lane').find((point) => point.id === 'taper-5')?.x).toBe(18)
@@ -60,6 +62,7 @@ describe('SOP scene audit', () => {
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'two-left-lanes')?.truckOffsetX).toBe(-12)
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'left-lane')?.signboard).toBe('right-arrow')
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'right-lane')?.signboard).toBe('left-arrow')
+    expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'all-lanes')?.signboard).toBe('incident-ahead')
   })
 
   it('uses three straight cones followed by five taper cones per closed lane', () => {

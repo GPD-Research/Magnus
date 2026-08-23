@@ -30,6 +30,72 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(brand).toContainText('v5')
 })
 
+test('builds the initial TOC radio exchange from direction and lane closure settings', async ({ page }) => {
+  const requests: string[] = []
+  await page.route('**/api/road-scenes/resolve?**', (route) => {
+    requests.push(route.request().url())
+    return route.abort()
+  })
+  await page.goto('/')
+
+  await expect(page.getByRole('form', { name: 'Roadway location' })).not.toContainText('Direction')
+  await page.getByLabel('Reference').selectOption('exit')
+  await page.getByLabel('Exit', { exact: true }).fill('166')
+  await page.getByLabel('Travel direction').selectOption('southbound')
+  await expect(page.getByLabel('Incident type').locator('option')).toHaveText([
+    'Car fire',
+    'Tractor trailer fire',
+    'Crash',
+    'Severe crash',
+    'Plane crash',
+    'Bridge collapse',
+    'Overhead signage collapse',
+    'Disabled vehicle (shoulder)',
+    'Blocking disabled (travel lane)',
+    'Debris',
+    'Downed tree',
+  ])
+  await expect(page.getByLabel('Vehicle count')).toBeVisible()
+  await expect(page.getByLabel('Transported by EMS')).toBeVisible()
+  await expect(page.getByLabel('Injuries')).toBeVisible()
+  await page.getByLabel('Incident type').selectOption('blocking-disabled')
+  await expect(page.getByLabel('License plate')).toBeVisible()
+  await expect(page.getByLabel('Plate state')).toBeVisible()
+  await expect(page.getByLabel('Vehicle make')).toBeVisible()
+  await expect(page.getByLabel('Vehicle model')).toBeVisible()
+  await expect(page.getByLabel('Vehicle color')).toBeVisible()
+  await page.getByLabel('Incident type').selectOption('downed-tree')
+  await expect(page.getByLabel('Tree lanes blocked')).toBeVisible()
+  await expect(page.getByLabel('Tree size')).toHaveValue('20 feet')
+  await expect(page.getByLabel('Resources to move tree')).toBeVisible()
+  await page.getByLabel('Incident type').selectOption('debris')
+  await expect(page.getByLabel('Hazardous debris')).toBeVisible()
+  await expect(page.getByLabel('SSP can remove manually')).toBeVisible()
+  await expect(page.getByLabel('Needs VSP slow-roll')).toBeVisible()
+  await expect(page.getByLabel('SSP has lane blade')).toBeVisible()
+  await page.getByLabel('Incident type').selectOption('car-fire')
+  await expect(page.getByLabel('Motorist out')).toBeVisible()
+  await expect(page.getByLabel('Electric vehicle')).toBeVisible()
+  await expect(page.getByLabel('Fire lanes blocked')).toBeVisible()
+  await page.getByLabel('Incident type').selectOption('tractor-trailer-fire')
+  await expect(page.getByLabel('Driver out')).toBeVisible()
+  await expect(page.getByLabel('Trailer hauling')).toBeVisible()
+  await expect(page.getByLabel('HAZMAT')).toBeVisible()
+  await expect(page.getByLabel('Truck fire lanes blocked')).toBeVisible()
+  await page.getByLabel('Incident type').selectOption('plane-crash')
+  await page.getByLabel('Plane size').selectOption('small')
+  await page.getByLabel('Survivors').selectOption('yes')
+  await page.getByRole('button', { name: 'Remove scene' }).click()
+  await page.getByRole('button', { name: /All lanes closure/ }).click()
+  await page.getByRole('button', { name: 'Build initial radio call' }).click()
+
+  const communications = page.locator('.radio-section')
+  await expect(communications).toContainText('SSP970 to 95 control')
+  await expect(communications).toContainText('SSP970, go ahead')
+  await expect(communications).toContainText("Show me out southbound 95 at exit 166, with a plane crash blocking all lanes, all lanes impacted, small plane, survivors reported, I'll advise.")
+  expect(requests.every((url) => url.includes('direction=all'))).toBe(true)
+})
+
 test('persists offline mode and sends cache-only map requests', async ({ page }) => {
   const requests: string[] = []
   await page.route('**/api/road-scenes/resolve?**', (route) => {
@@ -44,6 +110,20 @@ test('persists offline mode and sends cache-only map requests', async ({ page })
   await page.reload()
   await page.getByRole('button', { name: 'Open settings' }).click()
   await expect(page.getByRole('radiogroup', { name: 'Map connection mode' }).getByRole('radio', { name: 'Offline' })).toHaveAttribute('aria-checked', 'true')
+})
+
+test('opens a live scene presentation without display-capture permission', async ({ page }) => {
+  await page.route('**/api/road-scenes/resolve?**', (route) => route.abort())
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Open settings' }).click()
+
+  const presentationPromise = page.waitForEvent('popup')
+  await page.getByRole('button', { name: 'Present on external display' }).click()
+  const presentation = await presentationPromise
+
+  await expect(presentation).toHaveTitle('Magnus Presentation')
+  await expect(presentation.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
+  await expect(presentation.locator('.road-stage-controls')).toBeHidden()
 })
 
 test('saves custom themes while keeping the roadway field green', async ({ page }) => {
@@ -701,6 +781,10 @@ test('deploys assets and hazards with live scene counters and deletion', async (
   await expect(page.locator('[data-definition-id="vehicle-fire"] .catalog-flames')).toHaveCount(1)
   await toolkit.getByRole('button', { name: /Hazmat tanker truck/ }).click()
   await expect(page.locator('[data-definition-id="hazmat-tanker"] .catalog-hazmat')).toHaveCount(1)
+  await toolkit.getByRole('button', { name: /^Downed tree/ }).click()
+  const downedTree = page.locator('[data-definition-id="downed-tree"]')
+  await expect(downedTree.locator('.catalog-tree-canopy')).toHaveCount(3)
+  await expect(downedTree.locator('.deployed-selection')).toHaveAttribute('height', '24')
   await toolkit.getByRole('button', { name: /Helicopter landing zone/ }).click()
   await expect(page.locator('[data-definition-id="helicopter-zone"]')).toHaveCount(1)
   await expect(page.getByRole('region', { name: 'Scene resource counts' })).toContainText('1')

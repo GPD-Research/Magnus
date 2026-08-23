@@ -48,7 +48,7 @@ describe('road location resolution', () => {
 
     expect(result.source).toBe('live-map')
     expect(result.scene.source.type).toBe('osm-pbf')
-    expect(requestedPath).toBe('/api/road-scenes/resolve?highway=I-95&direction=northbound&referenceType=exit&reference=166&source=online')
+    expect(requestedPath).toBe('/api/road-scenes/resolve?highway=I-95&direction=all&referenceType=exit&reference=166&source=online')
   })
 
   it('requests cache-only geometry in offline mode', async () => {
@@ -66,7 +66,7 @@ describe('road location resolution', () => {
 
     expect(result.source).toBe('development-preview')
     expect(result.message).toContain('missing')
-    expect(result.message).toContain('I-95 northbound, exit 166')
+    expect(result.message).toContain('I-95, exit 166')
     expect(result.message).toContain('scale-accurate development preview')
     expect(result.message).toContain('without map-derived labels')
   })

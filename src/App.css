@@ -410,6 +410,15 @@
 .metric-grid i.metric-good { color: var(--green); }
 .metric-grid i.metric-risk { color: var(--red); font-weight: 600; }
 .radio-section { padding-top: 14px; border-top: 1px solid var(--line); }
+.communications-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 9px; }
+.communications-fields label { min-width: 0; display: grid; gap: 5px; color: #68736f; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+.communications-fields select { min-width: 0; width: 100%; height: 33px; padding: 0 8px; color: var(--ink); background: #fff; border: 1px solid #cbd3d0; border-radius: 3px; font-size: 10px; }
+.communications-fields select:focus { outline: 2px solid #92baa9; outline-offset: 1px; }
+.toc-detail-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 0 0 10px; padding: 9px; background: var(--control-bg); border: 1px solid var(--line); }
+.toc-detail-fields > strong { grid-column: 1 / -1; color: var(--green); font-size: 8px; text-transform: uppercase; letter-spacing: .6px; }
+.toc-detail-fields label { min-width: 0; display: grid; gap: 4px; color: #8f9a96; font-size: 8px; font-weight: 600; }
+.toc-detail-fields input, .toc-detail-fields select { min-width: 0; width: 100%; height: 30px; padding: 0 7px; color: var(--ink); background: var(--control-bg); border: 1px solid var(--line); border-radius: 3px; font-size: 9px; }
+.toc-detail-fields input:focus, .toc-detail-fields select:focus { outline: 2px solid #92baa9; outline-offset: 1px; }
 .radio-log { max-height: 118px; overflow-y: auto; }
 .radio-event { display: grid; grid-template-columns: 17px 1fr; gap: 6px; padding: 8px 0; border-bottom: 1px solid #e1e5e3; }
 .radio-event svg { margin-top: 2px; color: #6e7a76; }
@@ -484,6 +493,8 @@
 .equipment-inspector { color: #e7d69f; background: #342e1e; border-color: #776634; }
 .radio-event { border-color: #39433f; }
 .radio-event p { color: #b7c1bd; }
+.communications-fields label { color: #8f9a96; }
+.communications-fields select { color: #e7ecea; background: #202925; border-color: #44504b; }
 
 @media (max-width: 1050px) {
   .workspace { grid-template-columns: minmax(220px, 22%) 0 minmax(0, 1fr) 0 minmax(220px, 22%); }

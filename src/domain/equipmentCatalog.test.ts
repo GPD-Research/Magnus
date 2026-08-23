@@ -56,6 +56,17 @@ describe('equipment catalog', () => {
     expect(sceneCounts([deploy('vehicle-fire', 1), deploy('hazmat-tanker', 1)], 0, 0).hazards).toBe(2)
   })
 
+  it('includes a rotatable twenty-foot downed tree hazard', () => {
+    expect(equipmentDefinition('downed-tree')).toMatchObject({
+      category: 'hazard',
+      countClass: 'hazard',
+      glyph: 'downed-tree',
+      length: 20,
+      rotatable: true,
+    })
+    expect(sceneCounts([deploy('downed-tree', 1)], 0, 0).hazards).toBe(1)
+  })
+
   it('includes towing, TMA, barrel, motorcycle, and injury scene items', () => {
     const coneTruck = [deploy('tma-cone-truck', 1)]
 

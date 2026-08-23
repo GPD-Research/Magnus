@@ -43,15 +43,15 @@ impl RoadLocationRequest {
         let reference = overpass_regex_escape(self.reference.trim());
         let anchor_filter = match self.reference_type {
             RoadReferenceType::Exit => format!(
-                "node(area.searchArea)[\"highway\"=\"motorway_junction\"][\"ref\"~\"^{reference}[A-Za-z]?$\",i]"
+                "node(around.routeWays:100)[\"highway\"=\"motorway_junction\"][\"ref\"~\"^{reference}[A-Za-z]?$\",i]"
             ),
             RoadReferenceType::MileMarker => format!(
-                "(node(area.searchArea)[\"highway\"=\"milestone\"][\"distance\"~\"^{reference}(\\.0)?$\",i];node(area.searchArea)[\"highway\"=\"motorway_junction\"][\"ref\"~\"^{reference}[A-Za-z]?$\",i];)"
+                "(node(around.routeWays:100)[\"highway\"=\"milestone\"][\"distance\"~\"^{reference}(\\.0)?$\",i];node(around.routeWays:100)[\"highway\"=\"motorway_junction\"][\"ref\"~\"^{reference}[A-Za-z]?$\",i];)"
             ),
         };
 
         format!(
-            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\n{anchor_filter}->.candidateAnchors;\nway(around.candidateAnchors:250)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:850)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n(.anchors;.routeWays;.nearbyWays;>;);\nout body;"
+            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\nway(area.searchArea)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\n{anchor_filter}->.candidateAnchors;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:850)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n(.anchors;.routeWays;.nearbyWays;>;);\nout body;"
         )
     }
 
@@ -135,7 +135,8 @@ mod tests {
         assert!(query.contains("[\"highway\"=\"motorway_junction\"]"));
         assert!(query.contains("[\"ref\"~\"^166[A-Za-z]?$\",i]"));
         assert!(query.contains("[\"ref\"~\"(^|;)[ ]*I[ -]?95[ ]*(;|$)\",i]"));
-        assert!(query.contains("way(around.candidateAnchors:250)"));
+        assert!(query.contains("way(area.searchArea)"));
+        assert!(query.contains("node(around.routeWays:100)"));
         assert!(query.contains("node.candidateAnchors(around.routeWays:100)->.anchors"));
         assert!(query.contains("way(around.anchors:850)"));
     }

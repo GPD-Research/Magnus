@@ -17,6 +17,7 @@ use axum::{
 };
 use magnus_spatial_core::{
     Geometry, RoadFeatureKind, RoadLocationRequest, RoadScene, compile_overpass_json,
+    compile_pbf_location,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock, oneshot};
@@ -182,10 +183,13 @@ async fn resolve_road_scene(
         return Ok(Json(scene));
     }
 
-    if source_mode != SceneSourceMode::Online {
+    if source_mode == SceneSourceMode::Offline {
+        return resolve_prepared_scene(&state, &request, &cache_key).await;
+    }
+    if source_mode == SceneSourceMode::Lan {
         return Err(api_error(
             StatusCode::PRECONDITION_FAILED,
-            "this location is not prepared for local use; switch to Online or prepare it while connected",
+            "this location is not available from the configured LAN source",
         ));
     }
 
@@ -256,16 +260,62 @@ async fn resolve_road_scene(
         }
     }
 
+    match resolve_prepared_scene(&state, &request, &cache_key).await {
+        Ok(scene) => Ok(scene),
+        Err(_) => Err(api_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("all map providers failed: {}", failures.join("; ")),
+        )),
+    }
+}
+
+async fn resolve_prepared_scene(
+    state: &AppState,
+    request: &RoadLocationRequest,
+    cache_key: &str,
+) -> ApiResult<RoadScene> {
+    let paths = prepared_map_paths();
+    let available = paths.into_iter().filter(|path| path.is_file()).collect::<Vec<_>>();
+    if available.is_empty() {
+        return Err(api_error(
+            StatusCode::PRECONDITION_FAILED,
+            "no local map package is installed; prepare Northern Virginia or Virginia while connected",
+        ));
+    }
+    let mut failures = Vec::new();
+    for path in available {
+        let request = request.clone();
+        let display_path = path.display().to_string();
+        let result = tokio::task::spawn_blocking(move || compile_pbf_location(path, &request))
+            .await
+            .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("local map worker failed: {error}")))?;
+        match result {
+            Ok(scene) => {
+                state.scene_cache.write().await.insert(cache_key.into(), scene.clone());
+                write_cached_scene(&state.cache_directory, cache_key, &scene).await;
+                return Ok(Json(scene));
+            }
+            Err(error) => failures.push(format!("{display_path}: {error}")),
+        }
+    }
     Err(api_error(
-        StatusCode::BAD_GATEWAY,
-        &format!("all map providers failed: {}", failures.join("; ")),
+        StatusCode::PRECONDITION_FAILED,
+        &format!("the installed local map package could not resolve this location: {}", failures.join("; ")),
     ))
 }
 
+fn prepared_map_paths() -> Vec<PathBuf> {
+    vec![
+        env::var("MAGNUS_NOVA_PBF").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("data/processed/nova-highways.osm.pbf")),
+        env::var("MAGNUS_VIRGINIA_PBF").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("data/raw/virginia-latest.osm.pbf")),
+    ]
+}
+
 async fn offline_status(State(state): State<AppState>) -> Json<OfflineStatus> {
+    let paths = prepared_map_paths();
     let regions = [
-        ("northern-virginia", "Northern Virginia highways", Path::new("data/processed/nova-highways.osm.pbf")),
-        ("virginia", "Virginia statewide source", Path::new("data/raw/virginia-latest.osm.pbf")),
+        ("northern-virginia", "Northern Virginia highways", paths[0].as_path()),
+        ("virginia", "Virginia statewide source", paths[1].as_path()),
     ];
     let mut statuses = Vec::new();
     for (id, label, path) in regions {
