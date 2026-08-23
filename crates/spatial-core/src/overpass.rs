@@ -177,11 +177,7 @@ pub fn compile_overpass_json(
             shoulder_widths(&way.tags, &highway);
         let lane_width = f64::from(lanes) * LANE_WIDTH_FEET;
         let width = lane_width + left_shoulder_width + right_shoulder_width;
-        let layer = way
-            .tags
-            .get("layer")
-            .and_then(|value| value.parse::<i16>().ok())
-            .unwrap_or(0);
+        let layer = inferred_layer(&way.tags);
         let properties = FeatureProperties {
             osm_id: Some(way.id),
             name: way.tags.get("name").cloned(),
@@ -212,13 +208,30 @@ pub fn compile_overpass_json(
                     ..properties.clone()
                 },
             });
+            // Link pavement is instead drawn by the tapered ribbon below; this centerline stays for selection/placement.
+            let surface_render_width = if is_link { 0.0 } else { width };
             features.push(RoadFeature {
                 id: format!("{fragment_id}-surface"),
                 kind: RoadFeatureKind::RoadSurface,
                 layer,
                 geometry: Geometry::LineString(coordinates.clone()),
-                properties: properties.clone(),
+                properties: FeatureProperties {
+                    render_width_feet: Some(surface_render_width),
+                    ..properties.clone()
+                },
             });
+            if is_link {
+                append_ramp_ribbon(
+                    &mut features,
+                    &fragment_id,
+                    layer,
+                    &coordinates,
+                    width,
+                    trim_marking_start,
+                    trim_marking_end,
+                    &properties,
+                );
+            }
             append_lane_markings(
                 &mut features,
                 &fragment_id,
@@ -611,6 +624,113 @@ fn parse_osm_width_feet(value: &str) -> Option<f64> {
         .map(|meters| meters * FEET_PER_METER)
 }
 
+fn inferred_layer(tags: &HashMap<String, String>) -> i16 {
+    if let Some(layer) = tags.get("layer").and_then(|value| value.parse::<i16>().ok()) {
+        return layer;
+    }
+    // OSM contributors frequently omit `layer` on bridges/tunnels since it is implied by convention.
+    if tags.get("bridge").is_some_and(|value| value != "no") {
+        return 1;
+    }
+    if tags.get("tunnel").is_some_and(|value| value != "no") {
+        return -1;
+    }
+    0
+}
+
+fn cumulative_lengths(coordinates: &[[f64; 2]]) -> Vec<f64> {
+    let mut cumulative = vec![0.0; coordinates.len()];
+    for index in 1..coordinates.len() {
+        let segment_length = (coordinates[index][0] - coordinates[index - 1][0])
+            .hypot(coordinates[index][1] - coordinates[index - 1][1]);
+        cumulative[index] = cumulative[index - 1] + segment_length;
+    }
+    cumulative
+}
+
+/// Builds a variable-width ribbon polygon that narrows to a point at gore ends, instead of the
+/// constant-width stroke OSM's centerline-only data would otherwise force onto merging ramps.
+fn tapered_ribbon_ring(
+    coordinates: &[[f64; 2]],
+    full_width: f64,
+    taper_start: bool,
+    taper_end: bool,
+    taper_length: f64,
+) -> Vec<[f64; 2]> {
+    if coordinates.len() < 2 || full_width <= 0.0 {
+        return Vec::new();
+    }
+    let cumulative = cumulative_lengths(coordinates);
+    let total = *cumulative.last().unwrap_or(&0.0);
+    let full_half_width = full_width / 2.0;
+    let effective_taper_length = taper_length.min(total).max(1e-6);
+    let half_widths: Vec<f64> = cumulative
+        .iter()
+        .map(|&distance_from_start| {
+            let mut half = full_half_width;
+            if taper_start {
+                half = half.min(full_half_width * (distance_from_start / effective_taper_length).min(1.0));
+            }
+            if taper_end {
+                let distance_from_end = total - distance_from_start;
+                half = half.min(full_half_width * (distance_from_end / effective_taper_length).min(1.0));
+            }
+            half.max(0.0)
+        })
+        .collect();
+    let mut left = Vec::with_capacity(coordinates.len());
+    let mut right = Vec::with_capacity(coordinates.len());
+    for (index, point) in coordinates.iter().enumerate() {
+        let previous = coordinates[index.saturating_sub(1)];
+        let next = coordinates[(index + 1).min(coordinates.len() - 1)];
+        let delta_x = next[0] - previous[0];
+        let delta_y = next[1] - previous[1];
+        let length = delta_x.hypot(delta_y);
+        let (normal_x, normal_y) = if length == 0.0 { (0.0, 0.0) } else { (-delta_y / length, delta_x / length) };
+        let half = half_widths[index];
+        left.push([point[0] - normal_x * half, point[1] - normal_y * half]);
+        right.push([point[0] + normal_x * half, point[1] + normal_y * half]);
+    }
+    let mut ring = left;
+    ring.extend(right.into_iter().rev());
+    if let Some(first) = ring.first().copied() {
+        ring.push(first);
+    }
+    ring
+}
+
+fn append_ramp_ribbon(
+    features: &mut Vec<RoadFeature>,
+    feature_prefix: &str,
+    layer: i16,
+    coordinates: &[[f64; 2]],
+    width: f64,
+    taper_start: bool,
+    taper_end: bool,
+    properties: &FeatureProperties,
+) {
+    let casing_ring = tapered_ribbon_ring(coordinates, width + 8.0, taper_start, taper_end, RAMP_GORE_LENGTH_FEET);
+    if !casing_ring.is_empty() {
+        features.push(RoadFeature {
+            id: format!("{feature_prefix}-casing-ribbon"),
+            kind: RoadFeatureKind::RampCasingRibbon,
+            layer,
+            geometry: Geometry::Polygon(vec![casing_ring]),
+            properties: FeatureProperties { render_width_feet: Some(width + 8.0), ..properties.clone() },
+        });
+    }
+    let surface_ring = tapered_ribbon_ring(coordinates, width, taper_start, taper_end, RAMP_GORE_LENGTH_FEET);
+    if !surface_ring.is_empty() {
+        features.push(RoadFeature {
+            id: format!("{feature_prefix}-surface-ribbon"),
+            kind: RoadFeatureKind::RampSurfaceRibbon,
+            layer,
+            geometry: Geometry::Polygon(vec![surface_ring]),
+            properties: FeatureProperties { render_width_feet: Some(width), ..properties.clone() },
+        });
+    }
+}
+
 fn append_direction_arrow(
     features: &mut Vec<RoadFeature>,
     feature_prefix: &str,
@@ -791,7 +911,7 @@ mod tests {
         let scene = compile_overpass_json(response, &request).expect("scene should compile");
 
         assert_eq!(scene.source.source_type, SceneSourceType::OsmApi);
-        assert_eq!(scene.features.len(), 14);
+        assert_eq!(scene.features.len(), 16);
         assert_eq!(scene.features[1].properties.osm_id, Some(95));
         assert_eq!(scene.features[1].properties.render_width_feet, Some(50.0));
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::SkipLine).count(), 2);
@@ -799,11 +919,16 @@ mod tests {
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::ShoulderEdge).count(), 2);
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampGore).count(), 1);
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::DirectionArrow).count(), 1);
+        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampCasingRibbon).count(), 1);
+        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampSurfaceRibbon).count(), 1);
         let ramp_surface = scene
             .features
             .iter()
             .find(|feature| feature.id == "way-96-0-surface")
             .expect("ramp surface");
+        // The ramp centerline stays for section selection, but its pavement no longer renders at
+        // a constant width — the tapered ribbon below draws the visible merge instead.
+        assert_eq!(ramp_surface.properties.render_width_feet, Some(0.0));
         let ramp_fog_line = scene
             .features
             .iter()
@@ -814,6 +939,11 @@ mod tests {
             .iter()
             .find(|feature| feature.kind == RoadFeatureKind::RampGore)
             .expect("ramp gore");
+        let ramp_surface_ribbon = scene
+            .features
+            .iter()
+            .find(|feature| feature.id == "way-96-0-surface-ribbon")
+            .expect("ramp surface ribbon");
         let Geometry::LineString(surface_points) = &ramp_surface.geometry else {
             panic!("ramp surface should be a line")
         };
@@ -823,11 +953,30 @@ mod tests {
         let Geometry::Polygon(gore_rings) = &gore.geometry else {
             panic!("gore should be a polygon")
         };
+        let Geometry::Polygon(ribbon_rings) = &ramp_surface_ribbon.geometry else {
+            panic!("ramp surface ribbon should be a polygon")
+        };
         assert!(
             (fog_points[0][0] - surface_points[0][0])
                 .hypot(fog_points[0][1] - surface_points[0][1])
                 > 60.0
         );
+        // The ribbon narrows to a point at the mainline junction (the ramp's start node) instead of
+        // continuing at full pavement width into the through lanes.
+        let ribbon_ring = &ribbon_rings[0];
+        assert!(
+            (ribbon_ring[0][0] - surface_points[0][0]).hypot(ribbon_ring[0][1] - surface_points[0][1]) < 0.01
+        );
+        let farthest_offset_from_tip = ribbon_ring
+            .iter()
+            .map(|point| (point[0] - surface_points[0][0]).hypot(point[1] - surface_points[0][1]))
+            .fold(0.0_f64, f64::max);
+        assert!(farthest_offset_from_tip > 60.0);
+        let offsets_from_far_end = ribbon_ring
+            .iter()
+            .map(|point| (point[0] - surface_points[1][0]).hypot(point[1] - surface_points[1][1]))
+            .fold(f64::INFINITY, f64::min);
+        assert!(offsets_from_far_end < 6.5);
         assert!(
             gore_rings
                 .iter()

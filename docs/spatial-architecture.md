@@ -51,9 +51,11 @@ The compiler projects WGS84 coordinates into a local east-north-up plane measure
 
 ## Rendering contract
 
-`RoadScene` is shared conceptually by Rust and TypeScript. Features are sorted by ascending structural `layer`. Road casings render before surfaces at each level, allowing upper bridge and flyover casings to occlude lower roads. SSP assets and SOP templates remain a separate overlay and placement domain.
+`RoadScene` is shared conceptually by Rust and TypeScript. Features are sorted by ascending structural `layer`. Road casings render before surfaces at each level, allowing upper bridge and flyover casings to occlude lower roads. SSP assets and SOP templates remain a separate overlay and placement domain. Bridges and tunnels that omit an explicit OSM `layer` tag are inferred to `1`/`-1` respectively, so grade-separated crossings still stack correctly instead of tying at the default `0`.
 
 Each OSM road surface retains its way ID, highway class, structural layer, and bridge/tunnel metadata. In complex scenes, the renderer can arm section-selection mode and use a selected way's center tangent as the transform origin for the SSP equipment overlay. The `I-95 Northbound / MM 170` Mixing Bowl request is the acceptance case for layered flyover selection.
+
+OSM/Overpass only exposes ramp centerlines and tags — it has no pavement-marking or gore-polygon geometry, so Magnus must construct the merge visually. A `motorway_link`/`*_link` way's `road-surface`/`road-casing` features stay as their original centerline `LineString`, kept invisible (`renderWidthFeet: 0`) so section-selection and SSP placement keep working against that centerline unchanged. The actual visible pavement is a separate `ramp-surface-ribbon`/`ramp-casing-ribbon` polygon pair whose half-width tapers linearly to zero over the last `RAMP_GORE_LENGTH_FEET` (70 ft) at any end that meets a `motorway`/`trunk` node, so the ramp visually narrows to a point at the merge instead of a constant-width stroke overlapping the through lanes. Lane markings are trimmed over that same distance and the existing `ramp-gore` stripe polygon fills the resulting neutral area.
 
 When map-derived geometry is unavailable, the UI uses a `reference-layout` with standard highway dimensions so scene-building can continue at an accurate scale. It is explicitly identified as not map-derived and suppresses highway labels. Map scenes carry `source.type = osm-api` or `osm-pbf` and OpenStreetMap attribution.
 

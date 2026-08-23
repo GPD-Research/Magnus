@@ -79,6 +79,21 @@ pub fn compile_pbf(
                 .get("lanes")
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(1);
+            let bridge = tags.get("bridge").is_some_and(|value| *value != "no");
+            let tunnel = tags.get("tunnel").is_some_and(|value| *value != "no");
+            let layer = tags
+                .get("layer")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| {
+                    // OSM contributors frequently omit `layer` on bridges/tunnels since it is implied by convention.
+                    if bridge {
+                        1
+                    } else if tunnel {
+                        -1
+                    } else {
+                        0
+                    }
+                });
             ways.push(WayRecord {
                 id: way.id(),
                 refs: way.refs().collect(),
@@ -87,12 +102,9 @@ pub fn compile_pbf(
                 reference: tags.get("ref").map(|value| (*value).to_owned()),
                 junction_reference: tags.get("junction:ref").map(|value| (*value).to_owned()),
                 destination_reference: tags.get("destination:ref").map(|value| (*value).to_owned()),
-                layer: tags
-                    .get("layer")
-                    .and_then(|value| value.parse().ok())
-                    .unwrap_or(0),
-                bridge: tags.get("bridge").is_some_and(|value| *value != "no"),
-                tunnel: tags.get("tunnel").is_some_and(|value| *value != "no"),
+                layer,
+                bridge,
+                tunnel,
                 lanes,
                 direction: if tags.get("oneway").is_some_and(|value| *value == "-1") {
                     "backward".into()

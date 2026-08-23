@@ -12,6 +12,8 @@ export type RoadFeatureKind =
   | 'traffic-flow'
   | 'ramp-gore'
   | 'direction-arrow'
+  | 'ramp-surface-ribbon'
+  | 'ramp-casing-ribbon'
 
 export interface RoadFeature {
   id: string
