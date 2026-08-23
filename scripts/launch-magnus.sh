@@ -17,9 +17,27 @@ open_magnus() {
   fi
 }
 
-if curl --silent --fail "$MAGNUS_URL/api/health" >/dev/null 2>&1; then
-  open_magnus
-  exit 0
+running_version() {
+  curl --silent --fail "$MAGNUS_URL/api/health" 2>/dev/null \
+    | grep -o '"version":"[^"]*"' | cut -d'"' -f4
+}
+
+# A desktop-icon click after `git pull` must not silently reopen a stale server
+# left running from before the pull, so restart it when the version differs.
+expected_version="$(node -p "require('$PROJECT_DIRECTORY/package.json').version" 2>/dev/null || true)"
+current_version="$(running_version || true)"
+
+if [[ -n "$current_version" ]]; then
+  if [[ -z "$expected_version" || "$current_version" == "$expected_version" ]]; then
+    open_magnus
+    exit 0
+  fi
+  printf 'Stopping Magnus %s to start the updated %s build...\n' "$current_version" "$expected_version" >&2
+  curl --silent --fail -X POST "$MAGNUS_URL/api/exit" >/dev/null 2>&1 || true
+  for _ in {1..30}; do
+    running_version >/dev/null 2>&1 || break
+    sleep 1
+  done
 fi
 
 mkdir -p "$STATE_DIRECTORY"

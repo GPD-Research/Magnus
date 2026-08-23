@@ -49,6 +49,7 @@ struct ApiError {
 struct HealthResponse {
     status: &'static str,
     service: &'static str,
+    version: &'static str,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -137,6 +138,7 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         service: "magnus-spatial",
+        version: env!("CARGO_PKG_VERSION"),
     })
 }
 
