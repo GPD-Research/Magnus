@@ -54,6 +54,7 @@
   .line-type-list button.active { outline: 2px solid var(--accent); }
   .swatch { width: 18px; height: 4px; border-radius: 2px; flex: 0 0 auto; }
   .swatch.dashed { background-image: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 8px); background-color: transparent !important; height: 2px; }
+  .swatch.tight { background-image: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 4px); background-color: transparent !important; height: 2px; }
   .actions, .io-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .actions button, .io-actions button {
     background: var(--field); color: var(--text); border: 1px solid var(--panel-border);
@@ -146,6 +147,7 @@
     { key: 'ramp-left-shoulder-edge', label: 'Ramp LEFT shoulder edge', color: '#c7ccd1', dashed: true, width: 1.5 },
     { key: 'ramp-right-fog-line', label: 'Ramp RIGHT fog line (white)', color: '#f2f4f2', dashed: false, width: 2.5 },
     { key: 'ramp-right-shoulder-edge', label: 'Ramp RIGHT shoulder edge', color: '#c7ccd1', dashed: true, width: 1.5 },
+    { key: 'auxiliary-lane-tight-dash', label: 'Tight-dash lane line (aux lane vs. through lanes, ends at gore)', color: '#f2f4f2', dashed: true, dashArray: '3 3', tight: true, width: 2 },
     { key: 'gore-area', label: 'Gore area outline (closed polygon)', color: '#ff8a3d', dashed: false, width: 2.5, closed: true, fill: 'rgba(255,138,61,0.28)' },
   ];
   const LINE_TYPE_BY_KEY = Object.fromEntries(LINE_TYPES.map((type) => [type.key, type]));
@@ -262,7 +264,7 @@
         fill: definition.closed && !options.preview ? (definition.fill || 'none') : 'none',
         stroke: definition.color,
         'stroke-width': definition.width,
-        'stroke-dasharray': definition.dashed ? '5 5' : (options.preview ? '3 3' : 'none'),
+        'stroke-dasharray': definition.dashed ? (definition.dashArray || '5 5') : (options.preview ? '3 3' : 'none'),
         opacity: options.preview ? 0.6 : 1,
       });
       svg.appendChild(path);
@@ -318,7 +320,7 @@
       const button = document.createElement('button');
       button.className = type.key === state.activeLineType ? 'active' : '';
       const swatch = document.createElement('span');
-      swatch.className = 'swatch' + (type.dashed ? ' dashed' : '');
+      swatch.className = 'swatch' + (type.tight ? ' tight' : (type.dashed ? ' dashed' : ''));
       swatch.style.background = type.dashed ? 'none' : type.color;
       swatch.style.color = type.color;
       button.appendChild(swatch);
