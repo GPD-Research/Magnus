@@ -1,10 +1,22 @@
-# Magnus 6.0.0
+# Magnus 7.0.0
 
 <img src="public/favicon.svg" alt="Magnus arrow-M logo" width="96" height="96">
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 6.0.0 is the current production release.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 7.0.0 is the current production release.
 
-The completed release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md).
+The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md).
+
+## Version 7.0 release
+
+This release includes:
+
+- Named saved-scene library: **SAVE SCENE** now takes an editable file name, and a new **SAVED SCENES** menu lists every locally saved scene with load, download, and delete actions
+- In-place scenario conversion that swaps the deployed SSP closure setup for another template while preserving unrelated scene equipment and roadway placement
+- Tolerance-based SOP audit engine using percentage-derived cone-spacing checks instead of fixed-distance tolerances, with the active compliance mode persisted in the portable scene file
+- Downstream cone protection requires at least one lead cone in front of the SSP truck, reported as a violation when absent
+- "Enhanced Safety" training mode renamed to **Extended Safety**
+- Distinct reset controls: **Reset SSP objects** and **Reset whole scene**, the latter now using a trash icon for clarity
+- Ramp gore-aware lane markings: fog lines, skip lines, and shoulder edges are trimmed near ramp gore points instead of drawing through them, with gore length capped to the available way geometry
 
 ## Version 6.0 release
 
@@ -59,7 +71,7 @@ Prepared PBF packages are downloaded and inventoried by the app. Offline highway
 
 ## Brand identity
 
-The Magnus mark uses a black M with downward arrow terminals on a high-visibility orange field. In the application header, the mark serves as the first letter of the `M`agnus wordmark and is followed by `AGNUS` and the current short release label. The label is derived from the package version, so Version 6.0.0 displays as `v6`.
+The Magnus mark uses a black M with downward arrow terminals on a high-visibility orange field. In the application header, the mark serves as the first letter of the `M`agnus wordmark and is followed by `AGNUS` and the current short release label. The label is derived from the package version, so Version 7.0.0 displays as `v7`.
 
 The same vector asset at `public/favicon.svg` is used for the application header, browser favicon, and installed Linux application icon.
 
@@ -109,7 +121,7 @@ Traffic flows from upstream to downstream. The SSP truck faces downstream in the
 
 Standard SOP uses one anchor cone 10 ft behind the truck on the center/right skip line, two more buffer cones at 40 ft intervals, and five taper cones at 40 ft intervals terminating at the right fog line. This provides eight upstream cones total. The downstream lead cone is 10 ft ahead of the truck on the skip line, followed by cones every 40 ft in a straight line.
 
-Enhanced Safety preserves the three-cone buffer and all minimum clearances, allows more than five taper cones, and permits forward downstream spacing wider than 40 ft.
+Extended Safety preserves the three-cone buffer and all minimum clearances, allows more than five taper cones, and permits forward downstream spacing wider than 40 ft.
 
 SOP Violation training reports either condition as a violation:
 
