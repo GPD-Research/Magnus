@@ -66,22 +66,38 @@ struct WayRecord {
     tags: HashMap<String, String>,
 }
 
+/// A distance to trim from the start and/or end of one specific marking line (0.0 = no trim),
+/// applied to that line's own offset geometry rather than the shared centerline, so a ramp's fog
+/// line and shoulder edge on the same side can stop at different points near a gore.
+#[derive(Debug, Clone, Copy, Default)]
+struct EdgeTrim {
+    start: f64,
+    end: f64,
+}
+
 struct LaneMarkingLayout<'a> {
     lanes: u16,
     left_shoulder_width: f64,
     right_shoulder_width: f64,
-    trim_start: bool,
-    trim_end: bool,
+    left_fog_trim: EdgeTrim,
+    right_fog_trim: EdgeTrim,
+    left_shoulder_trim: EdgeTrim,
+    right_shoulder_trim: EdgeTrim,
     /// Arc-length ranges (mainline ways only) where an adjoining ramp turns the edge markings
     /// into an auxiliary-lane treatment instead of a continuous solid edge. Empty for ramps.
-    left_zones: &'a [(f64, f64)],
-    right_zones: &'a [(f64, f64)],
+    left_fog_zones: &'a [(f64, f64)],
+    right_fog_zones: &'a [(f64, f64)],
+    left_shoulder_zones: &'a [(f64, f64)],
+    right_shoulder_zones: &'a [(f64, f64)],
 }
 
 /// The mainline's own tangent direction and half-width at a junction node, used to find where its
 /// pavement edge (not its centerline, which is where OSM actually joins the ramp) really is.
 struct MainlineAnchor {
     tangent: [f64; 2],
+    /// Half-width of the travel lanes only (no shoulder) — where the mainline's own fog line is.
+    fog_half_width: f64,
+    /// Half-width of the travel lanes plus shoulder — where the mainline's pavement actually ends.
     half_width: f64,
 }
 
@@ -103,7 +119,8 @@ fn mainline_edge_anchors(
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(2);
         let (left_shoulder_width, right_shoulder_width) = shoulder_widths(&way.tags, highway);
-        let half_width = (f64::from(lanes) * LANE_WIDTH_FEET + left_shoulder_width + right_shoulder_width) / 2.0;
+        let fog_half_width = f64::from(lanes) * LANE_WIDTH_FEET / 2.0;
+        let half_width = fog_half_width + (left_shoulder_width + right_shoulder_width) / 2.0;
         let points: Vec<(i64, [f64; 2])> = way
             .nodes
             .iter()
@@ -119,6 +136,7 @@ fn mainline_edge_anchors(
             }
             anchors.entry(*node_id).or_insert(MainlineAnchor {
                 tangent: [delta[0] / length, delta[1] / length],
+                fog_half_width,
                 half_width,
             });
         }
@@ -127,13 +145,13 @@ fn mainline_edge_anchors(
 }
 
 /// The point on the mainline's pavement edge (nearest the ramp) below a shared junction node,
-/// instead of the node itself, which OSM places on the mainline's centerline.
-fn mainline_edge_point(node: [f64; 2], adjacent: [f64; 2], anchor: &MainlineAnchor) -> [f64; 2] {
+/// instead of the node itself, which OSM places on the mainline's centerline. Used only as a
+/// fallback when the precise ramp/mainline line-intersection geometry is degenerate.
+fn mainline_edge_point(node: [f64; 2], half_width: f64, sign: f64, anchor: &MainlineAnchor) -> [f64; 2] {
     let perpendicular = [-anchor.tangent[1], anchor.tangent[0]];
-    let sign = mainline_side_sign(node, adjacent, anchor);
     [
-        node[0] + perpendicular[0] * anchor.half_width * sign,
-        node[1] + perpendicular[1] * anchor.half_width * sign,
+        node[0] + perpendicular[0] * half_width * sign,
+        node[1] + perpendicular[1] * half_width * sign,
     ]
 }
 
@@ -144,6 +162,153 @@ fn mainline_side_sign(node: [f64; 2], adjacent: [f64; 2], anchor: &MainlineAncho
     let perpendicular = [-anchor.tangent[1], anchor.tangent[0]];
     let toward_ramp = [adjacent[0] - node[0], adjacent[1] - node[1]];
     if perpendicular[0] * toward_ramp[0] + perpendicular[1] * toward_ramp[1] >= 0.0 { 1.0 } else { -1.0 }
+}
+
+/// The precise geometry of a single ramp/mainline junction: exactly where the ramp's own fog line
+/// would cross the mainline's fog line (the theoretical gore nose, `tip`), and exactly where their
+/// outer shoulder edges would cross (`base`, where the two roadways' pavement fully separates) —
+/// instead of approximating both as one fixed distance from the shared OSM node.
+struct GoreGeometry {
+    tip: [f64; 2],
+    base: [f64; 2],
+    /// Where the ramp's own fog line, and the mainline's own fog line, each are at the "base"
+    /// (shoulder-edge-crossing) distance — the two other corners of the gore stripe polygon.
+    ramp_fog_at_base: [f64; 2],
+    mainline_fog_at_base: [f64; 2],
+    /// Distance back from the junction node, along the ramp's own centerline, to `tip`/`base`.
+    ramp_trim_to_tip: f64,
+    ramp_trim_to_base: f64,
+    /// Signed arc-length offset from the junction node, along the mainline's own centerline, to
+    /// `tip`/`base` (positive = downstream, negative = upstream).
+    mainline_arc_to_tip: f64,
+    mainline_arc_to_base: f64,
+    /// +1.0 if the mainline lies on the ramp's own "right" offset side, -1.0 for "left" — i.e.
+    /// which of the ramp's own fog-line/shoulder-edge markings needs to be trimmed at all.
+    near_side_sign: f64,
+}
+
+fn line_intersection(
+    point_a: [f64; 2],
+    direction_a: [f64; 2],
+    point_b: [f64; 2],
+    direction_b: [f64; 2],
+) -> Option<(f64, f64)> {
+    let denominator = direction_a[0] * direction_b[1] - direction_a[1] * direction_b[0];
+    if denominator.abs() < 1e-9 {
+        return None;
+    }
+    let delta = [point_b[0] - point_a[0], point_b[1] - point_a[1]];
+    let t = (delta[0] * direction_b[1] - delta[1] * direction_b[0]) / denominator;
+    let s = (delta[0] * direction_a[1] - delta[1] * direction_a[0]) / denominator;
+    Some((t, s))
+}
+
+/// Computes the precise gore geometry for one ramp end, given the shared junction node, a point
+/// further into the ramp (used both to orient the ramp's own tangent and, via `mainline_side_sign`,
+/// to know which side of the mainline the ramp approaches from), and the ramp's own lane/shoulder
+/// widths. Returns `None` for degenerate junctions (near-parallel approach, or an intersection that
+/// falls the wrong way along the ramp), which the caller falls back to a fixed-distance estimate for.
+fn compute_gore_geometry(
+    node: [f64; 2],
+    ramp_adjacent: [f64; 2],
+    ramp_lanes: u16,
+    ramp_left_shoulder_width: f64,
+    ramp_right_shoulder_width: f64,
+    mainline_anchor: &MainlineAnchor,
+) -> Option<GoreGeometry> {
+    let delta = [ramp_adjacent[0] - node[0], ramp_adjacent[1] - node[1]];
+    let length = delta[0].hypot(delta[1]);
+    if length == 0.0 {
+        return None;
+    }
+    // Points away from the node, back into the ramp's own body.
+    let ramp_tangent = [delta[0] / length, delta[1] / length];
+    let ramp_perp = [-ramp_tangent[1], ramp_tangent[0]];
+    let mainline_perp = [-mainline_anchor.tangent[1], mainline_anchor.tangent[0]];
+    let mainline_side_sign = mainline_side_sign(node, ramp_adjacent, mainline_anchor);
+    let alignment = ramp_tangent[0] * mainline_anchor.tangent[0] + ramp_tangent[1] * mainline_anchor.tangent[1];
+    let near_side_sign = if alignment >= 0.0 { mainline_side_sign } else { -mainline_side_sign };
+    let ramp_fog_half_width = f64::from(ramp_lanes) * LANE_WIDTH_FEET / 2.0;
+    let ramp_near_shoulder_width = if near_side_sign < 0.0 { ramp_left_shoulder_width } else { ramp_right_shoulder_width };
+    let ramp_shoulder_half_width = ramp_fog_half_width + ramp_near_shoulder_width;
+
+    let offset_point = |base: [f64; 2], perpendicular: [f64; 2], half_width: f64, sign: f64| {
+        [base[0] + perpendicular[0] * half_width * sign, base[1] + perpendicular[1] * half_width * sign]
+    };
+
+    let ramp_fog_origin = offset_point(node, ramp_perp, ramp_fog_half_width, near_side_sign);
+    let mainline_fog_origin = offset_point(node, mainline_perp, mainline_anchor.fog_half_width, mainline_side_sign);
+    let (ramp_t_tip, mainline_s_tip) =
+        line_intersection(ramp_fog_origin, ramp_tangent, mainline_fog_origin, mainline_anchor.tangent)?;
+
+    let ramp_shoulder_origin = offset_point(node, ramp_perp, ramp_shoulder_half_width, near_side_sign);
+    let mainline_shoulder_origin = offset_point(node, mainline_perp, mainline_anchor.half_width, mainline_side_sign);
+    let (ramp_t_base, mainline_s_base) =
+        line_intersection(ramp_shoulder_origin, ramp_tangent, mainline_shoulder_origin, mainline_anchor.tangent)?;
+
+    if ramp_t_tip <= 0.0 || ramp_t_base <= ramp_t_tip {
+        return None;
+    }
+
+    Some(GoreGeometry {
+        tip: [
+            ramp_fog_origin[0] + ramp_tangent[0] * ramp_t_tip,
+            ramp_fog_origin[1] + ramp_tangent[1] * ramp_t_tip,
+        ],
+        base: [
+            ramp_shoulder_origin[0] + ramp_tangent[0] * ramp_t_base,
+            ramp_shoulder_origin[1] + ramp_tangent[1] * ramp_t_base,
+        ],
+        ramp_fog_at_base: [
+            ramp_fog_origin[0] + ramp_tangent[0] * ramp_t_base,
+            ramp_fog_origin[1] + ramp_tangent[1] * ramp_t_base,
+        ],
+        mainline_fog_at_base: [
+            mainline_fog_origin[0] + mainline_anchor.tangent[0] * mainline_s_base,
+            mainline_fog_origin[1] + mainline_anchor.tangent[1] * mainline_s_base,
+        ],
+        ramp_trim_to_tip: ramp_t_tip,
+        ramp_trim_to_base: ramp_t_base,
+        mainline_arc_to_tip: mainline_s_tip,
+        mainline_arc_to_base: mainline_s_base,
+        near_side_sign,
+    })
+}
+
+/// `compute_gore_geometry`, but falls back to the mainline's fog-line/shoulder-edge offsets from
+/// the node directly (ignoring the ramp's own angle of approach) when the precise intersection is
+/// degenerate, so a gore end is never simply skipped.
+fn gore_geometry_for_end(
+    node: [f64; 2],
+    ramp_adjacent: [f64; 2],
+    ramp_lanes: u16,
+    ramp_left_shoulder_width: f64,
+    ramp_right_shoulder_width: f64,
+    mainline_anchor: &MainlineAnchor,
+) -> GoreGeometry {
+    compute_gore_geometry(
+        node,
+        ramp_adjacent,
+        ramp_lanes,
+        ramp_left_shoulder_width,
+        ramp_right_shoulder_width,
+        mainline_anchor,
+    )
+    .unwrap_or_else(|| {
+        let sign = mainline_side_sign(node, ramp_adjacent, mainline_anchor);
+        let base = mainline_edge_point(node, mainline_anchor.half_width, sign, mainline_anchor);
+        GoreGeometry {
+            tip: mainline_edge_point(node, mainline_anchor.fog_half_width, sign, mainline_anchor),
+            base,
+            ramp_fog_at_base: base,
+            mainline_fog_at_base: base,
+            ramp_trim_to_tip: RAMP_GORE_LENGTH_FEET,
+            ramp_trim_to_base: RAMP_GORE_LENGTH_FEET,
+            mainline_arc_to_tip: 0.0,
+            mainline_arc_to_base: RAMP_GORE_LENGTH_FEET,
+            near_side_sign: sign,
+        }
+    })
 }
 
 /// A ramp's arc-length position along one specific mainline way, and which OSM node it shares.
@@ -195,7 +360,10 @@ enum RampNoseKind {
 }
 
 struct RampNose {
-    arc_position: f64,
+    /// Mainline arc position where the ramp's own fog line crosses the mainline's fog line.
+    fog_arc: f64,
+    /// Mainline arc position where the ramp's own shoulder edge crosses the mainline's shoulder edge.
+    shoulder_arc: f64,
     kind: RampNoseKind,
     side_sign: f64,
 }
@@ -212,8 +380,8 @@ fn build_ramp_noses(
 ) -> HashMap<i64, Vec<RampNose>> {
     let mut noses: HashMap<i64, Vec<RampNose>> = HashMap::new();
     for way in ways {
-        let is_link = way.tags.get("highway").is_some_and(|highway| highway.ends_with("_link"));
-        if !is_link {
+        let highway = way.tags.get("highway").cloned().unwrap_or_default();
+        if !highway.ends_with("_link") {
             continue;
         }
         let mut oriented: Vec<(i64, [f64; 2])> = way
@@ -227,12 +395,25 @@ fn build_ramp_noses(
         if way.tags.get("oneway").is_some_and(|value| value == "-1") {
             oriented.reverse();
         }
+        let lanes = way
+            .tags
+            .get("lanes")
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(1);
+        let (left_shoulder_width, right_shoulder_width) = shoulder_widths(&way.tags, &highway);
         let mut add_nose = |node_id: i64, adjacent_point: [f64; 2], node_point: [f64; 2], kind: RampNoseKind| {
             let Some(mainline_anchor) = mainline_anchors.get(&node_id) else { return };
             let side_sign = mainline_side_sign(node_point, adjacent_point, mainline_anchor);
+            let gore =
+                gore_geometry_for_end(node_point, adjacent_point, lanes, left_shoulder_width, right_shoulder_width, mainline_anchor);
             for (mainline_way_id, profile) in mainline_profiles {
-                if let Some(&arc_position) = profile.node_arc.get(&node_id) {
-                    noses.entry(*mainline_way_id).or_default().push(RampNose { arc_position, kind, side_sign });
+                if let Some(&node_arc) = profile.node_arc.get(&node_id) {
+                    noses.entry(*mainline_way_id).or_default().push(RampNose {
+                        fog_arc: node_arc + gore.mainline_arc_to_tip,
+                        shoulder_arc: node_arc + gore.mainline_arc_to_base,
+                        kind,
+                        side_sign,
+                    });
                 }
             }
         };
@@ -244,7 +425,7 @@ fn build_ramp_noses(
         add_nose(last_id, second_last_point, last_point, RampNoseKind::Entrance);
     }
     for way_noses in noses.values_mut() {
-        way_noses.sort_by(|first, second| first.arc_position.total_cmp(&second.arc_position));
+        way_noses.sort_by(|first, second| first.fog_arc.total_cmp(&second.fog_arc));
     }
     noses
 }
@@ -257,10 +438,23 @@ struct MarkingZone {
     side_sign: f64,
 }
 
+/// Whether a mainline zone boundary follows a ramp's fog-line crossing (for the mainline's own fog
+/// line) or its shoulder-edge crossing (for the mainline's own shoulder edge) — the two lines meet
+/// the mainline at different points, so they need different zone extents.
+#[derive(Clone, Copy)]
+enum ZoneReference {
+    FogLine,
+    ShoulderEdge,
+}
+
 /// Real interchanges mark the stretch between a merge and the next, nearby diverge as a
 /// continuous auxiliary lane (a dashed interior line, not a solid edge) instead of two separate
 /// short acceleration/deceleration zones, so a chained entrance->exit pair shares one zone.
-fn compute_marking_zones(noses: &[RampNose], total_length: f64) -> Vec<MarkingZone> {
+fn compute_marking_zones(noses: &[RampNose], total_length: f64, reference: ZoneReference) -> Vec<MarkingZone> {
+    let arc = |nose: &RampNose| match reference {
+        ZoneReference::FogLine => nose.fog_arc,
+        ZoneReference::ShoulderEdge => nose.shoulder_arc,
+    };
     let mut zones = Vec::new();
     let mut chained_exit_indices = std::collections::HashSet::new();
     for (index, nose) in noses.iter().enumerate() {
@@ -275,11 +469,11 @@ fn compute_marking_zones(noses: &[RampNose], total_length: f64) -> Vec<MarkingZo
         match chained_exit {
             Some((exit_index, exit_nose)) => {
                 chained_exit_indices.insert(exit_index);
-                zones.push(MarkingZone { start: nose.arc_position, end: exit_nose.arc_position, side_sign: nose.side_sign });
+                zones.push(MarkingZone { start: arc(nose), end: arc(exit_nose), side_sign: nose.side_sign });
             }
             None => zones.push(MarkingZone {
-                start: nose.arc_position,
-                end: (nose.arc_position + RAMP_GORE_LENGTH_FEET).min(total_length),
+                start: arc(nose),
+                end: (arc(nose) + RAMP_GORE_LENGTH_FEET).min(total_length),
                 side_sign: nose.side_sign,
             }),
         }
@@ -289,8 +483,8 @@ fn compute_marking_zones(noses: &[RampNose], total_length: f64) -> Vec<MarkingZo
             continue;
         }
         zones.push(MarkingZone {
-            start: (nose.arc_position - RAMP_GORE_LENGTH_FEET).max(0.0),
-            end: nose.arc_position,
+            start: (arc(nose) - RAMP_GORE_LENGTH_FEET).max(0.0),
+            end: arc(nose),
             side_sign: nose.side_sign,
         });
     }
@@ -358,12 +552,22 @@ pub fn compile_overpass_json(
     let mainline_anchors = mainline_edge_anchors(&ways, &nodes, &anchor, &request.direction);
     let mainline_profiles = build_mainline_profiles(&ways, &nodes, &anchor, &request.direction);
     let ramp_noses = build_ramp_noses(&ways, &mainline_anchors, &mainline_profiles, &nodes, &anchor, &request.direction);
-    let mainline_zones: HashMap<i64, Vec<MarkingZone>> = mainline_profiles
+    let mainline_fog_zones: HashMap<i64, Vec<MarkingZone>> = mainline_profiles
         .iter()
         .map(|(way_id, profile)| {
             let zones = ramp_noses
                 .get(way_id)
-                .map(|noses| compute_marking_zones(noses, profile.total_length))
+                .map(|noses| compute_marking_zones(noses, profile.total_length, ZoneReference::FogLine))
+                .unwrap_or_default();
+            (*way_id, zones)
+        })
+        .collect();
+    let mainline_shoulder_zones: HashMap<i64, Vec<MarkingZone>> = mainline_profiles
+        .iter()
+        .map(|(way_id, profile)| {
+            let zones = ramp_noses
+                .get(way_id)
+                .map(|noses| compute_marking_zones(noses, profile.total_length, ZoneReference::ShoulderEdge))
                 .unwrap_or_default();
             (*way_id, zones)
         })
@@ -381,31 +585,41 @@ pub fn compile_overpass_json(
             .tags
             .get("highway")
             .is_some_and(|highway| highway.ends_with("_link"));
-        let mut start_gore_anchor = is_link
-            .then(|| way.nodes.first().and_then(|node| mainline_anchors.get(node)))
-            .flatten();
-        let mut end_gore_anchor = is_link
-            .then(|| way.nodes.last().and_then(|node| mainline_anchors.get(node)))
-            .flatten();
-        let mut start_has_gore = start_gore_anchor.is_some();
-        let mut end_has_gore = end_gore_anchor.is_some();
-        if way.tags.get("oneway").is_some_and(|value| value == "-1") {
-            coordinates.reverse();
-            std::mem::swap(&mut start_has_gore, &mut end_has_gore);
-            std::mem::swap(&mut start_gore_anchor, &mut end_gore_anchor);
-        }
-        let fragments = clip_line_to_scene(&coordinates, scene_bounds);
-        if fragments.is_empty() {
-            continue;
-        }
         let highway = way.tags.get("highway").cloned().unwrap_or_default();
         let lanes = way
             .tags
             .get("lanes")
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or_else(|| if highway.ends_with("_link") { 1 } else { 2 });
-        let (left_shoulder_width, right_shoulder_width) =
-            shoulder_widths(&way.tags, &highway);
+        let (left_shoulder_width, right_shoulder_width) = shoulder_widths(&way.tags, &highway);
+        let mut start_gore = is_link
+            .then(|| {
+                let node_point = *coordinates.first()?;
+                let adjacent_point = *coordinates.get(1)?;
+                let mainline_anchor = mainline_anchors.get(way.nodes.first()?)?;
+                Some(gore_geometry_for_end(node_point, adjacent_point, lanes, left_shoulder_width, right_shoulder_width, mainline_anchor))
+            })
+            .flatten();
+        let mut end_gore = is_link
+            .then(|| {
+                let last_index = coordinates.len().checked_sub(1)?;
+                let node_point = *coordinates.get(last_index)?;
+                let adjacent_point = *coordinates.get(last_index.checked_sub(1)?)?;
+                let mainline_anchor = mainline_anchors.get(way.nodes.last()?)?;
+                Some(gore_geometry_for_end(node_point, adjacent_point, lanes, left_shoulder_width, right_shoulder_width, mainline_anchor))
+            })
+            .flatten();
+        let mut start_has_gore = start_gore.is_some();
+        let mut end_has_gore = end_gore.is_some();
+        if way.tags.get("oneway").is_some_and(|value| value == "-1") {
+            coordinates.reverse();
+            std::mem::swap(&mut start_has_gore, &mut end_has_gore);
+            std::mem::swap(&mut start_gore, &mut end_gore);
+        }
+        let fragments = clip_line_to_scene(&coordinates, scene_bounds);
+        if fragments.is_empty() {
+            continue;
+        }
         let lane_width = f64::from(lanes) * LANE_WIDTH_FEET;
         let width = lane_width + left_shoulder_width + right_shoulder_width;
         let layer = inferred_layer(&way.tags);
@@ -428,14 +642,17 @@ pub fn compile_overpass_json(
         // Zones are computed in the full (unclipped) way's own arc-length units, so they only line
         // up with a fragment that starts at that way's arc 0 — true whenever the mainline fits in
         // a single fragment, the common case for a scene centered on the requested interchange.
-        let (left_zone_ranges, right_zone_ranges): (Vec<(f64, f64)>, Vec<(f64, f64)>) = mainline_zones
-            .get(&way.id)
-            .map(|zones| {
-                let left = zones.iter().filter(|zone| zone.side_sign < 0.0).map(|zone| (zone.start, zone.end)).collect();
-                let right = zones.iter().filter(|zone| zone.side_sign > 0.0).map(|zone| (zone.start, zone.end)).collect();
-                (left, right)
-            })
-            .unwrap_or_default();
+        let zone_ranges = |zones: Option<&Vec<MarkingZone>>| -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
+            zones
+                .map(|zones| {
+                    let left = zones.iter().filter(|zone| zone.side_sign < 0.0).map(|zone| (zone.start, zone.end)).collect();
+                    let right = zones.iter().filter(|zone| zone.side_sign > 0.0).map(|zone| (zone.start, zone.end)).collect();
+                    (left, right)
+                })
+                .unwrap_or_default()
+        };
+        let (left_fog_zone_ranges, right_fog_zone_ranges) = zone_ranges(mainline_fog_zones.get(&way.id));
+        let (left_shoulder_zone_ranges, right_shoulder_zone_ranges) = zone_ranges(mainline_shoulder_zones.get(&way.id));
         let no_zones: Vec<(f64, f64)> = Vec::new();
         for (fragment_index, coordinates) in fragments.into_iter().enumerate() {
             let fragment_id = format!("way-{}-{fragment_index}", way.id);
@@ -469,19 +686,14 @@ pub fn compile_overpass_json(
                 // the through lanes to converge in the middle of the mainline.
                 let mut visual_coordinates = coordinates.clone();
                 if trim_marking_start {
-                    if let (Some(anchor), Some(&adjacent)) =
-                        (start_gore_anchor, visual_coordinates.get(1))
-                    {
-                        visual_coordinates[0] = mainline_edge_point(visual_coordinates[0], adjacent, anchor);
+                    if let Some(gore) = &start_gore {
+                        visual_coordinates[0] = gore.base;
                     }
                 }
                 if trim_marking_end {
-                    let last_index = visual_coordinates.len() - 1;
-                    if let (Some(anchor), Some(&adjacent)) =
-                        (end_gore_anchor, last_index.checked_sub(1).map(|index| &visual_coordinates[index]))
-                    {
-                        visual_coordinates[last_index] =
-                            mainline_edge_point(visual_coordinates[last_index], adjacent, anchor);
+                    if let Some(gore) = &end_gore {
+                        let last_index = visual_coordinates.len() - 1;
+                        visual_coordinates[last_index] = gore.base;
                     }
                 }
                 append_ramp_ribbon(
@@ -490,17 +702,43 @@ pub fn compile_overpass_json(
                     layer,
                     &visual_coordinates,
                     width,
-                    trim_marking_start,
-                    trim_marking_end,
+                    start_gore.as_ref().filter(|_| trim_marking_start).map_or(0.0, |gore| gore.ramp_trim_to_base),
+                    end_gore.as_ref().filter(|_| trim_marking_end).map_or(0.0, |gore| gore.ramp_trim_to_base),
                     &properties,
                 );
                 append_direction_arrow(&mut features, &fragment_id, layer, &visual_coordinates, &properties);
-                if fragment_index == 0 && start_has_gore {
-                    append_ramp_gore(&mut features, &fragment_id, layer, &visual_coordinates, true, &properties);
+                if trim_marking_start {
+                    if let Some(gore) = &start_gore {
+                        append_ramp_gore(&mut features, &fragment_id, layer, gore, true, &properties);
+                    }
                 }
-                if fragment_index + 1 == fragment_count && end_has_gore {
-                    append_ramp_gore(&mut features, &fragment_id, layer, &visual_coordinates, false, &properties);
+                if trim_marking_end {
+                    if let Some(gore) = &end_gore {
+                        append_ramp_gore(&mut features, &fragment_id, layer, gore, false, &properties);
+                    }
                 }
+            }
+            let mut left_fog_trim = EdgeTrim::default();
+            let mut right_fog_trim = EdgeTrim::default();
+            let mut left_shoulder_trim = EdgeTrim::default();
+            let mut right_shoulder_trim = EdgeTrim::default();
+            if let Some(gore) = start_gore.as_ref().filter(|_| trim_marking_start) {
+                let (fog_trim, shoulder_trim) = if gore.near_side_sign < 0.0 {
+                    (&mut left_fog_trim, &mut left_shoulder_trim)
+                } else {
+                    (&mut right_fog_trim, &mut right_shoulder_trim)
+                };
+                fog_trim.start = gore.ramp_trim_to_tip;
+                shoulder_trim.start = gore.ramp_trim_to_base;
+            }
+            if let Some(gore) = end_gore.as_ref().filter(|_| trim_marking_end) {
+                let (fog_trim, shoulder_trim) = if gore.near_side_sign < 0.0 {
+                    (&mut left_fog_trim, &mut left_shoulder_trim)
+                } else {
+                    (&mut right_fog_trim, &mut right_shoulder_trim)
+                };
+                fog_trim.end = gore.ramp_trim_to_tip;
+                shoulder_trim.end = gore.ramp_trim_to_base;
             }
             append_lane_markings(
                 &mut features,
@@ -511,10 +749,14 @@ pub fn compile_overpass_json(
                     lanes,
                     left_shoulder_width,
                     right_shoulder_width,
-                    trim_start: trim_marking_start,
-                    trim_end: trim_marking_end,
-                    left_zones: if fragment_index == 0 { &left_zone_ranges } else { &no_zones },
-                    right_zones: if fragment_index == 0 { &right_zone_ranges } else { &no_zones },
+                    left_fog_trim,
+                    right_fog_trim,
+                    left_shoulder_trim,
+                    right_shoulder_trim,
+                    left_fog_zones: if fragment_index == 0 { &left_fog_zone_ranges } else { &no_zones },
+                    right_fog_zones: if fragment_index == 0 { &right_fog_zone_ranges } else { &no_zones },
+                    left_shoulder_zones: if fragment_index == 0 { &left_shoulder_zone_ranges } else { &no_zones },
+                    right_shoulder_zones: if fragment_index == 0 { &right_shoulder_zone_ranges } else { &no_zones },
                 },
                 &properties,
             );
@@ -744,20 +986,7 @@ fn append_lane_markings(
     layout: LaneMarkingLayout,
     properties: &FeatureProperties,
 ) {
-    let marking_coordinates = trim_line_ends(
-        coordinates,
-        if layout.trim_start {
-            RAMP_GORE_LENGTH_FEET
-        } else {
-            0.0
-        },
-        if layout.trim_end {
-            RAMP_GORE_LENGTH_FEET
-        } else {
-            0.0
-        },
-    );
-    if marking_coordinates.len() < 2 {
+    if coordinates.len() < 2 {
         return;
     }
     let half_width = f64::from(layout.lanes) * LANE_WIDTH_FEET / 2.0;
@@ -765,22 +994,24 @@ fn append_lane_markings(
         features,
         feature_prefix,
         layer,
-        &marking_coordinates,
+        coordinates,
         "left-edge",
         RoadFeatureKind::LeftFogLine,
         -half_width + EDGE_LINE_INSET_FEET,
-        layout.left_zones,
+        layout.left_fog_trim,
+        layout.left_fog_zones,
         properties,
     );
     append_edge_line(
         features,
         feature_prefix,
         layer,
-        &marking_coordinates,
+        coordinates,
         "right-edge",
         RoadFeatureKind::RightFogLine,
         half_width - EDGE_LINE_INSET_FEET,
-        layout.right_zones,
+        layout.right_fog_trim,
+        layout.right_fog_zones,
         properties,
     );
     for lane in 1..layout.lanes {
@@ -789,7 +1020,7 @@ fn append_lane_markings(
             id: format!("{feature_prefix}-lane-{lane}"),
             kind: RoadFeatureKind::SkipLine,
             layer: layer + 1,
-            geometry: Geometry::LineString(offset_line(&marking_coordinates, offset)),
+            geometry: Geometry::LineString(offset_line(coordinates, offset)),
             properties: FeatureProperties {
                 render_width_feet: Some(0.5),
                 ..properties.clone()
@@ -800,41 +1031,47 @@ fn append_lane_markings(
         features,
         feature_prefix,
         layer,
-        &marking_coordinates,
+        coordinates,
         "left-shoulder-edge",
         -half_width - layout.left_shoulder_width,
         layout.left_shoulder_width,
-        layout.left_zones,
+        layout.left_shoulder_trim,
+        layout.left_shoulder_zones,
         properties,
     );
     append_shoulder_edge(
         features,
         feature_prefix,
         layer,
-        &marking_coordinates,
+        coordinates,
         "right-shoulder-edge",
         half_width + layout.right_shoulder_width,
         layout.right_shoulder_width,
-        layout.right_zones,
+        layout.right_shoulder_trim,
+        layout.right_shoulder_zones,
         properties,
     );
 }
 
-/// Draws a fog line, splitting it into VDOT's dotted auxiliary-lane pattern (3 ft dash / 9 ft gap)
-/// wherever an adjoining ramp's merge/diverge zone reaches this mainline way, and a plain solid
-/// line everywhere else (or for ramps, which never carry zones).
+/// Draws a fog line, trimming it back from either end (e.g. where a ramp's own fog line meets the
+/// mainline's) and, on a mainline way with a nearby ramp, splitting the affected stretch into
+/// VDOT's dotted auxiliary-lane pattern (3 ft dash / 9 ft gap) instead of a continuous solid line.
 fn append_edge_line(
     features: &mut Vec<RoadFeature>,
     feature_prefix: &str,
     layer: i16,
-    marking_coordinates: &[[f64; 2]],
+    coordinates: &[[f64; 2]],
     suffix: &str,
     kind: RoadFeatureKind,
     offset: f64,
+    trim: EdgeTrim,
     zones: &[(f64, f64)],
     properties: &FeatureProperties,
 ) {
-    let offset_coordinates = offset_line(marking_coordinates, offset);
+    let offset_coordinates = trim_line_ends(&offset_line(coordinates, offset), trim.start, trim.end);
+    if offset_coordinates.len() < 2 {
+        return;
+    }
     if zones.is_empty() {
         features.push(RoadFeature {
             id: format!("{feature_prefix}-{suffix}"),
@@ -886,23 +1123,28 @@ fn append_edge_line(
     }
 }
 
-/// Draws a shoulder edge, entirely omitting it wherever an adjoining ramp's zone reaches this
+/// Draws a shoulder edge, trimming it back from either end (e.g. where a ramp's own shoulder edge
+/// meets the mainline's) and entirely omitting it wherever an adjoining ramp's zone reaches this
 /// mainline way (the ramp's own pavement occupies that space instead).
 fn append_shoulder_edge(
     features: &mut Vec<RoadFeature>,
     feature_prefix: &str,
     layer: i16,
-    marking_coordinates: &[[f64; 2]],
+    coordinates: &[[f64; 2]],
     suffix: &str,
     offset: f64,
     width: f64,
+    trim: EdgeTrim,
     zones: &[(f64, f64)],
     properties: &FeatureProperties,
 ) {
     if width <= 0.0 {
         return;
     }
-    let offset_coordinates = offset_line(marking_coordinates, offset);
+    let offset_coordinates = trim_line_ends(&offset_line(coordinates, offset), trim.start, trim.end);
+    if offset_coordinates.len() < 2 {
+        return;
+    }
     if zones.is_empty() {
         features.push(RoadFeature {
             id: format!("{feature_prefix}-{suffix}"),
@@ -1034,9 +1276,8 @@ fn cumulative_lengths(coordinates: &[[f64; 2]]) -> Vec<f64> {
 fn tapered_ribbon_ring(
     coordinates: &[[f64; 2]],
     full_width: f64,
-    taper_start: bool,
-    taper_end: bool,
-    taper_length: f64,
+    taper_length_start: f64,
+    taper_length_end: f64,
 ) -> Vec<[f64; 2]> {
     if coordinates.len() < 2 || full_width <= 0.0 {
         return Vec::new();
@@ -1044,17 +1285,18 @@ fn tapered_ribbon_ring(
     let cumulative = cumulative_lengths(coordinates);
     let total = *cumulative.last().unwrap_or(&0.0);
     let full_half_width = full_width / 2.0;
-    let effective_taper_length = taper_length.min(total).max(1e-6);
+    let effective_taper_length_start = taper_length_start.min(total);
+    let effective_taper_length_end = taper_length_end.min(total);
     let half_widths: Vec<f64> = cumulative
         .iter()
         .map(|&distance_from_start| {
             let mut half = full_half_width;
-            if taper_start {
-                half = half.min(full_half_width * (distance_from_start / effective_taper_length).min(1.0));
+            if effective_taper_length_start > 0.0 {
+                half = half.min(full_half_width * (distance_from_start / effective_taper_length_start).min(1.0));
             }
-            if taper_end {
+            if effective_taper_length_end > 0.0 {
                 let distance_from_end = total - distance_from_start;
-                half = half.min(full_half_width * (distance_from_end / effective_taper_length).min(1.0));
+                half = half.min(full_half_width * (distance_from_end / effective_taper_length_end).min(1.0));
             }
             half.max(0.0)
         })
@@ -1086,11 +1328,11 @@ fn append_ramp_ribbon(
     layer: i16,
     coordinates: &[[f64; 2]],
     width: f64,
-    taper_start: bool,
-    taper_end: bool,
+    taper_length_start: f64,
+    taper_length_end: f64,
     properties: &FeatureProperties,
 ) {
-    let casing_ring = tapered_ribbon_ring(coordinates, width + 8.0, taper_start, taper_end, RAMP_GORE_LENGTH_FEET);
+    let casing_ring = tapered_ribbon_ring(coordinates, width + 8.0, taper_length_start, taper_length_end);
     if !casing_ring.is_empty() {
         features.push(RoadFeature {
             id: format!("{feature_prefix}-casing-ribbon"),
@@ -1100,7 +1342,7 @@ fn append_ramp_ribbon(
             properties: FeatureProperties { render_width_feet: Some(width + 8.0), ..properties.clone() },
         });
     }
-    let surface_ring = tapered_ribbon_ring(coordinates, width, taper_start, taper_end, RAMP_GORE_LENGTH_FEET);
+    let surface_ring = tapered_ribbon_ring(coordinates, width, taper_length_start, taper_length_end);
     if !surface_ring.is_empty() {
         features.push(RoadFeature {
             id: format!("{feature_prefix}-surface-ribbon"),
@@ -1131,39 +1373,26 @@ fn append_direction_arrow(
     });
 }
 
+/// The gore stripe polygon: apex at the fog-line crossing (the theoretical gore nose), widening to
+/// the ramp's and the mainline's own fog lines at the shoulder-edge-crossing distance — the depth
+/// MUTCD/VDOT hatching covers.
 fn append_ramp_gore(
     features: &mut Vec<RoadFeature>,
     feature_prefix: &str,
     layer: i16,
-    coordinates: &[[f64; 2]],
+    gore: &GoreGeometry,
     at_start: bool,
     properties: &FeatureProperties,
 ) {
-    let (tip, adjacent) = if at_start {
-        (coordinates[0], coordinates[1])
-    } else {
-        (*coordinates.last().expect("ramp has coordinates"), coordinates[coordinates.len() - 2])
-    };
-    let delta = [adjacent[0] - tip[0], adjacent[1] - tip[1]];
-    let length = delta[0].hypot(delta[1]);
-    if length == 0.0 {
-        return;
-    }
-    let gore_length = length.min(RAMP_GORE_LENGTH_FEET);
-    let base = [
-        tip[0] + delta[0] / length * gore_length,
-        tip[1] + delta[1] / length * gore_length,
-    ];
-    let normal = [-delta[1] / length * 7.0, delta[0] / length * 7.0];
     features.push(RoadFeature {
         id: format!("{feature_prefix}-gore-{}", if at_start { "start" } else { "end" }),
         kind: RoadFeatureKind::RampGore,
         layer: layer + 2,
         geometry: Geometry::Polygon(vec![vec![
-            tip,
-            [base[0] + normal[0], base[1] + normal[1]],
-            [base[0] - normal[0], base[1] - normal[1]],
-            tip,
+            gore.tip,
+            gore.mainline_fog_at_base,
+            gore.ramp_fog_at_base,
+            gore.tip,
         ]]),
         properties: properties.clone(),
     });
@@ -1345,26 +1574,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mainline_edge_point_offsets_toward_the_ramp_instead_of_the_centerline() {
-        // Mainline runs due "north" (increasing y); the ramp approaches from the +x side.
-        let anchor = MainlineAnchor { tangent: [0.0, 1.0], half_width: 25.0 };
+    fn mainline_edge_point_offsets_toward_the_ramp() {
+        // Mainline runs due "north" (increasing y); sign -1.0 selects the +x side.
+        let anchor = MainlineAnchor { tangent: [0.0, 1.0], fog_half_width: 18.0, half_width: 25.0 };
         let junction_node = [100.0, 200.0];
-        let ramp_adjacent_point = [130.0, 190.0];
 
-        let edge_point = mainline_edge_point(junction_node, ramp_adjacent_point, &anchor);
+        let edge_point = mainline_edge_point(junction_node, 25.0, -1.0, &anchor);
 
         assert!((edge_point[0] - 125.0).abs() < 1e-9);
         assert!((edge_point[1] - 200.0).abs() < 1e-9);
     }
 
     #[test]
+    fn computes_gore_geometry_for_a_hand_verifiable_perpendicular_junction() {
+        // Mainline runs due "north" along the y-axis; the ramp approaches due "east" along the
+        // x-axis and touches it at the origin — a 90-degree case chosen so every intersection can
+        // be checked by hand instead of only trusting the code that produced it.
+        let mainline_anchor = MainlineAnchor { tangent: [0.0, 1.0], fog_half_width: 12.0, half_width: 18.0 };
+        let node = [0.0, 0.0];
+        let ramp_adjacent = [100.0, 0.0];
+
+        let gore = compute_gore_geometry(node, ramp_adjacent, 1, 4.0, 10.0, &mainline_anchor)
+            .expect("perpendicular junction should not be degenerate");
+
+        assert!((gore.tip[0] - 12.0).abs() < 1e-9 && (gore.tip[1] - -6.0).abs() < 1e-9);
+        assert!((gore.base[0] - 18.0).abs() < 1e-9 && (gore.base[1] - -10.0).abs() < 1e-9);
+        assert!((gore.ramp_fog_at_base[0] - 18.0).abs() < 1e-9 && (gore.ramp_fog_at_base[1] - -6.0).abs() < 1e-9);
+        assert!((gore.mainline_fog_at_base[0] - 12.0).abs() < 1e-9 && (gore.mainline_fog_at_base[1] - -10.0).abs() < 1e-9);
+        assert!((gore.ramp_trim_to_tip - 12.0).abs() < 1e-9);
+        assert!((gore.ramp_trim_to_base - 18.0).abs() < 1e-9);
+        assert!((gore.mainline_arc_to_tip - -6.0).abs() < 1e-9);
+        assert!((gore.mainline_arc_to_base - -10.0).abs() < 1e-9);
+        assert_eq!(gore.near_side_sign, -1.0);
+    }
+
+    fn nose(arc: f64, kind: RampNoseKind, side_sign: f64) -> RampNose {
+        RampNose { fog_arc: arc, shoulder_arc: arc, kind, side_sign }
+    }
+
+    #[test]
     fn chains_an_entrance_zone_to_the_next_exit_on_the_same_side() {
         let noses = vec![
-            RampNose { arc_position: 500.0, kind: RampNoseKind::Entrance, side_sign: 1.0 },
-            RampNose { arc_position: 900.0, kind: RampNoseKind::Exit, side_sign: 1.0 },
+            nose(500.0, RampNoseKind::Entrance, 1.0),
+            nose(900.0, RampNoseKind::Exit, 1.0),
         ];
 
-        let zones = compute_marking_zones(&noses, 2_000.0);
+        let zones = compute_marking_zones(&noses, 2_000.0, ZoneReference::FogLine);
 
         assert_eq!(zones.len(), 1);
         assert_eq!(zones[0].start, 500.0);
@@ -1373,9 +1628,9 @@ mod tests {
 
     #[test]
     fn falls_back_to_a_fixed_taper_zone_for_an_isolated_entrance() {
-        let noses = vec![RampNose { arc_position: 500.0, kind: RampNoseKind::Entrance, side_sign: 1.0 }];
+        let noses = vec![nose(500.0, RampNoseKind::Entrance, 1.0)];
 
-        let zones = compute_marking_zones(&noses, 2_000.0);
+        let zones = compute_marking_zones(&noses, 2_000.0, ZoneReference::FogLine);
 
         assert_eq!(zones.len(), 1);
         assert_eq!(zones[0].start, 500.0);
@@ -1384,9 +1639,9 @@ mod tests {
 
     #[test]
     fn falls_back_to_a_fixed_taper_zone_for_an_isolated_exit() {
-        let noses = vec![RampNose { arc_position: 500.0, kind: RampNoseKind::Exit, side_sign: -1.0 }];
+        let noses = vec![nose(500.0, RampNoseKind::Exit, -1.0)];
 
-        let zones = compute_marking_zones(&noses, 2_000.0);
+        let zones = compute_marking_zones(&noses, 2_000.0, ZoneReference::FogLine);
 
         assert_eq!(zones.len(), 1);
         assert_eq!(zones[0].start, 500.0 - RAMP_GORE_LENGTH_FEET);
@@ -1396,11 +1651,11 @@ mod tests {
     #[test]
     fn does_not_chain_zones_on_opposite_sides_of_the_mainline() {
         let noses = vec![
-            RampNose { arc_position: 500.0, kind: RampNoseKind::Entrance, side_sign: 1.0 },
-            RampNose { arc_position: 900.0, kind: RampNoseKind::Exit, side_sign: -1.0 },
+            nose(500.0, RampNoseKind::Entrance, 1.0),
+            nose(900.0, RampNoseKind::Exit, -1.0),
         ];
 
-        let zones = compute_marking_zones(&noses, 2_000.0);
+        let zones = compute_marking_zones(&noses, 2_000.0, ZoneReference::FogLine);
 
         assert_eq!(zones.len(), 2);
         assert!(zones.iter().any(|zone| zone.side_sign == 1.0 && zone.end == 500.0 + RAMP_GORE_LENGTH_FEET));
@@ -1524,11 +1779,16 @@ mod tests {
         // The ramp centerline stays for section selection, but its pavement no longer renders at
         // a constant width — the tapered ribbon below draws the visible merge instead.
         assert_eq!(ramp_surface.properties.render_width_feet, Some(0.0));
-        let ramp_fog_line = scene
+        let ramp_left_edge = scene
             .features
             .iter()
             .find(|feature| feature.id == "way-96-0-left-edge")
-            .expect("ramp fog line");
+            .expect("ramp near-side (left) fog line");
+        let ramp_right_edge = scene
+            .features
+            .iter()
+            .find(|feature| feature.id == "way-96-0-right-edge")
+            .expect("ramp far-side (right) fog line");
         let gore = scene
             .features
             .iter()
@@ -1542,8 +1802,11 @@ mod tests {
         let Geometry::LineString(surface_points) = &ramp_surface.geometry else {
             panic!("ramp surface should be a line")
         };
-        let Geometry::LineString(fog_points) = &ramp_fog_line.geometry else {
-            panic!("fog line should be a line")
+        let Geometry::LineString(left_fog_points) = &ramp_left_edge.geometry else {
+            panic!("left fog line should be a line")
+        };
+        let Geometry::LineString(right_fog_points) = &ramp_right_edge.geometry else {
+            panic!("right fog line should be a line")
         };
         let Geometry::Polygon(gore_rings) = &gore.geometry else {
             panic!("gore should be a polygon")
@@ -1551,20 +1814,26 @@ mod tests {
         let Geometry::Polygon(ribbon_rings) = &ramp_surface_ribbon.geometry else {
             panic!("ramp surface ribbon should be a polygon")
         };
-        assert!(
-            (fog_points[0][0] - surface_points[0][0])
-                .hypot(fog_points[0][1] - surface_points[0][1])
-                > 60.0
-        );
-        // The ribbon narrows to a point at the mainline's pavement edge — offset from the shared
-        // OSM junction node by the mainline's own half-width (50 ft wide / 2 = 25 ft) — instead of
-        // continuing at full pavement width all the way to the mainline's centerline.
+        // The ramp is on the mainline's right/east side (right_fog_points confirmed trimmed below),
+        // so the near-side right fog line must be trimmed well back from its raw untrimmed offset.
+        let untrimmed_left_start = offset_line(surface_points, -6.0)[0];
+        let left_trim_distance = (left_fog_points[0][0] - untrimmed_left_start[0])
+            .hypot(left_fog_points[0][1] - untrimmed_left_start[1]);
+        assert!(left_trim_distance < 0.01, "expected the far-side (left) fog line to stay untrimmed, got {left_trim_distance} ft");
+        // The near-side (right) fog line stops short of the mainline instead of overlapping it.
+        let untrimmed_right_start = offset_line(surface_points, 6.0)[0];
+        let right_trim_distance = (right_fog_points[0][0] - untrimmed_right_start[0])
+            .hypot(right_fog_points[0][1] - untrimmed_right_start[1]);
+        assert!(right_trim_distance > 1.0, "expected the near-side (right) fog line to be trimmed back, got {right_trim_distance} ft");
+        // The ribbon narrows to a point at the mainline's pavement edge (offset from the shared
+        // OSM junction node using both roadways' real approach angles) instead of continuing at
+        // full pavement width all the way to the mainline's centerline.
         let ribbon_ring = &ribbon_rings[0];
         let tip_offset_from_junction_node =
             (ribbon_ring[0][0] - surface_points[0][0]).hypot(ribbon_ring[0][1] - surface_points[0][1]);
         assert!(
-            (tip_offset_from_junction_node - 25.0).abs() < 0.5,
-            "expected the ribbon tip ~25 ft from the junction node, got {tip_offset_from_junction_node}"
+            (20.0..35.0).contains(&tip_offset_from_junction_node),
+            "expected the ribbon tip roughly 20-35 ft from the junction node, got {tip_offset_from_junction_node}"
         );
         let farthest_offset_from_tip = ribbon_ring
             .iter()
