@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -74,6 +74,66 @@ struct LaneMarkingLayout {
     trim_end: bool,
 }
 
+/// The mainline's own tangent direction and half-width at a junction node, used to find where its
+/// pavement edge (not its centerline, which is where OSM actually joins the ramp) really is.
+struct MainlineAnchor {
+    tangent: [f64; 2],
+    half_width: f64,
+}
+
+fn mainline_edge_anchors(
+    ways: &[WayRecord],
+    nodes: &HashMap<i64, NodeRecord>,
+    anchor: &NodeRecord,
+    direction: &TravelDirection,
+) -> HashMap<i64, MainlineAnchor> {
+    let mut anchors = HashMap::new();
+    for way in ways {
+        let highway = way.tags.get("highway").map(String::as_str).unwrap_or_default();
+        if !matches!(highway, "motorway" | "trunk") {
+            continue;
+        }
+        let lanes = way
+            .tags
+            .get("lanes")
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(2);
+        let (left_shoulder_width, right_shoulder_width) = shoulder_widths(&way.tags, highway);
+        let half_width = (f64::from(lanes) * LANE_WIDTH_FEET + left_shoulder_width + right_shoulder_width) / 2.0;
+        let points: Vec<(i64, [f64; 2])> = way
+            .nodes
+            .iter()
+            .filter_map(|node_id| nodes.get(node_id).map(|node| (*node_id, oriented_local_feet(node, anchor, direction))))
+            .collect();
+        for (index, (node_id, _)) in points.iter().enumerate() {
+            let previous = points[index.saturating_sub(1)].1;
+            let next = points[(index + 1).min(points.len() - 1)].1;
+            let delta = [next[0] - previous[0], next[1] - previous[1]];
+            let length = delta[0].hypot(delta[1]);
+            if length == 0.0 {
+                continue;
+            }
+            anchors.entry(*node_id).or_insert(MainlineAnchor {
+                tangent: [delta[0] / length, delta[1] / length],
+                half_width,
+            });
+        }
+    }
+    anchors
+}
+
+/// The point on the mainline's pavement edge (nearest the ramp) below a shared junction node,
+/// instead of the node itself, which OSM places on the mainline's centerline.
+fn mainline_edge_point(node: [f64; 2], adjacent: [f64; 2], anchor: &MainlineAnchor) -> [f64; 2] {
+    let perpendicular = [-anchor.tangent[1], anchor.tangent[0]];
+    let toward_ramp = [adjacent[0] - node[0], adjacent[1] - node[1]];
+    let sign = if perpendicular[0] * toward_ramp[0] + perpendicular[1] * toward_ramp[1] >= 0.0 { 1.0 } else { -1.0 };
+    [
+        node[0] + perpendicular[0] * anchor.half_width * sign,
+        node[1] + perpendicular[1] * anchor.half_width * sign,
+    ]
+}
+
 #[must_use]
 pub fn scene_radius_feet() -> f64 {
     SCENE_RADIUS_FEET
@@ -131,11 +191,7 @@ pub fn compile_overpass_json(
         (anchor, coordinates)
     };
     let scene_bounds = scene_bounds(&anchor_coordinates);
-    let mainline_nodes: HashSet<i64> = ways
-        .iter()
-        .filter(|way| matches!(way.tags.get("highway").map(String::as_str), Some("motorway" | "trunk")))
-        .flat_map(|way| way.nodes.iter().copied())
-        .collect();
+    let mainline_anchors = mainline_edge_anchors(&ways, &nodes, &anchor, &request.direction);
 
     let mut features = Vec::new();
     for way in ways {
@@ -149,19 +205,18 @@ pub fn compile_overpass_json(
             .tags
             .get("highway")
             .is_some_and(|highway| highway.ends_with("_link"));
-        let mut start_has_gore = is_link
-            && way
-                .nodes
-                .first()
-                .is_some_and(|node| mainline_nodes.contains(node));
-        let mut end_has_gore = is_link
-            && way
-                .nodes
-                .last()
-                .is_some_and(|node| mainline_nodes.contains(node));
+        let mut start_gore_anchor = is_link
+            .then(|| way.nodes.first().and_then(|node| mainline_anchors.get(node)))
+            .flatten();
+        let mut end_gore_anchor = is_link
+            .then(|| way.nodes.last().and_then(|node| mainline_anchors.get(node)))
+            .flatten();
+        let mut start_has_gore = start_gore_anchor.is_some();
+        let mut end_has_gore = end_gore_anchor.is_some();
         if way.tags.get("oneway").is_some_and(|value| value == "-1") {
             coordinates.reverse();
             std::mem::swap(&mut start_has_gore, &mut end_has_gore);
+            std::mem::swap(&mut start_gore_anchor, &mut end_gore_anchor);
         }
         let fragments = clip_line_to_scene(&coordinates, scene_bounds);
         if fragments.is_empty() {
@@ -221,16 +276,43 @@ pub fn compile_overpass_json(
                 },
             });
             if is_link {
+                // The OSM junction node sits on the mainline's centerline, not its edge, so the
+                // ramp must taper to the actual pavement edge instead of visually cutting across
+                // the through lanes to converge in the middle of the mainline.
+                let mut visual_coordinates = coordinates.clone();
+                if trim_marking_start {
+                    if let (Some(anchor), Some(&adjacent)) =
+                        (start_gore_anchor, visual_coordinates.get(1))
+                    {
+                        visual_coordinates[0] = mainline_edge_point(visual_coordinates[0], adjacent, anchor);
+                    }
+                }
+                if trim_marking_end {
+                    let last_index = visual_coordinates.len() - 1;
+                    if let (Some(anchor), Some(&adjacent)) =
+                        (end_gore_anchor, last_index.checked_sub(1).map(|index| &visual_coordinates[index]))
+                    {
+                        visual_coordinates[last_index] =
+                            mainline_edge_point(visual_coordinates[last_index], adjacent, anchor);
+                    }
+                }
                 append_ramp_ribbon(
                     &mut features,
                     &fragment_id,
                     layer,
-                    &coordinates,
+                    &visual_coordinates,
                     width,
                     trim_marking_start,
                     trim_marking_end,
                     &properties,
                 );
+                append_direction_arrow(&mut features, &fragment_id, layer, &visual_coordinates, &properties);
+                if fragment_index == 0 && start_has_gore {
+                    append_ramp_gore(&mut features, &fragment_id, layer, &visual_coordinates, true, &properties);
+                }
+                if fragment_index + 1 == fragment_count && end_has_gore {
+                    append_ramp_gore(&mut features, &fragment_id, layer, &visual_coordinates, false, &properties);
+                }
             }
             append_lane_markings(
                 &mut features,
@@ -246,15 +328,6 @@ pub fn compile_overpass_json(
                 },
                 &properties,
             );
-            if is_link {
-                append_direction_arrow(&mut features, &fragment_id, layer, &coordinates, &properties);
-                if fragment_index == 0 && start_has_gore {
-                    append_ramp_gore(&mut features, &fragment_id, layer, &coordinates, true, &properties);
-                }
-                if fragment_index + 1 == fragment_count && end_has_gore {
-                    append_ramp_gore(&mut features, &fragment_id, layer, &coordinates, false, &properties);
-                }
-            }
         }
     }
     features.sort_by_key(|feature| feature.layer);
@@ -886,6 +959,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mainline_edge_point_offsets_toward_the_ramp_instead_of_the_centerline() {
+        // Mainline runs due "north" (increasing y); the ramp approaches from the +x side.
+        let anchor = MainlineAnchor { tangent: [0.0, 1.0], half_width: 25.0 };
+        let junction_node = [100.0, 200.0];
+        let ramp_adjacent_point = [130.0, 190.0];
+
+        let edge_point = mainline_edge_point(junction_node, ramp_adjacent_point, &anchor);
+
+        assert!((edge_point[0] - 125.0).abs() < 1e-9);
+        assert!((edge_point[1] - 200.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn selects_the_requested_route_cluster_and_compiles_real_way_geometry() {
         let response = r#"{
           "elements": [
@@ -961,11 +1047,15 @@ mod tests {
                 .hypot(fog_points[0][1] - surface_points[0][1])
                 > 60.0
         );
-        // The ribbon narrows to a point at the mainline junction (the ramp's start node) instead of
-        // continuing at full pavement width into the through lanes.
+        // The ribbon narrows to a point at the mainline's pavement edge — offset from the shared
+        // OSM junction node by the mainline's own half-width (50 ft wide / 2 = 25 ft) — instead of
+        // continuing at full pavement width all the way to the mainline's centerline.
         let ribbon_ring = &ribbon_rings[0];
+        let tip_offset_from_junction_node =
+            (ribbon_ring[0][0] - surface_points[0][0]).hypot(ribbon_ring[0][1] - surface_points[0][1]);
         assert!(
-            (ribbon_ring[0][0] - surface_points[0][0]).hypot(ribbon_ring[0][1] - surface_points[0][1]) < 0.01
+            (tip_offset_from_junction_node - 25.0).abs() < 0.5,
+            "expected the ribbon tip ~25 ft from the junction node, got {tip_offset_from_junction_node}"
         );
         let farthest_offset_from_tip = ribbon_ring
             .iter()
