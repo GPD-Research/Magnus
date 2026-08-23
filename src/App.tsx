@@ -31,6 +31,7 @@ import {
   ScreenShare,
   Settings,
   ShieldCheck,
+  Trash2,
   TrafficCone,
   Truck,
   Undo2,
@@ -63,6 +64,13 @@ import {
   parsePortableScenario,
   type PortableScenarioState,
 } from './domain/scenarioFile'
+import {
+  listSavedScenes,
+  removeSceneReference,
+  saveSceneReference,
+  sceneFileBaseName,
+  type SavedSceneEntry,
+} from './domain/savedScenes'
 import {
   sampleStrokePoint,
   strokeExpiresAt,
@@ -152,7 +160,7 @@ import {
 
 const modes: { id: ComplianceMode; label: string; detail: string }[] = [
   { id: 'gospel', label: 'Standard SOP', detail: '5-cone taper' },
-  { id: 'modified', label: 'Enhanced Safety', detail: 'Expanded' },
+  { id: 'modified', label: 'Extended Safety', detail: 'Expanded' },
   { id: 'violate', label: 'SOP Violation', detail: 'Training' },
 ]
 
@@ -481,6 +489,7 @@ function App() {
   const [scenario, setScenario] = useState<ScenarioType>(savedScenario?.scenario ?? 'right-lane')
   const [sceneVisible, setSceneVisible] = useState(savedScenario?.sceneVisible ?? true)
   const [scenePlacementActive, setScenePlacementActive] = useState(false)
+  const [sceneConversionActive, setSceneConversionActive] = useState(false)
   const [sceneOrigin, setSceneOrigin] = useState(savedScenario?.sceneOrigin ?? { x: 0, y: 0 })
   const [sceneRotation, setSceneRotation] = useState(savedScenario?.sceneRotation ?? 0)
   const [mapRotation, setMapRotation] = useState(savedScenario?.mapRotation ?? 0)
@@ -501,6 +510,9 @@ function App() {
   const [sceneTypeOpen, setSceneTypeOpen] = useState(true)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveMenuOpen, setSaveMenuOpen] = useState(false)
+  const [savedScenesOpen, setSavedScenesOpen] = useState(false)
+  const [sceneFileName, setSceneFileName] = useState(`magnus-scene-${new Date().toISOString().slice(0, 10)}`)
+  const [savedScenes, setSavedScenes] = useState(() => listSavedScenes(localStorage))
   const [sceneZoom, setSceneZoom] = useState(savedScenario?.sceneZoom ?? 1)
   const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
   const [designerOpen, setDesignerOpen] = useState(false)
@@ -977,12 +989,40 @@ function App() {
       (item) => equipmentDefinition(item.definitionId).category !== 'ssp-asset',
     ))
     setSelectedEquipmentId(null)
+    setSceneConversionActive(false)
+    setSaveStatus('idle')
+  }
+
+  function convertScenario(nextScenario: ScenarioType) {
+    const setupTruck = createScenarioTrucks(nextScenario)[0]
+    const nextDefinition = scenarioDefinition(nextScenario)
+    const lateralShift = scenarioLateralOffset(nextScenario, alignedRoadLanes) - alignedScenarioOffset
+    const truckOffsetShift = nextDefinition.truckOffsetX - selectedScenario.truckOffsetX
+    setScenario(nextScenario)
+    setPoints(createScene(nextScenario))
+    setTrucks((current) => {
+      const hasSetupTruck = current.some((truck) => truck.id === setupTruck.id)
+      const converted = current.map((truck) => truck.id === setupTruck.id
+        ? { ...truck, x: setupTruck.x, y: setupTruck.y, rotation: 0, signboard: setupTruck.signboard }
+        : { ...truck, x: truck.x - lateralShift - truckOffsetShift })
+      return hasSetupTruck ? converted : [setupTruck, ...converted]
+    })
+    setDeployedEquipment((current) => current.map((item) => ({
+      ...item,
+      x: item.x - lateralShift,
+    })))
+    setSelectedTruckId(setupTruck.id)
+    setSelectedConeId(null)
+    setSelectedEquipmentId(null)
+    setSceneConversionActive(false)
+    setMode('gospel')
     setSaveStatus('idle')
   }
 
   function beginScenePlacement() {
     setSceneVisible(false)
     setScenePlacementActive(true)
+    setSceneConversionActive(false)
     setSelectedRoadSectionId(null)
     setSectionSelectionEnabled(false)
   }
@@ -990,6 +1030,7 @@ function App() {
   function removeScene() {
     setSceneVisible(false)
     setScenePlacementActive(false)
+    setSceneConversionActive(false)
     setSelectedEquipmentId(null)
     setSelectedTruckId('ssp-truck-1')
   }
@@ -1057,7 +1098,7 @@ function App() {
       sceneOrigin,
       sceneRotation,
       mapRotation,
-      mode,
+      mode: audit.mode,
       laneCount,
       points,
       trucks,
@@ -1098,11 +1139,11 @@ function App() {
     setSaveMenuOpen(false)
     const portable = createPortableScenario(currentScenarioState(), __APP_VERSION__)
     const scenarioJson = JSON.stringify(portable, null, 2)
+    const baseName = sceneFileBaseName(sceneFileName)
+    setSceneFileName(baseName)
     localStorage.setItem('magnus.scenario', scenarioJson)
     const svg = serializeSceneSvg()
     const image = format === 'svg' ? svg : await rasterizeSvg(svg, format)
-    const safeRoadName = locationRequest.highway.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'roadway'
-    const baseName = `magnus-${safeRoadName}-${new Date().toISOString().slice(0, 10)}`
     const picker = window as FilePickerWindow
     try {
       if (picker.showDirectoryPicker) {
@@ -1113,6 +1154,7 @@ function App() {
         downloadBlob(image, `${baseName}.${format}`)
         downloadBlob(new Blob([scenarioJson], { type: 'application/json' }), `${baseName}.magnus.json`)
       }
+      setSavedScenes(saveSceneReference(localStorage, baseName, scenarioJson))
       setSavedSnapshot(scenarioSnapshot)
       setSaveStatus('saved')
     } catch (error) {
@@ -1165,7 +1207,25 @@ function App() {
   }
 
   async function loadScenarioFile(file: File) {
+    setSceneFileName(sceneFileBaseName(file.name))
     applyScenarioState(parsePortableScenario(await file.text()).state)
+  }
+
+  function loadSavedScene(entry: SavedSceneEntry) {
+    setSceneFileName(entry.name)
+    setSavedScenesOpen(false)
+    applyScenarioState(parsePortableScenario(entry.document).state)
+  }
+
+  function downloadSavedScene(entry: SavedSceneEntry) {
+    downloadBlob(
+      new Blob([entry.document], { type: 'application/json' }),
+      `${entry.name}.magnus.json`,
+    )
+  }
+
+  function removeSavedScene(entry: SavedSceneEntry) {
+    setSavedScenes(removeSceneReference(localStorage, entry.name))
   }
 
   async function chooseScenarioFile() {
@@ -1924,7 +1984,7 @@ function App() {
           )}
         </div>
         <button
-          className="icon-button"
+          className="icon-button reset-ssp-button"
           type="button"
           title="Reset SSP objects"
           onClick={resetSspObjects}
@@ -1932,23 +1992,27 @@ function App() {
           <TrafficCone size={18} />
         </button>
         <button
-          className="icon-button"
+          className="icon-button reset-whole-button"
           type="button"
           title="Reset whole scene"
           onClick={resetScenario}
         >
-          <RotateCcw size={18} />
+          <Trash2 size={18} />
         </button>
         <div className="scene-file-actions">
           <div className="save-scene-anchor">
             <button
               className="scene-file-button"
               type="button"
+              aria-label="SAVE SCENE"
               aria-expanded={saveMenuOpen}
               aria-haspopup="menu"
-              onClick={() => setSaveMenuOpen((open) => !open)}
+              onClick={() => {
+                setSaveMenuOpen((open) => !open)
+                setSavedScenesOpen(false)
+              }}
             >
-              <Save size={17} /> SAVE SCENE
+              <Save size={17} /> <span>SAVE SCENE</span>
             </button>
             {saveMenuOpen && (
               <div
@@ -1956,6 +2020,15 @@ function App() {
                 role="menu"
                 aria-label="Save scene format"
               >
+                <label className="scene-file-name">
+                  Scene file name
+                  <input
+                    aria-label="Scene file name"
+                    value={sceneFileName}
+                    onChange={(event) => setSceneFileName(event.target.value)}
+                  />
+                  <small>.magnus.json</small>
+                </label>
                 <span>Image format</span>
                 <button
                   type="button"
@@ -1988,14 +2061,71 @@ function App() {
               </div>
             )}
           </div>
+          <div className="save-scene-anchor">
+            <button
+              className="scene-file-button"
+              type="button"
+              aria-label="SAVED SCENES"
+              aria-expanded={savedScenesOpen}
+              aria-haspopup="menu"
+              onClick={() => {
+                setSavedScenesOpen((open) => !open)
+                setSaveMenuOpen(false)
+              }}
+            >
+              <FolderOpen size={17} /> <span>SAVED SCENES</span>
+            </button>
+            {savedScenesOpen && (
+              <div
+                className="saved-scenes-menu"
+                role="menu"
+                aria-label="Saved scenes"
+              >
+                <span>Saved JSON scenes</span>
+                {savedScenes.length === 0 ? (
+                  <p>No saved scenes yet.</p>
+                ) : savedScenes.map((entry) => (
+                  <div className="saved-scene-entry" key={entry.name}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => loadSavedScene(entry)}
+                    >
+                      <b>{entry.name}</b>
+                      <small>{new Date(entry.savedAt).toLocaleString()}</small>
+                    </button>
+                    <button
+                      className="saved-scene-icon"
+                      type="button"
+                      title={`Download ${entry.name}`}
+                      aria-label={`Download ${entry.name}`}
+                      onClick={() => downloadSavedScene(entry)}
+                    >
+                      <Download size={14} />
+                    </button>
+                    <button
+                      className="saved-scene-icon"
+                      type="button"
+                      title={`Remove ${entry.name} from saved scenes`}
+                      aria-label={`Remove ${entry.name} from saved scenes`}
+                      onClick={() => removeSavedScene(entry)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             className="scene-file-button"
             type="button"
+            aria-label="LOAD SCENE"
             onClick={() => {
               void chooseScenarioFile();
             }}
           >
-            <FolderOpen size={17} /> LOAD SCENE
+            <FolderOpen size={17} /> <span>LOAD SCENE</span>
           </button>
           <input
             ref={loadSceneInputRef}
@@ -2221,10 +2351,10 @@ function App() {
                           ? "scenario-card active"
                           : "scenario-card"
                       }
-                      disabled={sceneVisible || scenePlacementActive}
+                      disabled={scenePlacementActive || (sceneVisible && !sceneConversionActive) || (sceneConversionActive && scenario === item.id)}
                       key={item.id}
                       type="button"
-                      onClick={() => changeScenario(item.id)}
+                      onClick={() => sceneConversionActive ? convertScenario(item.id) : changeScenario(item.id)}
                     >
                       {item.id === "shoulder" || item.id === "lane-shift" ? (
                         <Navigation size={18} />
@@ -2241,13 +2371,24 @@ function App() {
                 </div>
                 <div className="scene-placement-actions">
                   {sceneVisible ? (
-                    <button
-                      className="remove-scene-button"
-                      type="button"
-                      onClick={removeScene}
-                    >
-                      <Minus size={15} /> Remove scene
-                    </button>
+                    <>
+                      <button
+                        className="remove-scene-button"
+                        type="button"
+                        aria-label="Remove scene"
+                        onClick={removeScene}
+                      >
+                        <Minus size={15} /> Remove
+                      </button>
+                      <button
+                        className={sceneConversionActive ? "convert-scene-button active" : "convert-scene-button"}
+                        type="button"
+                        aria-pressed={sceneConversionActive}
+                        onClick={() => setSceneConversionActive((active) => !active)}
+                      >
+                        <RefreshCw size={15} /> {sceneConversionActive ? "Cancel" : "Convert"}
+                      </button>
+                    </>
                   ) : (
                     <button
                       className={
@@ -2269,9 +2410,9 @@ function App() {
               </div>
             )}
           </div>
-          {scenario === "right-lane" && mode === "modified" && (
+          {scenario === "right-lane" && (mode === "modified" || audit.mode === "modified") && (
             <div className="control-group mode-controls enhanced-controls">
-              <label>Enhanced safety setup</label>
+              <label>Extended safety setup</label>
               <div className="mode-control-row">
                 <span>Taper cones</span>
                 <div className="stepper compact-stepper">
@@ -2972,7 +3113,7 @@ function App() {
                 <>
                   <MousePointer2 size={15} /> Select a roadway section
                 </>
-              ) : mode === "gospel" ? (
+              ) : audit.mode === "gospel" ? (
                 <>
                   <ShieldCheck size={15} /> Positions locked to Standard SOP
                 </>
@@ -3361,9 +3502,9 @@ function App() {
               <button
                 type="button"
                 role="tab"
-                aria-selected={mode === item.id}
+                aria-selected={audit.mode === item.id}
                 className={
-                  mode === item.id
+                  audit.mode === item.id
                     ? `mode-${item.id} active`
                     : `mode-${item.id}`
                 }
@@ -3413,9 +3554,9 @@ function App() {
                   <small> FT</small>
                 </strong>
                 <i className="metric-good">
-                  {mode === "modified"
-                    ? "Enhanced"
-                    : mode === "violate"
+                  {audit.mode === "modified"
+                    ? "Extended"
+                    : audit.mode === "violate"
                       ? "Training state"
                       : "Standard"}
                 </i>
@@ -3453,7 +3594,7 @@ function App() {
                     : "3 / 3"}
                 </strong>
                 <i>
-                  {mode === "modified"
+                  {audit.mode === "modified"
                     ? "Additional allowed"
                     : "Standard count"}
                 </i>
@@ -3465,7 +3606,7 @@ function App() {
                   <small> FT</small>
                 </strong>
                 <i>
-                  {mode === "modified" ? "Expanded allowed" : "Standard 40 ft"}
+                  {audit.mode === "modified" ? "Up to 80 ft" : "Standard 40 ft"}
                 </i>
               </div>
               <div>

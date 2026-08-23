@@ -28,7 +28,7 @@ const DEFAULT_OVERPASS_URLS: [&str; 3] = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ];
-const CACHE_VERSION: &str = "road-scene-v6";
+const CACHE_VERSION: &str = "road-scene-v7";
 const LEGACY_CACHE_VERSIONS: [&str; 2] = ["road-scene-v4", "road-scene-v3"];
 
 #[derive(Clone)]

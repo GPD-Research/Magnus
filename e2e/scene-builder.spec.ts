@@ -24,10 +24,10 @@ test('loads the scene builder with a visible roadway and passing audit', async (
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  const brand = page.getByLabel('Magnus version 6.0.0')
+  const brand = page.getByLabel('Magnus version 7.0.0')
   await expect(brand).toBeVisible()
   await expect(brand).toContainText('AGNUS')
-  await expect(brand).toContainText('v6')
+  await expect(brand).toContainText('v7')
 })
 
 test('builds the initial TOC radio exchange from direction and lane closure settings', async ({ page }) => {
@@ -211,6 +211,7 @@ test('saves and restores the complete scene configuration', async ({ page }) => 
   await toolkit.getByRole('tab', { name: 'External Assets' }).click()
   await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
   await page.getByRole('button', { name: 'SAVE SCENE' }).click()
+  await page.getByLabel('Scene file name').fill('I-95 Training Alpha.json')
   await page.getByRole('menuitem', { name: 'SVG vector' }).click()
   await expect(page.getByText('Scene ready', { exact: true })).toBeVisible()
 
@@ -218,6 +219,9 @@ test('saves and restores the complete scene configuration', async ({ page }) => 
   await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(1)
   await page.getByRole('button', { name: 'Reset whole scene' }).click()
   await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'SAVED SCENES' }).click()
+  await page.getByRole('menuitem', { name: /I-95-Training-Alpha/ }).click()
+  await expect(page.locator('[data-definition-id="ems-ambulance"]')).toHaveCount(1)
 })
 
 test('preserves non-SSP objects when resetting or changing the SSP scene and allows loaded cones to move', async ({ page }) => {
@@ -257,6 +261,51 @@ test('preserves non-SSP objects when resetting or changing the SSP scene and all
   await expect(ambulance).toHaveCount(1)
   await expect(gasCan).toHaveCount(0)
   await expect(page.locator('[data-cone-id="taper-3"]')).toBeVisible()
+})
+
+test('classifies valid downstream cone changes as Extended Safety and rejects no downstream cones', async ({ page }) => {
+  await page.goto('/')
+
+  await page.locator('[data-cone-id="perimeter-1"]').click()
+  await page.keyboard.press('Delete')
+
+  await expect(page.getByRole('tab', { name: /Extended Safety/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: 'Extended Safety' })).toBeVisible()
+
+  for (const coneId of ['lead', 'perimeter-2']) {
+    await page.locator(`[data-cone-id="${coneId}"]`).click()
+    await page.keyboard.press('Delete')
+  }
+
+  await expect(page.getByRole('tab', { name: /SOP Violation/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('At least one downstream cone is required in front of the SSP truck.')).toBeVisible()
+})
+
+test('converts the assigned SSP setup while preserving unrelated scene assets', async ({ page }) => {
+  await page.goto('/')
+
+  const toolkit = page.getByRole('region', { name: 'Scene equipment toolkit' })
+  await toolkit.getByRole('tab', { name: 'External Assets' }).click()
+  await toolkit.getByRole('button', { name: /EMS ambulance/ }).click()
+  const ambulance = page.locator('[data-definition-id="ems-ambulance"]')
+  const initialAmbulanceTransform = await ambulance.getAttribute('transform')
+
+  await page.getByRole('button', { name: 'Convert' }).click()
+  await expect(page.getByRole('button', { name: /Shoulder closure/ })).toBeEnabled()
+  await page.getByRole('button', { name: /Shoulder closure/ }).click()
+
+  await expect(page.getByRole('heading', { name: 'Standard shoulder closure' })).toBeVisible()
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(60 260) rotate(0)')
+  await expect(page.locator('[data-cone-id="taper-3"]')).toBeVisible()
+  await expect(ambulance).toHaveAttribute('transform', initialAmbulanceTransform ?? '')
+
+  await page.getByRole('button', { name: 'Convert' }).click()
+  await page.getByRole('button', { name: /Two right lanes/ }).click()
+
+  await expect(page.getByRole('heading', { name: 'Two right lanes closed' })).toBeVisible()
+  await expect(page.locator('[data-truck-id="ssp-truck-1"]')).toHaveAttribute('transform', 'translate(36 260) rotate(0)')
+  await expect(page.locator('[data-cone-id="taper-10"]')).toBeVisible()
+  await expect(ambulance).toHaveAttribute('transform', initialAmbulanceTransform ?? '')
 })
 
 test('warns about unsaved changes before exiting and allows them to be discarded', async ({ page }) => {
@@ -1180,16 +1229,16 @@ test('uses the shared assets and hazards catalog in the grid designer', async ({
   await expect(page.getByRole('button', { name: 'Delete object' })).toHaveCount(0)
 })
 
-test('configures an enhanced safety scene', async ({ page }) => {
+test('configures an extended safety scene', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByRole('tab', { name: /Enhanced Safety/ }).click()
+  await page.getByRole('tab', { name: /Extended Safety/ }).click()
   await page.getByTitle('Add taper cone').click()
   await page.getByLabel('Forward spacing').selectOption('80')
 
   await expect(page.getByText('Drag cones to adapt the scene')).toBeVisible()
   await expect(page.getByText('6 / 5 MIN')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Extended Safety' })).toBeVisible()
 })
 
 test('reports fewer than 8 rear cones in violation training', async ({ page }) => {
@@ -1198,8 +1247,8 @@ test('reports fewer than 8 rear cones in violation training', async ({ page }) =
   await page.getByRole('tab', { name: /SOP Violation/ }).click()
   await page.getByRole('button', { name: 'Remove rear cone' }).click()
 
-  await expect(page.getByRole('heading', { name: 'SOP violations detected' })).toBeVisible()
-  await expect(page.getByText(/fewer than 8 cones protect the rear upstream area/)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Action required' })).toBeVisible()
+  await expect(page.getByText(/Lane closures require at least 8 upstream cones/)).toBeVisible()
 })
 
 test('opens the grid-based scene template designer', async ({ page }) => {

@@ -90,59 +90,69 @@ describe('SOP scene audit', () => {
     expect(twoLeft.find((point) => point.id === 'taper-10')).toMatchObject({ x: 18, y: 762 })
   })
 
-  it('rejects a cone moved into the emergency shoulder', () => {
+  it('classifies a valid manually moved cone as Extended Safety', () => {
     const scene = createScene('right-lane')
     scene[0] = { ...scene[0], x: 420 }
 
     const result = auditScene('right-lane', 'gospel', scene)
 
-    expect(result.findings).toContain('Right shoulder must remain clear for emergency access.')
+    expect(result).toMatchObject({ status: 'compliant', mode: 'modified', title: 'Extended Safety' })
   })
 
-  it('requires a 3-cone buffer and 5-cone taper upstream', () => {
-    const scene = createScene('right-lane').filter(
-      (point) => point.id !== 'buffer-2' && point.id !== 'taper-5',
-    )
+  it('requires at least 8 upstream cones for lane closures', () => {
+    const scene = createScene('right-lane').filter((point) => point.id !== 'taper-5')
 
     const result = auditScene('right-lane', 'gospel', scene)
 
     expect(result.findings).toContain(
-      'Buffer zone requires 3 cones: 1 anchor and 2 additional cones.',
+      'Lane closures require at least 8 upstream cones behind the SSP truck.',
     )
-    expect(result.findings).toContain('Standard SOP requires exactly 5 taper cones.')
+    expect(result.mode).toBe('violate')
   })
 
-  it('requires the anchor and downstream lead 10 ft from the truck', () => {
-    const scene = createScene('right-lane').map((point) =>
-      point.id === 'anchor' || point.id === 'lead' ? { ...point, y: point.y + 20 } : point,
-    )
+  it('requires at least 4 upstream cones for shoulder closures', () => {
+    const scene = createScene('shoulder').filter((point) => point.id !== 'taper-3')
 
-    const result = auditScene('right-lane', 'gospel', scene)
+    const result = auditScene('shoulder', 'gospel', scene)
 
-    expect(result.findings).toContain('Anchor cone must be 10 ft behind the SSP truck.')
     expect(result.findings).toContain(
-      'Lead downstream cone must be 10 ft ahead of the truck on the skip line.',
+      'Shoulder closures require at least 4 upstream cones behind the SSP truck.',
     )
   })
 
-  it('requires downstream cones at 40 ft intervals on the skip line', () => {
-    const scene = createScene('right-lane')
-    scene[9] = { ...scene[9], y: 610 }
+  it('requires at least one downstream cone', () => {
+    const scene = createScene('right-lane').filter((point) => point.role !== 'perimeter')
 
     const result = auditScene('right-lane', 'gospel', scene)
 
     expect(result.findings).toContain(
-      'Downstream cones must continue straight on the skip line at 40 ft intervals.',
+      'At least one downstream cone is required in front of the SSP truck.',
     )
   })
 
-  it('enforces minimum upstream spacing in modified mode', () => {
-    const scene = createScene('shoulder')
-    scene[1] = { ...scene[1], y: 430 }
+  it('accepts downstream spacing up to 80 ft with a 15 percent placement margin', () => {
+    const accepted = setDownstreamSpacing(createScene('right-lane'), 92)
+    const rejected = setDownstreamSpacing(createScene('right-lane'), 93)
 
-    const result = auditScene('shoulder', 'modified', scene)
+    expect(auditScene('right-lane', 'gospel', accepted)).toMatchObject({
+      status: 'compliant',
+      mode: 'modified',
+    })
+    expect(auditScene('right-lane', 'gospel', rejected).findings).toContain(
+      'Downstream cone spacing exceeds the 80 ft Extended Safety maximum.',
+    )
+  })
 
-    expect(result.findings).toContain('Upstream cone spacing must be at least 40 ft.')
+  it('applies the 15 percent lower margin to downstream spacing', () => {
+    const accepted = setDownstreamSpacing(createScene('right-lane'), 34)
+    const rejected = createScene('right-lane').map((point) =>
+      point.id === 'perimeter-1' ? { ...point, y: 205 } : point,
+    )
+
+    expect(auditScene('right-lane', 'gospel', accepted).status).toBe('compliant')
+    expect(auditScene('right-lane', 'gospel', rejected).findings).toContain(
+      'Downstream cone spacing is less than the 40 ft SOP standard.',
+    )
   })
 
   it('accepts more taper cones and wider downstream spacing in enhanced mode', () => {
@@ -153,26 +163,35 @@ describe('SOP scene audit', () => {
     expect(result.status).toBe('compliant')
   })
 
-  it('flags fewer than 8 rear cones as an SOP violation', () => {
-    const scene = createScene('right-lane').filter((point) => point.id !== 'taper-5')
+  it('allows extra upstream cones at strict 40 ft spacing as Extended Safety', () => {
+    const scene = [
+      ...createScene('right-lane'),
+      { id: 'taper-6', x: 54, y: 602, role: 'taper' as const },
+    ]
 
-    const result = auditScene('right-lane', 'violate', scene)
+    const result = auditScene('right-lane', 'gospel', scene)
 
-    expect(result.findings).toContain(
-      'SOP violation: fewer than 8 cones protect the rear upstream area.',
+    expect(result).toMatchObject({ status: 'compliant', mode: 'modified', title: 'Extended Safety' })
+  })
+
+  it('keeps upstream spacing within 40 ft plus or minus the 15 percent margin', () => {
+    const withSpacing = (spacing: number) => createScene('right-lane').map((point) => {
+      if (point.role === 'perimeter') return point
+      const index = ['anchor', 'buffer-1', 'buffer-2', 'taper-1', 'taper-2', 'taper-3', 'taper-4', 'taper-5'].indexOf(point.id)
+      return { ...point, y: 282 + index * spacing }
+    })
+
+    expect(auditScene('right-lane', 'gospel', withSpacing(34)).status).toBe('compliant')
+    expect(auditScene('right-lane', 'gospel', withSpacing(46)).status).toBe('compliant')
+    expect(auditScene('right-lane', 'gospel', withSpacing(33)).findings).toContain(
+      'Upstream cone spacing is less than the 40 ft SOP standard.',
+    )
+    expect(auditScene('right-lane', 'gospel', withSpacing(47)).findings).toContain(
+      'Upstream cone spacing exceeds the strict 40 ft SOP standard.',
     )
   })
 
-  it('flags rear taper spacing below 40 ft as an SOP violation', () => {
-    const scene = createScene('right-lane').map((point) =>
-      point.id === 'taper-1' ? { ...point, y: 387 } : point,
-    )
-
-    const result = auditScene('right-lane', 'violate', scene)
-
-    expect(result.status).toBe('warning')
-    expect(result.findings).toContain(
-      'SOP violation: rear taper cones are separated by less than 40 ft.',
-    )
+  it('ignores the selected training tab when classifying the live scene', () => {
+    expect(auditScene('right-lane', 'violate', createScene('right-lane')).mode).toBe('gospel')
   })
 })

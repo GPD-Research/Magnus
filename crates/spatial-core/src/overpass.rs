@@ -15,6 +15,7 @@ const LANE_WIDTH_FEET: f64 = 12.0;
 const EDGE_LINE_INSET_FEET: f64 = 0.0;
 const DEFAULT_FREEWAY_LEFT_SHOULDER_FEET: f64 = 4.0;
 const DEFAULT_FREEWAY_RIGHT_SHOULDER_FEET: f64 = 10.0;
+const RAMP_GORE_LENGTH_FEET: f64 = 70.0;
 
 #[derive(Debug, Error)]
 pub enum OverpassSceneError {
@@ -63,6 +64,14 @@ struct WayRecord {
     id: i64,
     nodes: Vec<i64>,
     tags: HashMap<String, String>,
+}
+
+struct LaneMarkingLayout {
+    lanes: u16,
+    left_shoulder_width: f64,
+    right_shoulder_width: f64,
+    trim_start: bool,
+    trim_end: bool,
 }
 
 #[must_use]
@@ -136,8 +145,23 @@ pub fn compile_overpass_json(
             .filter_map(|node_id| nodes.get(node_id))
             .map(|node| oriented_local_feet(node, &anchor, &request.direction))
             .collect();
+        let is_link = way
+            .tags
+            .get("highway")
+            .is_some_and(|highway| highway.ends_with("_link"));
+        let mut start_has_gore = is_link
+            && way
+                .nodes
+                .first()
+                .is_some_and(|node| mainline_nodes.contains(node));
+        let mut end_has_gore = is_link
+            && way
+                .nodes
+                .last()
+                .is_some_and(|node| mainline_nodes.contains(node));
         if way.tags.get("oneway").is_some_and(|value| value == "-1") {
             coordinates.reverse();
+            std::mem::swap(&mut start_has_gore, &mut end_has_gore);
         }
         let fragments = clip_line_to_scene(&coordinates, scene_bounds);
         if fragments.is_empty() {
@@ -173,12 +197,11 @@ pub fn compile_overpass_json(
             direction: Some("forward".into()),
             render_width_feet: Some(width),
         };
-        let is_link = highway.ends_with("_link");
-        let start_has_gore = is_link && way.nodes.first().is_some_and(|node| mainline_nodes.contains(node));
-        let end_has_gore = is_link && way.nodes.last().is_some_and(|node| mainline_nodes.contains(node));
         let fragment_count = fragments.len();
         for (fragment_index, coordinates) in fragments.into_iter().enumerate() {
             let fragment_id = format!("way-{}-{fragment_index}", way.id);
+            let trim_marking_start = fragment_index == 0 && start_has_gore;
+            let trim_marking_end = fragment_index + 1 == fragment_count && end_has_gore;
             features.push(RoadFeature {
                 id: format!("{fragment_id}-casing"),
                 kind: RoadFeatureKind::RoadCasing,
@@ -201,9 +224,13 @@ pub fn compile_overpass_json(
                 &fragment_id,
                 layer,
                 &coordinates,
-                lanes,
-                left_shoulder_width,
-                right_shoulder_width,
+                LaneMarkingLayout {
+                    lanes,
+                    left_shoulder_width,
+                    right_shoulder_width,
+                    trim_start: trim_marking_start,
+                    trim_end: trim_marking_end,
+                },
                 &properties,
             );
             if is_link {
@@ -438,12 +465,26 @@ fn append_lane_markings(
     feature_prefix: &str,
     layer: i16,
     coordinates: &[[f64; 2]],
-    lanes: u16,
-    left_shoulder_width: f64,
-    right_shoulder_width: f64,
+    layout: LaneMarkingLayout,
     properties: &FeatureProperties,
 ) {
-    let half_width = f64::from(lanes) * LANE_WIDTH_FEET / 2.0;
+    let marking_coordinates = trim_line_ends(
+        coordinates,
+        if layout.trim_start {
+            RAMP_GORE_LENGTH_FEET
+        } else {
+            0.0
+        },
+        if layout.trim_end {
+            RAMP_GORE_LENGTH_FEET
+        } else {
+            0.0
+        },
+    );
+    if marking_coordinates.len() < 2 {
+        return;
+    }
+    let half_width = f64::from(layout.lanes) * LANE_WIDTH_FEET / 2.0;
     for (suffix, kind, offset) in [
         ("left-edge", RoadFeatureKind::LeftFogLine, -half_width + EDGE_LINE_INSET_FEET),
         ("right-edge", RoadFeatureKind::RightFogLine, half_width - EDGE_LINE_INSET_FEET),
@@ -452,20 +493,20 @@ fn append_lane_markings(
             id: format!("{feature_prefix}-{suffix}"),
             kind,
             layer: layer + 1,
-            geometry: Geometry::LineString(offset_line(coordinates, offset)),
+            geometry: Geometry::LineString(offset_line(&marking_coordinates, offset)),
             properties: FeatureProperties {
                 render_width_feet: Some(0.5),
                 ..properties.clone()
             },
         });
     }
-    for lane in 1..lanes {
+    for lane in 1..layout.lanes {
         let offset = -half_width + f64::from(lane) * LANE_WIDTH_FEET;
         features.push(RoadFeature {
             id: format!("{feature_prefix}-lane-{lane}"),
             kind: RoadFeatureKind::SkipLine,
             layer: layer + 1,
-            geometry: Geometry::LineString(offset_line(coordinates, offset)),
+            geometry: Geometry::LineString(offset_line(&marking_coordinates, offset)),
             properties: FeatureProperties {
                 render_width_feet: Some(0.5),
                 ..properties.clone()
@@ -473,8 +514,16 @@ fn append_lane_markings(
         });
     }
     for (suffix, offset, width) in [
-        ("left-shoulder-edge", -half_width - left_shoulder_width, left_shoulder_width),
-        ("right-shoulder-edge", half_width + right_shoulder_width, right_shoulder_width),
+        (
+            "left-shoulder-edge",
+            -half_width - layout.left_shoulder_width,
+            layout.left_shoulder_width,
+        ),
+        (
+            "right-shoulder-edge",
+            half_width + layout.right_shoulder_width,
+            layout.right_shoulder_width,
+        ),
     ] {
         if width <= 0.0 {
             continue;
@@ -483,7 +532,7 @@ fn append_lane_markings(
             id: format!("{feature_prefix}-{suffix}"),
             kind: RoadFeatureKind::ShoulderEdge,
             layer: layer + 1,
-            geometry: Geometry::LineString(offset_line(coordinates, offset)),
+            geometry: Geometry::LineString(offset_line(&marking_coordinates, offset)),
             properties: FeatureProperties {
                 render_width_feet: Some(0.75),
                 ..properties.clone()
@@ -599,7 +648,11 @@ fn append_ramp_gore(
     if length == 0.0 {
         return;
     }
-    let base = [tip[0] + delta[0] / length * 70.0, tip[1] + delta[1] / length * 70.0];
+    let gore_length = length.min(RAMP_GORE_LENGTH_FEET);
+    let base = [
+        tip[0] + delta[0] / length * gore_length,
+        tip[1] + delta[1] / length * gore_length,
+    ];
     let normal = [-delta[1] / length * 7.0, delta[0] / length * 7.0];
     features.push(RoadFeature {
         id: format!("{feature_prefix}-gore-{}", if at_start { "start" } else { "end" }),
@@ -613,6 +666,40 @@ fn append_ramp_gore(
         ]]),
         properties: properties.clone(),
     });
+}
+
+fn trim_line_ends(
+    coordinates: &[[f64; 2]],
+    start_distance: f64,
+    end_distance: f64,
+) -> Vec<[f64; 2]> {
+    fn trim_start(coordinates: &[[f64; 2]], mut distance: f64) -> Vec<[f64; 2]> {
+        if distance <= 0.0 {
+            return coordinates.to_vec();
+        }
+        for (index, segment) in coordinates.windows(2).enumerate() {
+            let length =
+                (segment[1][0] - segment[0][0]).hypot(segment[1][1] - segment[0][1]);
+            if length > distance {
+                let ratio = distance / length;
+                let trimmed_start = [
+                    segment[0][0] + (segment[1][0] - segment[0][0]) * ratio,
+                    segment[0][1] + (segment[1][1] - segment[0][1]) * ratio,
+                ];
+                return std::iter::once(trimmed_start)
+                    .chain(coordinates[index + 1..].iter().copied())
+                    .collect();
+            }
+            distance -= length;
+        }
+        Vec::new()
+    }
+
+    let mut trimmed = trim_start(coordinates, start_distance);
+    trimmed.reverse();
+    trimmed = trim_start(&trimmed, end_distance);
+    trimmed.reverse();
+    trimmed
 }
 
 fn offset_line(coordinates: &[[f64; 2]], offset: f64) -> Vec<[f64; 2]> {
@@ -657,11 +744,13 @@ fn normalize_to_viewport(features: &mut [RoadFeature]) -> Viewport {
     };
     let padding = 30.0;
     for feature in features {
-        if let Geometry::LineString(points) = &mut feature.geometry {
-            for point in points {
-                point[0] = point[0] - minimum_x + padding;
-                point[1] = point[1] - minimum_y + padding;
-            }
+        let points = match &mut feature.geometry {
+            Geometry::LineString(points) => points.iter_mut().collect::<Vec<_>>(),
+            Geometry::Polygon(rings) => rings.iter_mut().flatten().collect(),
+        };
+        for point in points {
+            point[0] = point[0] - minimum_x + padding;
+            point[1] = point[1] - minimum_y + padding;
         }
     }
     Viewport {
@@ -710,6 +799,41 @@ mod tests {
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::ShoulderEdge).count(), 2);
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampGore).count(), 1);
         assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::DirectionArrow).count(), 1);
+        let ramp_surface = scene
+            .features
+            .iter()
+            .find(|feature| feature.id == "way-96-0-surface")
+            .expect("ramp surface");
+        let ramp_fog_line = scene
+            .features
+            .iter()
+            .find(|feature| feature.id == "way-96-0-left-edge")
+            .expect("ramp fog line");
+        let gore = scene
+            .features
+            .iter()
+            .find(|feature| feature.kind == RoadFeatureKind::RampGore)
+            .expect("ramp gore");
+        let Geometry::LineString(surface_points) = &ramp_surface.geometry else {
+            panic!("ramp surface should be a line")
+        };
+        let Geometry::LineString(fog_points) = &ramp_fog_line.geometry else {
+            panic!("fog line should be a line")
+        };
+        let Geometry::Polygon(gore_rings) = &gore.geometry else {
+            panic!("gore should be a polygon")
+        };
+        assert!(
+            (fog_points[0][0] - surface_points[0][0])
+                .hypot(fog_points[0][1] - surface_points[0][1])
+                > 60.0
+        );
+        assert!(
+            gore_rings
+                .iter()
+                .flatten()
+                .all(|point| point[0] >= 0.0 && point[1] >= 0.0)
+        );
         assert!(scene.viewport.height > 700.0);
     }
 

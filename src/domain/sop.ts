@@ -58,6 +58,7 @@ export interface AuditResult {
   status: 'compliant' | 'warning' | 'violation'
   title: string
   findings: string[]
+  mode: ComplianceMode
 }
 
 export const RIGHT_LANE_STANDARD = {
@@ -72,7 +73,10 @@ export const RIGHT_LANE_STANDARD = {
   coneSpacing: 40,
 } as const
 
-const POSITION_TOLERANCE = 4
+const SPACING_TOLERANCE = 0.15
+const MINIMUM_CONE_SPACING = RIGHT_LANE_STANDARD.coneSpacing * (1 - SPACING_TOLERANCE)
+const MAXIMUM_UPSTREAM_SPACING = RIGHT_LANE_STANDARD.coneSpacing * (1 + SPACING_TOLERANCE)
+const MAXIMUM_DOWNSTREAM_SPACING = RIGHT_LANE_STANDARD.coneSpacing * 2 * (1 + SPACING_TOLERANCE)
 
 const templates: Record<ScenarioType, ScenePoint[]> = {
   shoulder: [
@@ -195,128 +199,21 @@ export function setDownstreamSpacing(points: ScenePoint[], spacing: number): Sce
   }))
 }
 
-function hasCompressedSpacing(points: ScenePoint[]): boolean {
-  const ordered = [...points].sort((first, second) => first.y - second.y)
-  return ordered.some(
-    (point, index) =>
-      index > 0 &&
-      point.y - ordered[index - 1].y <
-        RIGHT_LANE_STANDARD.coneSpacing - POSITION_TOLERANCE,
+function coneSpacings(points: ScenePoint[], descending = false): number[] {
+  const ordered = [...points].sort((first, second) =>
+    descending ? second.y - first.y : first.y - second.y,
   )
+  return ordered.slice(1).map((point, index) => Math.abs(point.y - ordered[index].y))
 }
 
-function auditRightLane(points: ScenePoint[], mode: ComplianceMode): string[] {
-  const findings: string[] = []
-  const buffer = points.filter((point) => point.role === 'anchor' || point.role === 'buffer')
-  const taper = points.filter((point) => point.role === 'taper')
-  const downstream = points.filter((point) => point.role === 'perimeter')
-  const upstream = [...buffer, ...taper]
-  const anchor = points.find((point) => point.role === 'anchor')
-  const lead = points.find((point) => point.id === 'lead')
-
-  if (mode === 'violate') {
-    if (upstream.length < RIGHT_LANE_STANDARD.bufferConeCount + RIGHT_LANE_STANDARD.taperConeCount) {
-      findings.push('SOP violation: fewer than 8 cones protect the rear upstream area.')
-    }
-    if (hasCompressedSpacing(upstream)) {
-      findings.push('SOP violation: rear taper cones are separated by less than 40 ft.')
-    }
-    return findings
-  }
-
-  if (buffer.length !== RIGHT_LANE_STANDARD.bufferConeCount) {
-    findings.push('Buffer zone requires 3 cones: 1 anchor and 2 additional cones.')
-  }
-
-  if (
-    (mode === 'gospel' && taper.length !== RIGHT_LANE_STANDARD.taperConeCount) ||
-    (mode === 'modified' && taper.length < RIGHT_LANE_STANDARD.taperConeCount)
-  ) {
-    findings.push(
-      mode === 'gospel'
-        ? 'Standard SOP requires exactly 5 taper cones.'
-        : 'Enhanced Safety requires at least 5 taper cones.',
-    )
-  }
-
-  if (buffer.some((point) => Math.abs(point.x - RIGHT_LANE_STANDARD.skipLineX) > POSITION_TOLERANCE)) {
-    findings.push('All 3 buffer cones must remain on the center/right skip line.')
-  }
-
-  if (anchor) {
-    const expectedAnchorY =
-      RIGHT_LANE_STANDARD.truck.y +
-      RIGHT_LANE_STANDARD.truck.halfLength +
-      RIGHT_LANE_STANDARD.anchorGap
-    if (Math.abs(anchor.y - expectedAnchorY) > POSITION_TOLERANCE) {
-      findings.push('Anchor cone must be 10 ft behind the SSP truck.')
-    }
-  }
-
-  const orderedUpstream = [...upstream].sort((first, second) => first.y - second.y)
-  const invalidUpstreamSpacing = orderedUpstream.some((point, index) => {
-    if (index === 0) return false
-    const spacing = point.y - orderedUpstream[index - 1].y
-    return mode === 'gospel'
-      ? Math.abs(spacing - RIGHT_LANE_STANDARD.coneSpacing) > POSITION_TOLERANCE
-      : spacing < RIGHT_LANE_STANDARD.coneSpacing - POSITION_TOLERANCE
+function pointsMatchTemplate(points: ScenePoint[], expected: ScenePoint[]): boolean {
+  if (points.length !== expected.length) return false
+  return expected.every((target) => {
+    const actual = points.find((point) => point.id === target.id)
+    return actual
+      && Math.abs(actual.x - target.x) <= RIGHT_LANE_STANDARD.coneSpacing * SPACING_TOLERANCE
+      && Math.abs(actual.y - target.y) <= RIGHT_LANE_STANDARD.coneSpacing * SPACING_TOLERANCE
   })
-  if (invalidUpstreamSpacing) {
-    findings.push(
-      mode === 'gospel'
-        ? 'Buffer and taper cones must be spaced at 40 ft intervals.'
-        : 'Enhanced Safety rear cone spacing cannot be less than 40 ft.',
-    )
-  }
-
-  const fogLineCone = taper.reduce<ScenePoint | undefined>(
-    (farthest, point) => (!farthest || point.y > farthest.y ? point : farthest),
-    undefined,
-  )
-  if (
-    fogLineCone &&
-    Math.abs(fogLineCone.x - RIGHT_LANE_STANDARD.rightFogLineX) > POSITION_TOLERANCE
-  ) {
-    findings.push('The merge taper must terminate on the right shoulder fog line.')
-  }
-
-  if (points.some((point) => point.x > RIGHT_LANE_STANDARD.rightFogLineX + POSITION_TOLERANCE)) {
-    findings.push('Right shoulder must remain clear for emergency access.')
-  }
-
-  if (lead) {
-    const expectedLeadY =
-      RIGHT_LANE_STANDARD.truck.y -
-      RIGHT_LANE_STANDARD.truck.halfLength -
-      RIGHT_LANE_STANDARD.leadGap
-    if (
-      Math.abs(lead.x - RIGHT_LANE_STANDARD.skipLineX) > POSITION_TOLERANCE ||
-      Math.abs(lead.y - expectedLeadY) > POSITION_TOLERANCE
-    ) {
-      findings.push('Lead downstream cone must be 10 ft ahead of the truck on the skip line.')
-    }
-  } else {
-    findings.push('Lead downstream cone is required.')
-  }
-
-  const orderedDownstream = downstream.sort((first, second) => second.y - first.y)
-  const invalidDownstream = orderedDownstream.some((point, index) => {
-    if (Math.abs(point.x - RIGHT_LANE_STANDARD.skipLineX) > POSITION_TOLERANCE) return true
-    if (index === 0) return false
-    const spacing = orderedDownstream[index - 1].y - point.y
-    return mode === 'gospel'
-      ? Math.abs(spacing - RIGHT_LANE_STANDARD.coneSpacing) > POSITION_TOLERANCE
-      : spacing < RIGHT_LANE_STANDARD.coneSpacing - POSITION_TOLERANCE
-  })
-  if (invalidDownstream) {
-    findings.push(
-      mode === 'gospel'
-        ? 'Downstream cones must continue straight on the skip line at 40 ft intervals.'
-        : 'Enhanced Safety downstream spacing must be 40 ft or wider.',
-    )
-  }
-
-  return findings
 }
 
 export function createScene(scenario: ScenarioType): ScenePoint[] {
@@ -325,53 +222,53 @@ export function createScene(scenario: ScenarioType): ScenePoint[] {
 
 export function auditScene(
   scenario: ScenarioType,
-  mode: ComplianceMode,
+  _mode: ComplianceMode,
   points: ScenePoint[],
 ): AuditResult {
   const findings: string[] = []
   const expected = templates[scenario]
+  const upstream = points.filter((point) => point.role !== 'perimeter')
+  const downstream = points.filter((point) => point.role === 'perimeter')
+  const minimumUpstream = scenario === 'shoulder' ? 4 : 8
 
-  if (scenario === 'right-lane') {
-    findings.push(...auditRightLane(points, mode))
-  } else if (points.length < expected.length) {
-    findings.push(`${expected.length - points.length} required cone(s) missing.`)
+  if (downstream.length === 0) {
+    findings.push('At least one downstream cone is required in front of the SSP truck.')
+  }
+  if (upstream.length < minimumUpstream) {
+    findings.push(
+      scenario === 'shoulder'
+        ? 'Shoulder closures require at least 4 upstream cones behind the SSP truck.'
+        : 'Lane closures require at least 8 upstream cones behind the SSP truck.',
+    )
+  }
+  if (coneSpacings(upstream).some((spacing) => spacing < MINIMUM_CONE_SPACING)) {
+    findings.push('Upstream cone spacing is less than the 40 ft SOP standard.')
+  }
+  if (coneSpacings(upstream).some((spacing) => spacing > MAXIMUM_UPSTREAM_SPACING)) {
+    findings.push('Upstream cone spacing exceeds the strict 40 ft SOP standard.')
+  }
+  if (coneSpacings(downstream, true).some((spacing) => spacing < MINIMUM_CONE_SPACING)) {
+    findings.push('Downstream cone spacing is less than the 40 ft SOP standard.')
+  }
+  if (coneSpacings(downstream, true).some((spacing) => spacing > MAXIMUM_DOWNSTREAM_SPACING)) {
+    findings.push('Downstream cone spacing exceeds the 80 ft Extended Safety maximum.')
   }
 
-  if (mode === 'violate') {
+  if (findings.length > 0) {
+    return { status: 'violation', title: 'Action required', findings, mode: 'violate' }
+  }
+  if (!pointsMatchTemplate(points, expected)) {
     return {
-      status: 'warning',
-      title: findings.length > 0 ? 'SOP violations detected' : 'SOP violation mode active',
-      findings:
-        findings.length > 0
-          ? findings
-          : ['Current rear protection still meets the 8-cone and 40 ft minimums.'],
+      status: 'compliant',
+      title: 'Extended Safety',
+      findings: ['Modified cone placement remains within active SOP limits.'],
+      mode: 'modified',
     }
   }
-
-  if (mode === 'gospel') {
-    const movedPoints = expected.filter((target) => {
-      const actual = points.find((point) => point.id === target.id)
-      return (
-        !actual ||
-        Math.abs(actual.x - target.x) > POSITION_TOLERANCE ||
-        Math.abs(actual.y - target.y) > POSITION_TOLERANCE
-      )
-    })
-
-    if (movedPoints.length > 0) {
-      findings.push(`${movedPoints.length} cone(s) are outside locked SOP positions.`)
-    }
-  } else {
-    const upstream = points
-      .filter((point) => point.role !== 'perimeter')
-      .sort((first, second) => first.y - second.y)
-
-    if (upstream.some((point, index) => index > 0 && point.y - upstream[index - 1].y < 40)) {
-      findings.push('Upstream cone spacing must be at least 40 ft.')
-    }
+  return {
+    status: 'compliant',
+    title: 'Setup compliant',
+    findings: ['All active SOP checks pass.'],
+    mode: 'gospel',
   }
-
-  return findings.length === 0
-    ? { status: 'compliant', title: 'Setup compliant', findings: ['All active SOP checks pass.'] }
-    : { status: 'violation', title: 'Action required', findings }
 }
