@@ -212,4 +212,4 @@ The central vector pane opens at a centered 500-foot view with equal scroll trav
 
 Further Work needs to be done to smooth the complex interchanges as there are still overlapping lines, failures in gore rendering, etc. 
 
-How to Clean Topologies: Use specialized libraries like Python's OSMnx or osm2streets / osm2lanes to resolve intersections, drop isolated sub-networks, and smooth pseudo-nodes where roads needlessly break into separate IDs.
+How to Clean Topologies: I intend to use specialized libraries like Python's OSMnx or osm2streets / osm2lanes to resolve intersections, drop isolated sub-networks, and smooth pseudo-nodes where roads needlessly break into separate IDs. I may end branching the project to do a complete rebuild of the backend since this issue has defied correction despite many hours spent attempting to rectify such rendering issues. 
