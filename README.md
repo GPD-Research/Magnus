@@ -209,3 +209,7 @@ Vite proxies `/api` requests to `127.0.0.1:8787`. Set `OVERPASS_URLS` to a comma
 `I-95 / Northbound / Mile marker 170` is the complex-interchange acceptance case for the Springfield Interchange, commonly called the Mixing Bowl. When a scene contains multiple roadway surfaces, the right-pane **Select section** control lets the operator choose a rendered mainline, ramp, or flyover as the controlled sector. SSP equipment and cones are then aligned to that way's center tangent while retaining feet-based spacing.
 
 The central vector pane opens at a centered 500-foot view with equal scroll travel in every direction and supports a 40-foot close view through toolbar controls or a control-wheel/pinch gesture. Ordinary trackpad wheel output pans the scene, and a three-finger direct-touch drag pans on tablets. Zoom keeps compiled roadway geometry and interactive SSP equipment in the same projected coordinate space.
+
+Further Work needs to be done to smooth the complex interchanges as there are still overlapping lines, failures in gore rendering, etc. 
+
+How to Clean Topologies: Use specialized libraries like Python's OSMnx or osm2streets / osm2lanes to resolve intersections, drop isolated sub-networks, and smooth pseudo-nodes where roads needlessly break into separate IDs.
