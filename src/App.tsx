@@ -2926,13 +2926,6 @@ function App() {
                             d="M -3.2 -10 H 3.2 M -2.5 -12 V -10 M 2.5 -12 V -10"
                           />
                           <rect
-                            className="truck-lightbar"
-                            x="-4.5"
-                            y="-1"
-                            width="9"
-                            height="1.4"
-                          />
-                          <rect
                             className="strobe"
                             fill="#d93528"
                             x="-4"
@@ -2948,9 +2941,16 @@ function App() {
                             width="0.8"
                             height="0.8"
                           />
-                          <g transform="translate(0 6) scale(.1)">
+                          <g transform="scale(.1)">
                             <SignboardGraphic message={truck.signboard} truckMounted />
                           </g>
+                          <rect
+                            className="truck-lightbar"
+                            x="-4.5"
+                            y="-4.8"
+                            width="9"
+                            height="1.4"
+                          />
                           {truck.assetType === "lane-blade-truck" && (
                             <path
                               className="truck-lane-blade"

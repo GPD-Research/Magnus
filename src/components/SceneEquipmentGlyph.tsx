@@ -88,7 +88,7 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'ssp-truck':
       return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y={-length / 6} width={width * .8} height={length / 3} fill="#111716" /><circle className="emergency-light rear-strobe" cx={-width * .38} cy={length * .42} r={width * .09} fill="#d93528" /><circle className="emergency-light rear-strobe" cx={width * .38} cy={length * .42} r={width * .09} fill="#d93528" /><LightBar width={width} color="#efbd20" flashing /></>
     case 'lane-blade-truck':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y="-1" width={width * .8} height="2" fill="#111716" /><path d={`M ${-halfWidth} ${-halfLength} L ${halfWidth} ${-halfLength}`} className="catalog-lane-blade" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y={-length / 6} width={width * .8} height={length / 3} fill="#111716" /><circle className="emergency-light rear-strobe" cx={-width * .38} cy={length * .42} r={width * .09} fill="#d93528" /><circle className="emergency-light rear-strobe" cx={width * .38} cy={length * .42} r={width * .09} fill="#d93528" /><LightBar width={width} color="#efbd20" flashing /><path d={`M ${-halfWidth} ${-halfLength} L ${halfWidth} ${-halfLength}`} className="catalog-lane-blade" /></>
     case 'tractor':
     case 'sedan':
       return <VehicleBody width={width} length={length} color={definition.color} />
