@@ -6,6 +6,8 @@ Magnus is a visual incident-scene builder for Virginia Department of Transportat
 
 The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md). A full version-by-version development timeline reconstructed from git history is in [docs/development-history.md](docs/development-history.md).
 
+The Version 8 topology integration direction is recorded in [docs/version-8-topology-integration.md](docs/version-8-topology-integration.md).
+
 ## Version 7.0 release
 
 This release includes:
