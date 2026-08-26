@@ -74,13 +74,13 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'trailer':
       return <><rect {...common} x={-halfWidth} y={-halfLength} width={width} height={length} rx="1" /><path d={`M ${-halfWidth} ${-length * .22} H ${halfWidth} M ${-halfWidth} ${length * .22} H ${halfWidth}`} className="catalog-detail" /></>
     case 'ladder-truck':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .28} ${-length * .35} V ${length * .25} M 0 ${-length * .35} V ${length * .25} M ${width * .28} ${-length * .35} V ${length * .25} M ${-width * .35} ${-length * .3} H ${width * .35} M ${-width * .35} ${-length * .12} H ${width * .35} M ${-width * .35} ${length * .06} H ${width * .35} M ${-width * .35} ${length * .24} H ${width * .35}`} className="catalog-ladder" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .28} ${-length * .35} V ${length * .25} M 0 ${-length * .35} V ${length * .25} M ${width * .28} ${-length * .35} V ${length * .25} M ${-width * .35} ${-length * .3} H ${width * .35} M ${-width * .35} ${-length * .12} H ${width * .35} M ${-width * .35} ${length * .06} H ${width * .35} M ${-width * .35} ${length * .24} H ${width * .35}`} className="catalog-ladder" /><LightBar width={width} color="#d93528" flashing /></>
     case 'bus':
       return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .35} ${-length * .32} H ${width * .35} M ${-width * .35} ${-length * .15} H ${width * .35} M ${-width * .35} ${length * .02} H ${width * .35} M ${-width * .35} ${length * .19} H ${width * .35}`} className="catalog-detail" /></>
     case 'pickup':
       return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .36} y={length * .08} width={width * .72} height={length * .3} fill="none" className="catalog-detail" /></>
     case 'ambulance':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .25} 0 H ${width * .25} M 0 ${-width * .25} V ${width * .25}`} className="catalog-medical" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .25} 0 H ${width * .25} M 0 ${-width * .25} V ${width * .25}`} className="catalog-medical" /><LightBar width={width} color="#d93528" flashing /></>
     case 'cruiser':
       return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .28} ${-length * .38} V ${length * .4} M ${width * .28} ${-length * .38} V ${length * .4}`} className="catalog-police-stripe" /><LightBar width={width} color="#2d67ae" flashing /></>
     case 'suv':

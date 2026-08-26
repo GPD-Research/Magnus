@@ -420,7 +420,7 @@ function SignboardGraphic({ message, truckMounted = false }: { message: Signboar
   const frames = signboardFrames[message]
   return (
     <>
-      <rect className="signboard" x="-42.5" y={truckMounted ? "-60" : "-12"} width="85" height={truckMounted ? "120" : "24"} />
+      <rect className="signboard" x="-42.5" y={truckMounted ? "-40" : "-12"} width="85" height={truckMounted ? "80" : "24"} />
       {frames.map((frame, index) => (
         <g className={`signboard-frame signboard-frame-${index === 0 ? 'a' : 'b'}`} key={index}>
           <SignboardFrameGraphic frame={frame} />
@@ -2934,15 +2934,17 @@ function App() {
                           />
                           <rect
                             className="strobe"
+                            fill="#d93528"
                             x="-4"
-                            y="-11"
+                            y="10.2"
                             width="0.8"
                             height="0.8"
                           />
                           <rect
                             className="strobe delayed"
+                            fill="#d93528"
                             x="3.2"
-                            y="-11"
+                            y="10.2"
                             width="0.8"
                             height="0.8"
                           />
