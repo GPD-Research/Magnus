@@ -129,6 +129,7 @@ import {
   centeredSceneViewBox,
   clampSceneZoom,
   clientToScenePoint,
+  sceneViewBoxForVisibleBounds,
   sceneZoomForVisibleWidth,
   scenePointToLocal,
   visibleSceneWidth,
@@ -1157,6 +1158,7 @@ function App() {
   function serializeSceneSvg(): Blob {
     const source = roadStageRef.current?.querySelector<SVGSVGElement>('.road-canvas')
     if (!source) throw new Error('Scene canvas is unavailable.')
+    const stage = roadStageRef.current
     const clone = source.cloneNode(true) as SVGSVGElement
     clone.querySelectorAll('.equipment-rotation-handle, .road-section-hit-area, .drawing-hit-area, .drawing-stroke.temporary').forEach((element) => element.remove())
     clone.querySelectorAll('.selected').forEach((element) => element.classList.remove('selected'))
@@ -1164,8 +1166,30 @@ function App() {
       element.removeAttribute('tabindex')
       element.removeAttribute('role')
     })
-    const [, , viewBoxWidth, viewBoxHeight] = sceneViewBoxValue.split(' ').map(Number)
+    const sourceViewBox = source.viewBox.baseVal
+    const stageBounds = stage?.getBoundingClientRect()
+    const canvasBounds = source.getBoundingClientRect()
+    const exportViewBox = stage && stageBounds && canvasBounds.width > 0 && canvasBounds.height > 0
+      ? sceneViewBoxForVisibleBounds(
+          {
+            x: sourceViewBox.x,
+            y: sourceViewBox.y,
+            width: sourceViewBox.width,
+            height: sourceViewBox.height,
+          },
+          {
+            left: stageBounds.left,
+            top: stageBounds.top,
+            width: stage.clientWidth,
+            height: stage.clientHeight,
+          },
+          canvasBounds,
+        )
+      : sceneViewBox
+    const viewBoxWidth = exportViewBox.width
+    const viewBoxHeight = exportViewBox.height
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    clone.setAttribute('viewBox', `${exportViewBox.x} ${exportViewBox.y} ${viewBoxWidth} ${viewBoxHeight}`)
     clone.setAttribute('width', '1600')
     clone.setAttribute('height', String(Math.round(1600 * viewBoxHeight / viewBoxWidth)))
     const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')

@@ -1063,6 +1063,16 @@ test('exports image and portable scene files and loads the scene back', async ({
   })
   await page.goto('/')
 
+  const canvas = page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')
+  const stage = page.locator('.road-stage')
+  const initialViewBox = (await canvas.getAttribute('viewBox'))!.split(' ').map(Number)
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByRole('button', { name: 'Zoom in highway graphic' }).click()
+  }
+  await expect.poll(() => stage.evaluate((element) => element.scrollWidth > element.clientWidth && element.scrollHeight > element.clientHeight)).toBe(true)
+  await stage.evaluate((element) => element.scrollTo(element.scrollWidth, element.scrollHeight))
+  await expect.poll(() => stage.evaluate((element) => element.scrollLeft > 0 && element.scrollTop > 0)).toBe(true)
+
   await page.getByRole('button', { name: 'SAVE SCENE' }).click()
   await page.getByRole('menuitem', { name: 'SVG vector' }).click()
   await expect.poll(() => page.evaluate(() => Object.keys((window as unknown as { __savedSceneFiles: Record<string, string> }).__savedSceneFiles).length)).toBe(2)
@@ -1073,6 +1083,10 @@ test('exports image and portable scene files and loads the scene back', async ({
   expect(scenarioName).toBeTruthy()
   expect(svgName).toBeTruthy()
   expect(savedFiles[svgName!]).toContain('<svg')
+  const exportedViewBox = /viewBox="([^"]+)"/.exec(savedFiles[svgName!])?.[1]?.split(' ').map(Number)
+  expect(exportedViewBox).toHaveLength(4)
+  expect(exportedViewBox![2]).toBeLessThan(initialViewBox[2])
+  expect(exportedViewBox![0]).toBeGreaterThan(initialViewBox[0])
   expect(JSON.parse(savedFiles[scenarioName!])).toMatchObject({ kind: 'magnus-scene', version: 2 })
 
   const truck = page.locator('[data-truck-id="ssp-truck-1"]')

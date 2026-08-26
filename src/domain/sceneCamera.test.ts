@@ -9,6 +9,7 @@ import {
   clientToScenePoint,
   sceneZoomForVisibleWidth,
   scenePointToLocal,
+  sceneViewBoxForVisibleBounds,
   visibleSceneWidth,
 } from './sceneCamera'
 
@@ -95,5 +96,18 @@ describe('scene camera', () => {
     )
 
     expect(point).toEqual({ x: 250, y: 380 })
+  })
+
+  it('maps the GUI viewport bounds into the zoomed canvas view box', () => {
+    expect(sceneViewBoxForVisibleBounds(
+      { x: 0, y: 0, width: 500, height: 760 },
+      { left: 0, top: 0, width: 800, height: 600 },
+      { left: -200, top: -300, width: 1_600, height: 1_200 },
+    )).toEqual({
+      x: 62.5,
+      y: 190,
+      width: 250,
+      height: 380,
+    })
   })
 })

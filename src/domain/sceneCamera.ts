@@ -61,6 +61,21 @@ export function centeredSceneViewBox(
   }
 }
 
+export function sceneViewBoxForVisibleBounds(
+  viewBox: SceneViewBox,
+  visibleBounds: { left: number; top: number; width: number; height: number },
+  canvasBounds: { left: number; top: number; width: number; height: number },
+): SceneViewBox {
+  const scaleX = viewBox.width / canvasBounds.width
+  const scaleY = viewBox.height / canvasBounds.height
+  return {
+    x: viewBox.x + (visibleBounds.left - canvasBounds.left) * scaleX,
+    y: viewBox.y + (visibleBounds.top - canvasBounds.top) * scaleY,
+    width: visibleBounds.width * scaleX,
+    height: visibleBounds.height * scaleY,
+  }
+}
+
 export function clientToScenePoint(
   client: { x: number; y: number },
   bounds: { left: number; top: number; width: number; height: number },
