@@ -320,9 +320,9 @@
 .truck-lightbar { fill: #e4ac18; stroke: #111817; stroke-width: .15; }
 .signboard { fill: #151b1c; stroke: #d7dcda; stroke-width: .15; }
 .signboard-symbol { fill: none; stroke: #ffc323; stroke-width: 2.5; stroke-linecap: square; stroke-linejoin: miter; }
-.signboard-flash, .signboard-frame-a, .signboard-frame-b { animation: signboard-flash .8s steps(1, end) infinite; }
-.signboard-frame-b { animation-delay: -.4s; }
-@keyframes signboard-flash { 0%, 49.99% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.signboard-frame { animation: signboard-frame-cycle 2s steps(1, end) infinite; }
+.signboard-frame-b { animation-delay: -1s; }
+@keyframes signboard-frame-cycle { 0%, 49.99% { opacity: 1; } 50%, 100% { opacity: 0; } }
 .signboard-copy { fill: #ffc323; font: 700 8px 'IBM Plex Sans', sans-serif; letter-spacing: 0; }
 .ssp-truck { cursor: pointer; outline: none; }
 .ssp-truck.selected .deployed-selection, .ssp-truck:focus .deployed-selection { stroke: #ffc323; }

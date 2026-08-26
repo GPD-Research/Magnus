@@ -7,6 +7,12 @@ export type SignboardMessage =
   | 'double-diamonds'
   | 'incident-ahead'
   | 'high-water'
+  | 'incident-ahead-use-caution'
+  | 'high-water-slow-down'
+  | 'incident-ahead-merge-left'
+  | 'incident-ahead-merge-right'
+  | 'ramp-blocked-left-arrow'
+  | 'ramp-blocked-right-arrow'
 
 export interface SspTruckState {
   id: string
@@ -21,14 +27,20 @@ export interface SspTruckState {
 export const MAX_SSP_TRUCKS = 5
 
 export const SIGNBOARD_OPTIONS: { value: SignboardMessage; label: string }[] = [
-  { value: 'left-arrow', label: 'Left arrow' },
-  { value: 'right-arrow', label: 'Right arrow' },
-  { value: 'split-arrow', label: 'Split arrow' },
-  { value: 'ramp-blocked', label: 'Ramp Blocked' },
-  { value: 'slow-roll-do-not-pass', label: 'Slow Roll - Do Not Pass' },
-  { value: 'double-diamonds', label: 'Double Diamonds' },
+  { value: 'left-arrow', label: 'Left arrow (alternates black)' },
+  { value: 'split-arrow', label: 'Split arrow (alternates black)' },
+  { value: 'right-arrow', label: 'Right arrow (alternates black)' },
   { value: 'incident-ahead', label: 'Incident Ahead' },
+  { value: 'incident-ahead-use-caution', label: 'Incident Ahead / Use Caution' },
   { value: 'high-water', label: 'High Water' },
+  { value: 'high-water-slow-down', label: 'High Water / Slow Down' },
+  { value: 'incident-ahead-merge-left', label: 'Incident Ahead / Merge Left' },
+  { value: 'incident-ahead-merge-right', label: 'Incident Ahead / Merge Right' },
+  { value: 'ramp-blocked', label: 'Ramp Blocked' },
+  { value: 'ramp-blocked-left-arrow', label: 'Ramp Blocked / Left arrow' },
+  { value: 'ramp-blocked-right-arrow', label: 'Ramp Blocked / Right arrow' },
+  { value: 'slow-roll-do-not-pass', label: 'Slow Roll / Do Not Pass' },
+  { value: 'double-diamonds', label: 'Double Diamonds' },
 ]
 
 const truckPositions = [

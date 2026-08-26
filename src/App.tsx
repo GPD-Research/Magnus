@@ -362,31 +362,69 @@ async function probeSpatialService(): Promise<boolean> {
   }
 }
 
-const signboardSymbolPaths: Partial<Record<SignboardMessage, string>> = {
+interface SignboardFrame {
+  symbolPath?: string
+  copy?: [string, string]
+}
+
+const signboardSymbolPaths: Record<string, string> = {
   'left-arrow': 'M 22 0 H -22 M -22 0 L -10 -8 M -22 0 L -10 8',
   'right-arrow': 'M -22 0 H 22 M 22 0 L 10 -8 M 22 0 L 10 8',
   'split-arrow': 'M -22 0 H 22 M -22 0 L -10 -8 M -22 0 L -10 8 M 22 0 L 10 -8 M 22 0 L 10 8',
   'double-diamonds': 'M -25 0 L -16 -9 L -7 0 L -16 9 Z M 7 0 L 16 -9 L 25 0 L 16 9 Z',
 }
 
-const signboardCopy: Partial<Record<SignboardMessage, [string, string]>> = {
+const signboardCopy: Record<string, [string, string]> = {
   'ramp-blocked': ['RAMP', 'BLOCKED'],
   'slow-roll-do-not-pass': ['SLOW ROLL', 'DO NOT PASS'],
   'incident-ahead': ['INCIDENT', 'AHEAD'],
   'high-water': ['HIGH', 'WATER'],
+  'use-caution': ['USE', 'CAUTION'],
+  'slow-down': ['SLOW', 'DOWN'],
+  'merge-left': ['MERGE', 'LEFT'],
+  'merge-right': ['MERGE', 'RIGHT'],
 }
 
-function SignboardGraphic({ message }: { message: SignboardMessage }) {
-  const symbolPath = signboardSymbolPaths[message]
-  const copy = signboardCopy[message]
+const signboardFrames: Record<SignboardMessage, [SignboardFrame, SignboardFrame]> = {
+  'left-arrow': [{ symbolPath: signboardSymbolPaths['left-arrow'] }, {}],
+  'split-arrow': [{ symbolPath: signboardSymbolPaths['split-arrow'] }, {}],
+  'right-arrow': [{ symbolPath: signboardSymbolPaths['right-arrow'] }, {}],
+  'incident-ahead': [{ copy: signboardCopy['incident-ahead'] }, { copy: signboardCopy['use-caution'] }],
+  'high-water': [{ copy: signboardCopy['high-water'] }, { copy: signboardCopy['slow-down'] }],
+  'incident-ahead-use-caution': [{ copy: signboardCopy['incident-ahead'] }, { copy: signboardCopy['use-caution'] }],
+  'high-water-slow-down': [{ copy: signboardCopy['high-water'] }, { copy: signboardCopy['slow-down'] }],
+  'incident-ahead-merge-left': [{ copy: signboardCopy['incident-ahead'] }, { copy: signboardCopy['merge-left'] }],
+  'incident-ahead-merge-right': [{ copy: signboardCopy['incident-ahead'] }, { copy: signboardCopy['merge-right'] }],
+  'ramp-blocked': [{ copy: signboardCopy['ramp-blocked'] }, { symbolPath: signboardSymbolPaths['left-arrow'] }],
+  'ramp-blocked-left-arrow': [{ copy: signboardCopy['ramp-blocked'] }, { symbolPath: signboardSymbolPaths['left-arrow'] }],
+  'ramp-blocked-right-arrow': [{ copy: signboardCopy['ramp-blocked'] }, { symbolPath: signboardSymbolPaths['right-arrow'] }],
+  'slow-roll-do-not-pass': [{ copy: ['SLOW', 'ROLL'] }, { copy: ['DO NOT', 'PASS'] }],
+  'double-diamonds': [{ symbolPath: signboardSymbolPaths['double-diamonds'] }, { symbolPath: signboardSymbolPaths['double-diamonds'] }],
+}
+
+function SignboardFrameGraphic({ frame }: { frame: SignboardFrame }) {
+  const { symbolPath, copy } = frame
   return (
     <>
-      <rect className="signboard" x="-40" y="-12" width="80" height="24" />
-      {message === 'double-diamonds' ? <>
-        <path className="signboard-symbol signboard-frame-a" d="M -25 0 L -16 -9 L -7 0 L -16 9 Z" />
-        <path className="signboard-symbol signboard-frame-b" d="M 7 0 L 16 -9 L 25 0 L 16 9 Z" />
-      </> : symbolPath && <path className={`signboard-symbol${message.endsWith('arrow') ? ' signboard-flash' : ''}`} d={symbolPath} />}
+      {symbolPath && <path className="signboard-symbol" d={symbolPath} />}
       {copy && <text className="signboard-copy" textAnchor="middle"><tspan x="0" y="-2">{copy[0]}</tspan><tspan x="0" y="8">{copy[1]}</tspan></text>}
+    </>
+  )
+}
+
+function SignboardGraphic({ message, truckMounted = false }: { message: SignboardMessage; truckMounted?: boolean }) {
+  const frames = signboardFrames[message]
+  const isStatic = message === 'double-diamonds'
+  return (
+    <>
+      <rect className="signboard" x="-42.5" y={truckMounted ? "-60" : "-12"} width="85" height={truckMounted ? "120" : "24"} />
+      {isStatic
+        ? <SignboardFrameGraphic frame={frames[0]} />
+        : frames.map((frame, index) => (
+          <g className={`signboard-frame signboard-frame-${index === 0 ? 'a' : 'b'}`} key={index}>
+            <SignboardFrameGraphic frame={frame} />
+          </g>
+        ))}
     </>
   )
 }
@@ -2906,8 +2944,8 @@ function App() {
                             width="0.8"
                             height="0.8"
                           />
-                          <g transform="translate(0 10) scale(.1)">
-                            <SignboardGraphic message={truck.signboard} />
+                          <g transform="translate(0 6) scale(.1)">
+                            <SignboardGraphic message={truck.signboard} truckMounted />
                           </g>
                           {truck.assetType === "lane-blade-truck" && (
                             <path
