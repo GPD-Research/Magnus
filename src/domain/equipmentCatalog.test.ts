@@ -19,6 +19,12 @@ describe('equipment catalog', () => {
     expect(deploymentLimit(equipmentDefinition('floor-jack'), [], 2)).toBe(2)
     expect(deploymentLimit(equipmentDefinition('tool-bag'), [], 2)).toBe(2)
     expect(deploymentLimit(equipmentDefinition('portable-compressor'), [], 2)).toBe(2)
+    expect(deploymentLimit(equipmentDefinition('pi-lit-flare'), [], 2)).toBe(20)
+  })
+
+  it('distinguishes electronic PI-Lit flares from combustible road flares', () => {
+    expect(equipmentDefinition('pi-lit-flare')).toMatchObject({ glyph: 'flare', width: 2, length: 2, tooltip: 'electronic' })
+    expect(equipmentDefinition('flare')).toMatchObject({ glyph: 'flare', width: 1, length: 1, tooltip: 'combustible' })
   })
 
   it('organizes the scene catalog into the four planned categories', () => {

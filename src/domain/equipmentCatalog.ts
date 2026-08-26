@@ -29,6 +29,7 @@ export interface EquipmentDefinition {
   rotatable?: boolean
   resizable?: boolean
   capacity?: { per: 'ssp-truck' | 'vsp-cruiser' | 'fire-response' | 'incident-command' | 'tma-cone-truck'; quantity: number }
+  tooltip?: string
 }
 
 export interface DeployedEquipment {
@@ -47,7 +48,8 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'ssp-truck', label: 'SSP truck', category: 'ssp-asset', countClass: 'vehicle', glyph: 'ssp-truck', color: '#eef1ed', width: 8.5, length: 24, limit: 5 },
   { id: 'lane-blade-truck', label: 'Lane Blade Truck', category: 'ssp-asset', countClass: 'vehicle', glyph: 'lane-blade-truck', color: '#eef1ed', width: 8.5, length: 24, limit: 5 },
   { id: 'cone', label: 'Full-size cone', category: 'ssp-asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 20 } },
-  { id: 'flare', label: 'Road flare', category: 'ssp-asset', countClass: 'equipment', glyph: 'flare', color: '#e24631', width: 2, length: 2, capacity: { per: 'ssp-truck', quantity: 80 } },
+  { id: 'pi-lit-flare', label: 'PI-Lit Flare', category: 'ssp-asset', countClass: 'equipment', glyph: 'flare', color: '#e24631', width: 2, length: 2, capacity: { per: 'ssp-truck', quantity: 10 }, tooltip: 'electronic' },
+  { id: 'flare', label: 'Road flare', category: 'ssp-asset', countClass: 'equipment', glyph: 'flare', color: '#e24631', width: 1, length: 1, capacity: { per: 'ssp-truck', quantity: 80 }, tooltip: 'combustible' },
   { id: 'emergency-sign', label: 'Emergency Scene Ahead sign', category: 'ssp-asset', countClass: 'equipment', glyph: 'diamond-sign', color: '#ed5ca8', width: 6, length: 6, capacity: { per: 'ssp-truck', quantity: 2 } },
   { id: 'ssp-patroller', label: 'SSP patroller', category: 'ssp-asset', countClass: 'personnel', glyph: 'person', color: '#e7d62e', width: 3, length: 3, capacity: { per: 'ssp-truck', quantity: 1 } },
   { id: 'gas-can', label: 'Gas can', category: 'ssp-asset', countClass: 'equipment', glyph: 'gas-can', color: '#d74731', width: 3, length: 4, capacity: { per: 'ssp-truck', quantity: 3 } },

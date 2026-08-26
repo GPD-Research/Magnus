@@ -1,6 +1,6 @@
 export const MIN_SCENE_ZOOM = 0.5
 export const MAX_SCENE_ZOOM = 10_000
-export const SCENE_ZOOM_FACTOR = 1.25
+export const SCENE_ZOOM_FACTOR = 1.125
 export const DEFAULT_VISIBLE_SCENE_WIDTH_FEET = 500
 export const MIN_VISIBLE_SCENE_WIDTH_FEET = 40
 

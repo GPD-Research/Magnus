@@ -371,7 +371,8 @@ const signboardSymbolPaths: Record<string, string> = {
   'left-arrow': 'M 22 0 H -22 M -22 0 L -10 -8 M -22 0 L -10 8',
   'right-arrow': 'M -22 0 H 22 M 22 0 L 10 -8 M 22 0 L 10 8',
   'split-arrow': 'M -22 0 H 22 M -22 0 L -10 -8 M -22 0 L -10 8 M 22 0 L 10 -8 M 22 0 L 10 8',
-  'double-diamonds': 'M -25 0 L -16 -9 L -7 0 L -16 9 Z M 7 0 L 16 -9 L 25 0 L 16 9 Z',
+  'double-diamonds-left': 'M -25 0 L -16 -9 L -7 0 L -16 9 Z',
+  'double-diamonds-right': 'M 7 0 L 16 -9 L 25 0 L 16 9 Z',
 }
 
 const signboardCopy: Record<string, [string, string]> = {
@@ -399,7 +400,10 @@ const signboardFrames: Record<SignboardMessage, [SignboardFrame, SignboardFrame]
   'ramp-blocked-left-arrow': [{ copy: signboardCopy['ramp-blocked'] }, { symbolPath: signboardSymbolPaths['left-arrow'] }],
   'ramp-blocked-right-arrow': [{ copy: signboardCopy['ramp-blocked'] }, { symbolPath: signboardSymbolPaths['right-arrow'] }],
   'slow-roll-do-not-pass': [{ copy: ['SLOW', 'ROLL'] }, { copy: ['DO NOT', 'PASS'] }],
-  'double-diamonds': [{ symbolPath: signboardSymbolPaths['double-diamonds'] }, { symbolPath: signboardSymbolPaths['double-diamonds'] }],
+  'double-diamonds': [
+    { symbolPath: signboardSymbolPaths['double-diamonds-left'] },
+    { symbolPath: signboardSymbolPaths['double-diamonds-right'] },
+  ],
 }
 
 function SignboardFrameGraphic({ frame }: { frame: SignboardFrame }) {
@@ -414,17 +418,14 @@ function SignboardFrameGraphic({ frame }: { frame: SignboardFrame }) {
 
 function SignboardGraphic({ message, truckMounted = false }: { message: SignboardMessage; truckMounted?: boolean }) {
   const frames = signboardFrames[message]
-  const isStatic = message === 'double-diamonds'
   return (
     <>
       <rect className="signboard" x="-42.5" y={truckMounted ? "-60" : "-12"} width="85" height={truckMounted ? "120" : "24"} />
-      {isStatic
-        ? <SignboardFrameGraphic frame={frames[0]} />
-        : frames.map((frame, index) => (
-          <g className={`signboard-frame signboard-frame-${index === 0 ? 'a' : 'b'}`} key={index}>
-            <SignboardFrameGraphic frame={frame} />
-          </g>
-        ))}
+      {frames.map((frame, index) => (
+        <g className={`signboard-frame signboard-frame-${index === 0 ? 'a' : 'b'}`} key={index}>
+          <SignboardFrameGraphic frame={frame} />
+        </g>
+      ))}
     </>
   )
 }
@@ -2584,6 +2585,7 @@ function App() {
                       type="button"
                       key={definition.id}
                       disabled={!available}
+                      title={definition.tooltip ? `${definition.label}: ${definition.tooltip}` : definition.label}
                       onClick={() => deployCatalogItem(definition.id)}
                     >
                       <span
@@ -3059,6 +3061,7 @@ function App() {
                             tabIndex={0}
                             transform={`translate(${item.x} ${item.y}) rotate(${item.rotation})`}
                           >
+                            {definition.tooltip && <title>{definition.tooltip}</title>}
                             <SceneEquipmentGlyph
                               definition={renderDefinition}
                             />

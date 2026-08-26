@@ -51,7 +51,7 @@ describe('SOP scene audit', () => {
       'ramp-closure',
     ])
     expect(createScene('two-right-lanes').filter((point) => point.role === 'taper')).toHaveLength(10)
-    expect(createScene('all-lanes').filter((point) => point.role === 'taper')).toHaveLength(15)
+    expect(createScene('all-lanes')).toHaveLength(12)
     expect(createScene('lane-shift').length).toBeGreaterThan(createScene('right-lane').length)
     expect(createScene('left-lane').find((point) => point.id === 'anchor')?.x).toBe(30)
     expect(createScene('left-lane').find((point) => point.id === 'taper-5')?.x).toBe(18)
@@ -62,7 +62,23 @@ describe('SOP scene audit', () => {
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'two-left-lanes')?.truckOffsetX).toBe(-12)
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'left-lane')?.signboard).toBe('right-arrow')
     expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'right-lane')?.signboard).toBe('left-arrow')
-    expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'all-lanes')?.signboard).toBe('incident-ahead')
+    expect(SCENARIO_CATALOG.find((scenario) => scenario.id === 'all-lanes')?.signboard).toBe('double-diamonds')
+  })
+
+  it('places four cones per lane in one all-lanes closure row', () => {
+    const scene = createScene('all-lanes')
+
+    expect(scene).toHaveLength(12)
+    expect(new Set(scene.map((point) => point.y))).toEqual(new Set([282]))
+    expect(scene.every((point) => point.role !== 'perimeter')).toBe(true)
+    expect(scene.slice(0, 4).map((point) => point.x)).toEqual([19.5, 22.5, 25.5, 28.5])
+    expect(auditScene('all-lanes', 'gospel', scene)).toMatchObject({
+      status: 'compliant',
+      mode: 'gospel',
+    })
+    expect(auditScene('all-lanes', 'gospel', scene.slice(0, 11)).findings).toContain(
+      'All-lanes closures require at least 12 cones across the travel lanes.',
+    )
   })
 
   it('uses three straight cones followed by five taper cones per closed lane', () => {

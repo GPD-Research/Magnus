@@ -16,7 +16,7 @@ export interface ScenarioDefinition {
   heading: string
   mutcdApplication: string
   truckOffsetX: number
-  signboard: 'left-arrow' | 'right-arrow' | 'split-arrow' | 'ramp-blocked' | 'incident-ahead'
+  signboard: 'left-arrow' | 'right-arrow' | 'split-arrow' | 'ramp-blocked' | 'incident-ahead' | 'double-diamonds'
 }
 
 export const SCENARIO_CATALOG: ScenarioDefinition[] = [
@@ -26,7 +26,7 @@ export const SCENARIO_CATALOG: ScenarioDefinition[] = [
   { id: 'center-lane', label: 'Center lane closure', heading: 'Center lane closure', mutcdApplication: 'Interior lane closed', truckOffsetX: -12, signboard: 'split-arrow' },
   { id: 'two-right-lanes', label: 'Two right lanes', heading: 'Two right lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12, signboard: 'left-arrow' },
   { id: 'two-left-lanes', label: 'Two left lanes', heading: 'Two left lanes closed', mutcdApplication: 'Multiple-lane closure', truckOffsetX: -12, signboard: 'right-arrow' },
-  { id: 'all-lanes', label: 'All lanes closure', heading: 'All travel lanes closed', mutcdApplication: 'Full roadway closure', truckOffsetX: -12, signboard: 'incident-ahead' },
+  { id: 'all-lanes', label: 'All lanes closure', heading: 'All travel lanes closed', mutcdApplication: 'Full roadway closure', truckOffsetX: -12, signboard: 'double-diamonds' },
   { id: 'lane-shift', label: 'Lane shift', heading: 'Temporary lane shift', mutcdApplication: 'Temporary alignment', truckOffsetX: 0, signboard: 'split-arrow' },
   { id: 'ramp-closure', label: 'Ramp closure', heading: 'Entrance or exit ramp closure', mutcdApplication: 'Ramp closed', truckOffsetX: 12, signboard: 'ramp-blocked' },
 ]
@@ -105,7 +105,7 @@ const templates: Record<ScenarioType, ScenePoint[]> = {
   'center-lane': createLaneClosureTemplate(30, 42),
   'two-right-lanes': createLaneClosureTemplate(30, 54, 10),
   'two-left-lanes': createLaneClosureTemplate(42, 18, 10),
-  'all-lanes': createLaneClosureTemplate(18, 54, 15),
+  'all-lanes': createAllLanesTemplate(),
   'lane-shift': createLaneShiftTemplate(),
   'ramp-closure': createRampClosureTemplate(),
 }
@@ -129,6 +129,23 @@ function createLaneClosureTemplate(openBoundaryX: number, closedBoundaryX: numbe
     { id: 'perimeter-1', x: openBoundaryX, y: 198, role: 'perimeter' },
     { id: 'perimeter-2', x: openBoundaryX, y: 158, role: 'perimeter' },
   ]
+}
+
+function createAllLanesTemplate(): ScenePoint[] {
+  const laneStartX = 18
+  const laneWidth = 12
+  const conesPerLane = 4
+  const cones = Array.from({ length: 3 * conesPerLane }, (_, index): ScenePoint => {
+    const laneIndex = Math.floor(index / conesPerLane)
+    const positionInLane = index % conesPerLane
+    return {
+      id: index === 0 ? 'anchor' : `buffer-${index}`,
+      x: laneStartX + laneIndex * laneWidth + (laneWidth * (positionInLane + 0.5)) / conesPerLane,
+      y: RIGHT_LANE_STANDARD.truck.y + RIGHT_LANE_STANDARD.truck.halfLength + RIGHT_LANE_STANDARD.anchorGap,
+      role: index === 0 ? 'anchor' : 'buffer',
+    }
+  })
+  return cones
 }
 
 function createLaneShiftTemplate(): ScenePoint[] {
@@ -229,28 +246,30 @@ export function auditScene(
   const expected = templates[scenario]
   const upstream = points.filter((point) => point.role !== 'perimeter')
   const downstream = points.filter((point) => point.role === 'perimeter')
-  const minimumUpstream = scenario === 'shoulder' ? 4 : 8
+  const minimumUpstream = scenario === 'shoulder' ? 4 : scenario === 'all-lanes' ? 12 : 8
 
-  if (downstream.length === 0) {
+  if (scenario !== 'all-lanes' && downstream.length === 0) {
     findings.push('At least one downstream cone is required in front of the SSP truck.')
   }
   if (upstream.length < minimumUpstream) {
     findings.push(
-      scenario === 'shoulder'
+      scenario === 'all-lanes'
+        ? 'All-lanes closures require at least 12 cones across the travel lanes.'
+        : scenario === 'shoulder'
         ? 'Shoulder closures require at least 4 upstream cones behind the SSP truck.'
         : 'Lane closures require at least 8 upstream cones behind the SSP truck.',
     )
   }
-  if (coneSpacings(upstream).some((spacing) => spacing < MINIMUM_CONE_SPACING)) {
+  if (scenario !== 'all-lanes' && coneSpacings(upstream).some((spacing) => spacing < MINIMUM_CONE_SPACING)) {
     findings.push('Upstream cone spacing is less than the 40 ft SOP standard.')
   }
-  if (coneSpacings(upstream).some((spacing) => spacing > MAXIMUM_UPSTREAM_SPACING)) {
+  if (scenario !== 'all-lanes' && coneSpacings(upstream).some((spacing) => spacing > MAXIMUM_UPSTREAM_SPACING)) {
     findings.push('Upstream cone spacing exceeds the strict 40 ft SOP standard.')
   }
-  if (coneSpacings(downstream, true).some((spacing) => spacing < MINIMUM_CONE_SPACING)) {
+  if (scenario !== 'all-lanes' && coneSpacings(downstream, true).some((spacing) => spacing < MINIMUM_CONE_SPACING)) {
     findings.push('Downstream cone spacing is less than the 40 ft SOP standard.')
   }
-  if (coneSpacings(downstream, true).some((spacing) => spacing > MAXIMUM_DOWNSTREAM_SPACING)) {
+  if (scenario !== 'all-lanes' && coneSpacings(downstream, true).some((spacing) => spacing > MAXIMUM_DOWNSTREAM_SPACING)) {
     findings.push('Downstream cone spacing exceeds the 80 ft Extended Safety maximum.')
   }
 

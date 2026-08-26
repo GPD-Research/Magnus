@@ -224,7 +224,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
             <div role="tablist" aria-label="Designer toolkit">{TOOLKIT_CATEGORIES.map((category) => <button type="button" role="tab" aria-selected={activeToolkit === category.id} key={category.id} onClick={() => setActiveToolkit(category.id)}><span>{category.label}</span></button>)}</div>
             <div>{EQUIPMENT_CATALOG.filter((definition) => definition.category === activeToolkit).map((definition) => {
               const available = canDeploy(definition.id, catalogEquipment, 0)
-              return <button className={placementDefinitionId === definition.id ? 'active' : ''} type="button" disabled={!available} title={definition.label} key={definition.id} onClick={() => { setPlacementDefinitionId(definition.id); setTool('select'); setLineStart(null) }}><span style={{ background: definition.color }} /><b>{definition.label}</b><Plus size={12} /></button>
+              return <button className={placementDefinitionId === definition.id ? 'active' : ''} type="button" disabled={!available} title={definition.tooltip ? `${definition.label}: ${definition.tooltip}` : definition.label} key={definition.id} onClick={() => { setPlacementDefinitionId(definition.id); setTool('select'); setLineStart(null) }}><span style={{ background: definition.color }} /><b>{definition.label}</b><Plus size={12} /></button>
             })}</div>
           </section>
         </nav>
@@ -267,6 +267,7 @@ export function SceneDesigner({ onClose, onSave }: SceneDesignerProps) {
                   if (tool === 'select') setDraggingId(item.id)
                 }}
               >
+                {item.catalogId && equipmentDefinition(item.catalogId).tooltip && <title>{equipmentDefinition(item.catalogId).tooltip}</title>}
                 {item.catalogId ? <SceneEquipmentGlyph definition={equipmentDefinition(item.catalogId)} /> : <>
                 {item.shape === 'circle' && <circle r={item.size.x / 2} fill={item.color} />}
                 {item.shape === 'square' && <rect x={-item.size.x / 2} y={-item.size.y / 2} width={item.size.x} height={item.size.y} fill={item.color} />}

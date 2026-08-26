@@ -17,6 +17,9 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'barrel':
       return <><circle r={halfWidth} fill="#161b1a" /><circle r={width * .38} fill="#c9cecc" /><circle r={width * .26} fill={definition.color} /></>
     case 'flare':
+      if (definition.id === 'flare') {
+        return <><path d={`M 0 ${-halfLength} V ${halfLength * .55}`} stroke="#d93528" strokeWidth="1" /><path d={`M 0 ${halfLength * .55} C ${-width * 1.8} ${halfLength * .15} ${-width * .8} ${halfLength * .05} 0 ${halfLength * .15} C ${width * .8} ${halfLength * .05} ${width * 1.8} ${halfLength * .15} 0 ${halfLength * .55} Z`} fill="#ef3b2d" className="catalog-flare" /></>
+      }
       return <><circle r={Math.max(width, 2)} fill="#d93528" className="catalog-flare" /><path d="M -1.5 0 H 1.5 M 0 -1.5 V 1.5" className="catalog-detail" /></>
     case 'gas-can':
       return <><path {...common} d={`M ${-halfWidth} ${halfLength} V ${-length * .25} Q ${-halfWidth} ${-halfLength} ${-width * .2} ${-halfLength} H ${width * .25} Q ${halfWidth} ${-halfLength} ${halfWidth} ${-length * .22} V ${halfLength} Z`} /><path d={`M ${-width * .18} ${-halfLength} V ${-length * .28} H ${width * .18} V ${-halfLength} M ${width * .3} ${-length * .3} L ${halfWidth} ${-length * .48}`} className="catalog-detail" /></>
@@ -61,9 +64,9 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
         </g>
       </>
     case 'tow-truck':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .38} ${length * .02} H ${width * .38} V ${length * .38} H ${-width * .38} Z M 0 ${length * .04} V ${length * .3} M ${-width * .28} ${length * .32} L 0 ${length * .18} L ${width * .28} ${length * .32}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .38} ${length * .02} H ${width * .38} V ${length * .38} H ${-width * .38} Z M 0 ${length * .04} V ${length * .3} M ${-width * .28} ${length * .32} L 0 ${length * .18} L ${width * .28} ${length * .32}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" flashing /></>
     case 'heavy-tow':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .42} y={-length * .08} width={width * .84} height={length * .38} fill="none" className="catalog-detail" /><path d={`M 0 ${-length * .02} V ${length * .38} M ${-width * .34} ${length * .3} L 0 ${length * .08} L ${width * .34} ${length * .3}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .42} y={-length * .08} width={width * .84} height={length * .38} fill="none" className="catalog-detail" /><path d={`M 0 ${-length * .02} V ${length * .38} M ${-width * .34} ${length * .3} L 0 ${length * .08} L ${width * .34} ${length * .3}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" flashing /></>
     case 'tma-crash':
       return <><VehicleBody width={width} length={length * .72} color={definition.color} /><path d={`M ${-halfWidth} ${length * .2} H ${halfWidth} L ${width * .34} ${halfLength} H ${-width * .34} Z M ${-width * .28} ${length * .28} L ${width * .28} ${length * .42} M ${width * .28} ${length * .28} L ${-width * .28} ${length * .42}`} className="catalog-attenuator" /><LightBar width={width} color="#efbd20" /></>
     case 'tma-cone':
@@ -81,8 +84,9 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
     case 'cruiser':
       return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .28} ${-length * .38} V ${length * .4} M ${width * .28} ${-length * .38} V ${length * .4}`} className="catalog-police-stripe" /><LightBar width={width} color="#2d67ae" flashing /></>
     case 'suv':
+      return <VehicleBody width={width} length={length} color={definition.color} />
     case 'ssp-truck':
-      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y="-1" width={width * .8} height="2" fill="#111716" /></>
+      return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y={-length / 6} width={width * .8} height={length / 3} fill="#111716" /><circle className="emergency-light rear-strobe" cx={-width * .38} cy={length * .42} r={width * .09} fill="#d93528" /><circle className="emergency-light rear-strobe" cx={width * .38} cy={length * .42} r={width * .09} fill="#d93528" /><LightBar width={width} color="#efbd20" flashing /></>
     case 'lane-blade-truck':
       return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .4} y="-1" width={width * .8} height="2" fill="#111716" /><path d={`M ${-halfWidth} ${-halfLength} L ${halfWidth} ${-halfLength}`} className="catalog-lane-blade" /></>
     case 'tractor':
