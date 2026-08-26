@@ -352,6 +352,9 @@ async function rasterizeSvg(svg: Blob, format: Exclude<SceneImageFormat, 'svg'>)
   }
 }
 
+const DEFAULT_IMAGE_EXPORT_WIDTH = 1600
+const JPG_IMAGE_EXPORT_SCALE = 2
+
 async function probeSpatialService(): Promise<boolean> {
   try {
     const response = await fetch('/api/health')
@@ -1155,7 +1158,7 @@ function App() {
     }
   }
 
-  function serializeSceneSvg(): Blob {
+  function serializeSceneSvg(pixelWidth = DEFAULT_IMAGE_EXPORT_WIDTH): Blob {
     const source = roadStageRef.current?.querySelector<SVGSVGElement>('.road-canvas')
     if (!source) throw new Error('Scene canvas is unavailable.')
     const stage = roadStageRef.current
@@ -1167,9 +1170,8 @@ function App() {
       element.removeAttribute('role')
     })
     const sourceViewBox = source.viewBox.baseVal
-    const stageBounds = stage?.getBoundingClientRect()
-    const canvasBounds = source.getBoundingClientRect()
-    const exportViewBox = stage && stageBounds && canvasBounds.width > 0 && canvasBounds.height > 0
+    const surface = stage?.querySelector<HTMLElement>('.road-canvas-surface')
+    const exportViewBox = stage && surface && source.clientWidth > 0 && source.clientHeight > 0
       ? sceneViewBoxForVisibleBounds(
           {
             x: sourceViewBox.x,
@@ -1178,20 +1180,25 @@ function App() {
             height: sourceViewBox.height,
           },
           {
-            left: stageBounds.left,
-            top: stageBounds.top,
+            left: stage.scrollLeft,
+            top: stage.scrollTop,
             width: stage.clientWidth,
             height: stage.clientHeight,
           },
-          canvasBounds,
+          {
+            left: surface.offsetLeft,
+            top: surface.offsetTop,
+            width: source.clientWidth,
+            height: source.clientHeight,
+          },
         )
       : sceneViewBox
     const viewBoxWidth = exportViewBox.width
     const viewBoxHeight = exportViewBox.height
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
     clone.setAttribute('viewBox', `${exportViewBox.x} ${exportViewBox.y} ${viewBoxWidth} ${viewBoxHeight}`)
-    clone.setAttribute('width', '1600')
-    clone.setAttribute('height', String(Math.round(1600 * viewBoxHeight / viewBoxWidth)))
+    clone.setAttribute('width', String(pixelWidth))
+    clone.setAttribute('height', String(Math.round(pixelWidth * viewBoxHeight / viewBoxWidth)))
     const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
     style.textContent = pageStyles()
     clone.prepend(style)
@@ -1205,7 +1212,9 @@ function App() {
     const baseName = sceneFileBaseName(sceneFileName)
     setSceneFileName(baseName)
     localStorage.setItem('magnus.scenario', scenarioJson)
-    const svg = serializeSceneSvg()
+    const svg = serializeSceneSvg(format === 'jpg'
+      ? DEFAULT_IMAGE_EXPORT_WIDTH * JPG_IMAGE_EXPORT_SCALE
+      : DEFAULT_IMAGE_EXPORT_WIDTH)
     const image = format === 'svg' ? svg : await rasterizeSvg(svg, format)
     const picker = window as FilePickerWindow
     try {
