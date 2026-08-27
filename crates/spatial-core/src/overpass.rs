@@ -16,6 +16,7 @@ const EDGE_LINE_INSET_FEET: f64 = 0.0;
 const DEFAULT_FREEWAY_LEFT_SHOULDER_FEET: f64 = 4.0;
 const DEFAULT_FREEWAY_RIGHT_SHOULDER_FEET: f64 = 10.0;
 const RAMP_GORE_LENGTH_FEET: f64 = 70.0;
+const TERMINAL_INTERSECTION_SEARCH_FEET: f64 = 240.0;
 
 #[derive(Debug, Error)]
 pub enum OverpassSceneError {
@@ -572,6 +573,27 @@ pub fn compile_overpass_json(
             (*way_id, zones)
         })
         .collect();
+    let way_paths = ways
+        .iter()
+        .filter_map(|way| {
+            let coordinates = way
+                .nodes
+                .iter()
+                .filter_map(|node_id| nodes.get(node_id))
+                .map(|node| oriented_local_feet(node, &anchor, &request.direction))
+                .collect::<Vec<_>>();
+            (coordinates.len() >= 2).then_some((
+                way.id,
+                coordinates,
+                inferred_layer(&way.tags),
+                way.tags.get("bridge").is_some_and(|value| value != "no"),
+                way.tags.get("tunnel").is_some_and(|value| value != "no"),
+                way.tags
+                    .get("highway")
+                    .is_some_and(|highway| highway.ends_with("_link")),
+            ))
+        })
+        .collect::<Vec<_>>();
 
     let mut features = Vec::new();
     for way in ways {
@@ -615,6 +637,16 @@ pub fn compile_overpass_json(
             coordinates.reverse();
             std::mem::swap(&mut start_has_gore, &mut end_has_gore);
             std::mem::swap(&mut start_gore, &mut end_gore);
+            for gore in start_gore.iter_mut().chain(end_gore.iter_mut()) {
+                gore.near_side_sign = -gore.near_side_sign;
+            }
+        }
+        let (intersection_trim_start, intersection_trim_end) = is_link
+            .then(|| ramp_intersection_trims(way.id, &coordinates, &way_paths))
+            .unwrap_or_default();
+        coordinates = trim_line_ends(&coordinates, intersection_trim_start, intersection_trim_end);
+        if coordinates.len() < 2 {
+            continue;
         }
         let fragments = clip_line_to_scene(&coordinates, scene_bounds);
         if fragments.is_empty() {
@@ -664,7 +696,7 @@ pub fn compile_overpass_json(
                 layer,
                 geometry: Geometry::LineString(coordinates.clone()),
                 properties: FeatureProperties {
-                    render_width_feet: Some(width + 8.0),
+                    render_width_feet: Some(if is_link { 0.0 } else { width + 8.0 }),
                     ..properties.clone()
                 },
             });
@@ -723,22 +755,22 @@ pub fn compile_overpass_json(
             let mut left_shoulder_trim = EdgeTrim::default();
             let mut right_shoulder_trim = EdgeTrim::default();
             if let Some(gore) = start_gore.as_ref().filter(|_| trim_marking_start) {
-                let (fog_trim, shoulder_trim) = if gore.near_side_sign < 0.0 {
-                    (&mut left_fog_trim, &mut left_shoulder_trim)
+                left_fog_trim.start = gore.ramp_trim_to_tip.max(intersection_trim_start);
+                right_fog_trim.start = gore.ramp_trim_to_tip.max(intersection_trim_start);
+                if gore.near_side_sign < 0.0 {
+                    left_shoulder_trim.start = gore.ramp_trim_to_base;
                 } else {
-                    (&mut right_fog_trim, &mut right_shoulder_trim)
-                };
-                fog_trim.start = gore.ramp_trim_to_tip;
-                shoulder_trim.start = gore.ramp_trim_to_base;
+                    right_shoulder_trim.start = gore.ramp_trim_to_base;
+                }
             }
             if let Some(gore) = end_gore.as_ref().filter(|_| trim_marking_end) {
-                let (fog_trim, shoulder_trim) = if gore.near_side_sign < 0.0 {
-                    (&mut left_fog_trim, &mut left_shoulder_trim)
+                left_fog_trim.end = gore.ramp_trim_to_tip.max(intersection_trim_end);
+                right_fog_trim.end = gore.ramp_trim_to_tip.max(intersection_trim_end);
+                if gore.near_side_sign < 0.0 {
+                    left_shoulder_trim.end = gore.ramp_trim_to_base;
                 } else {
-                    (&mut right_fog_trim, &mut right_shoulder_trim)
-                };
-                fog_trim.end = gore.ramp_trim_to_tip;
-                shoulder_trim.end = gore.ramp_trim_to_base;
+                    right_shoulder_trim.end = gore.ramp_trim_to_base;
+                }
             }
             append_lane_markings(
                 &mut features,
@@ -1271,6 +1303,86 @@ fn cumulative_lengths(coordinates: &[[f64; 2]]) -> Vec<f64> {
     cumulative
 }
 
+fn ramp_intersection_trims(
+    way_id: i64,
+    coordinates: &[[f64; 2]],
+    way_paths: &[(i64, Vec<[f64; 2]>, i16, bool, bool, bool)],
+) -> (f64, f64) {
+    let cumulative = cumulative_lengths(coordinates);
+    let total = *cumulative.last().unwrap_or(&0.0);
+    if total <= 2.0 {
+        return (0.0, 0.0);
+    }
+    let Some((_, _, layer, bridge, tunnel, _)) = way_paths.iter().find(|(id, _, _, _, _, _)| *id == way_id) else {
+        return (0.0, 0.0);
+    };
+    let mut start_trim = 0.0;
+    let mut end_trim = 0.0;
+    for (other_id, other_coordinates, other_layer, other_bridge, other_tunnel, other_is_link) in way_paths {
+        if *other_id == way_id
+            || *other_layer != *layer
+            || *other_bridge != *bridge
+            || *other_tunnel != *tunnel
+        {
+            continue;
+        }
+        for (index, segment) in coordinates.windows(2).enumerate() {
+            for (other_index, other_segment) in other_coordinates.windows(2).enumerate() {
+                let Some((current_ratio, other_ratio)) = segment_intersection(*segment.first().unwrap(), *segment.last().unwrap(), *other_segment.first().unwrap(), *other_segment.last().unwrap()) else {
+                    continue;
+                };
+                let distance = cumulative[index]
+                    + (segment[1][0] - segment[0][0]).hypot(segment[1][1] - segment[0][1]) * current_ratio;
+                if distance <= 2.0 || total - distance <= 2.0 {
+                    continue;
+                }
+                let distance_from_end = total - distance;
+                let near_start = distance <= TERMINAL_INTERSECTION_SEARCH_FEET
+                    && distance <= distance_from_end;
+                let near_end = distance_from_end <= TERMINAL_INTERSECTION_SEARCH_FEET
+                    && distance_from_end < distance;
+                if !near_start && !near_end {
+                    continue;
+                }
+                // A link-to-link event is a terminal only when the other link also reaches this
+                // event from its endpoint. Parallel or crossing link interiors must remain intact.
+                let other_cumulative = cumulative_lengths(other_coordinates);
+                let other_total = *other_cumulative.last().unwrap_or(&0.0);
+                let other_segment_length = (other_segment[1][0] - other_segment[0][0])
+                    .hypot(other_segment[1][1] - other_segment[0][1]);
+                let other_distance = other_cumulative[other_index]
+                    + other_segment_length * other_ratio;
+                let other_near_terminal = other_distance <= TERMINAL_INTERSECTION_SEARCH_FEET
+                    || other_total - other_distance <= TERMINAL_INTERSECTION_SEARCH_FEET;
+                if *other_is_link && !other_near_terminal {
+                    continue;
+                }
+                if near_start {
+                    start_trim = if start_trim == 0.0 { distance } else { start_trim.min(distance) };
+                }
+                if near_end {
+                    end_trim = if end_trim == 0.0 { distance_from_end } else { end_trim.min(distance_from_end) };
+                }
+            }
+        }
+    }
+    (start_trim, end_trim)
+}
+
+fn segment_intersection(
+    start: [f64; 2],
+    end: [f64; 2],
+    other_start: [f64; 2],
+    other_end: [f64; 2],
+) -> Option<(f64, f64)> {
+    let first_direction = [end[0] - start[0], end[1] - start[1]];
+    let second_direction = [other_end[0] - other_start[0], other_end[1] - other_start[1]];
+    let (first_ratio, second_ratio) = line_intersection(start, first_direction, other_start, second_direction)?;
+    (0.0..=1.0).contains(&first_ratio)
+        .then_some((first_ratio, second_ratio))
+        .filter(|(_, second_ratio)| (0.0..=1.0).contains(second_ratio))
+}
+
 /// Builds a variable-width ribbon polygon that narrows to a point at gore ends, instead of the
 /// constant-width stroke OSM's centerline-only data would otherwise force onto merging ramps.
 fn tapered_ribbon_ring(
@@ -1306,13 +1418,28 @@ fn tapered_ribbon_ring(
     for (index, point) in coordinates.iter().enumerate() {
         let previous = coordinates[index.saturating_sub(1)];
         let next = coordinates[(index + 1).min(coordinates.len() - 1)];
-        let delta_x = next[0] - previous[0];
-        let delta_y = next[1] - previous[1];
-        let length = delta_x.hypot(delta_y);
-        let (normal_x, normal_y) = if length == 0.0 { (0.0, 0.0) } else { (-delta_y / length, delta_x / length) };
         let half = half_widths[index];
-        left.push([point[0] - normal_x * half, point[1] - normal_y * half]);
-        right.push([point[0] + normal_x * half, point[1] + normal_y * half]);
+        let previous_direction = unit_direction(*point, previous)
+            .or_else(|| unit_direction(next, *point));
+        let next_direction = unit_direction(next, *point)
+            .or_else(|| previous_direction);
+        let (left_offset, right_offset) = match (previous_direction, next_direction) {
+            (Some(previous_direction), Some(next_direction)) => {
+                let previous_normal = [-previous_direction[1], previous_direction[0]];
+                let next_normal = [-next_direction[1], next_direction[0]];
+                (
+                    bounded_miter(previous_normal, next_normal, half),
+                    bounded_miter(
+                        [-previous_normal[0], -previous_normal[1]],
+                        [-next_normal[0], -next_normal[1]],
+                        half,
+                    ),
+                )
+            }
+            _ => ([0.0, 0.0], [0.0, 0.0]),
+        };
+        left.push([point[0] + left_offset[0], point[1] + left_offset[1]]);
+        right.push([point[0] + right_offset[0], point[1] + right_offset[1]]);
     }
     let mut ring = left;
     ring.extend(right.into_iter().rev());
@@ -1320,6 +1447,28 @@ fn tapered_ribbon_ring(
         ring.push(first);
     }
     ring
+}
+
+fn unit_direction(from: [f64; 2], to: [f64; 2]) -> Option<[f64; 2]> {
+    let delta = [from[0] - to[0], from[1] - to[1]];
+    let length = delta[0].hypot(delta[1]);
+    (length > 1e-9).then_some([delta[0] / length, delta[1] / length])
+}
+
+fn bounded_miter(first_normal: [f64; 2], second_normal: [f64; 2], half_width: f64) -> [f64; 2] {
+    if half_width == 0.0 {
+        return [0.0, 0.0];
+    }
+    let bisector = [first_normal[0] + second_normal[0], first_normal[1] + second_normal[1]];
+    let bisector_length = bisector[0].hypot(bisector[1]);
+    if bisector_length <= 1e-9 {
+        return [second_normal[0] * half_width, second_normal[1] * half_width];
+    }
+    let miter = [bisector[0] / bisector_length, bisector[1] / bisector_length];
+    let scale = (half_width / (miter[0] * second_normal[0] + miter[1] * second_normal[1]))
+        .abs()
+        .min(half_width * 2.0);
+    [miter[0] * scale, miter[1] * scale]
 }
 
 fn append_ramp_ribbon(
@@ -1776,9 +1925,15 @@ mod tests {
             .iter()
             .find(|feature| feature.id == "way-96-0-surface")
             .expect("ramp surface");
+        let ramp_casing = scene
+            .features
+            .iter()
+            .find(|feature| feature.id == "way-96-0-casing")
+            .expect("ramp casing");
         // The ramp centerline stays for section selection, but its pavement no longer renders at
-        // a constant width — the tapered ribbon below draws the visible merge instead.
+        // a constant width — the tapered ribbons below draw the visible merge instead.
         assert_eq!(ramp_surface.properties.render_width_feet, Some(0.0));
+        assert_eq!(ramp_casing.properties.render_width_feet, Some(0.0));
         let ramp_left_edge = scene
             .features
             .iter()
@@ -1814,17 +1969,16 @@ mod tests {
         let Geometry::Polygon(ribbon_rings) = &ramp_surface_ribbon.geometry else {
             panic!("ramp surface ribbon should be a polygon")
         };
-        // The ramp is on the mainline's right/east side (right_fog_points confirmed trimmed below),
-        // so the near-side right fog line must be trimmed well back from its raw untrimmed offset.
+        // Both ramp fog lines must stop at the calculated gore tip instead of crossing the
+        // mainline; the shoulder-side treatment remains asymmetric.
         let untrimmed_left_start = offset_line(surface_points, -6.0)[0];
         let left_trim_distance = (left_fog_points[0][0] - untrimmed_left_start[0])
             .hypot(left_fog_points[0][1] - untrimmed_left_start[1]);
-        assert!(left_trim_distance < 0.01, "expected the far-side (left) fog line to stay untrimmed, got {left_trim_distance} ft");
-        // The near-side (right) fog line stops short of the mainline instead of overlapping it.
+        assert!(left_trim_distance > 1.0, "expected the far-side (left) fog line to stop at the gore, got {left_trim_distance} ft");
         let untrimmed_right_start = offset_line(surface_points, 6.0)[0];
         let right_trim_distance = (right_fog_points[0][0] - untrimmed_right_start[0])
             .hypot(right_fog_points[0][1] - untrimmed_right_start[1]);
-        assert!(right_trim_distance > 1.0, "expected the near-side (right) fog line to be trimmed back, got {right_trim_distance} ft");
+        assert!(right_trim_distance > 1.0, "expected the near-side (right) fog line to stop at the gore, got {right_trim_distance} ft");
         // The ribbon narrows to a point at the mainline's pavement edge (offset from the shared
         // OSM junction node using both roadways' real approach angles) instead of continuing at
         // full pavement width all the way to the mainline's centerline.
@@ -1904,5 +2058,31 @@ mod tests {
         assert_eq!(clipped[0].len(), 5);
         assert!((clipped[0][0][1] + SCENE_RADIUS_FEET).abs() < 0.01);
         assert!((clipped[0][4][1] - SCENE_RADIUS_FEET).abs() < 0.01);
+    }
+
+    #[test]
+    fn bounds_ramp_ribbon_joins_at_sharp_bends() {
+        let ring = tapered_ribbon_ring(
+            &[[0.0, 0.0], [100.0, 0.0], [100.0, 10.0]],
+            24.0,
+            0.0,
+            0.0,
+        );
+
+        assert!(ring
+            .iter()
+            .all(|point| point[0].abs() < 200.0 && point[1].abs() < 200.0));
+    }
+
+    #[test]
+    fn trims_a_ramp_at_an_unshared_same_layer_crossing() {
+        let ramp = vec![[0.0, 0.0], [100.0, 0.0]];
+        let crossing = vec![[80.0, -50.0], [80.0, 50.0]];
+        let paths = vec![
+            (1, ramp.clone(), 0, false, false, true),
+            (2, crossing, 0, false, false, false),
+        ];
+
+        assert_eq!(ramp_intersection_trims(1, &ramp, &paths), (0.0, 20.0));
     }
 }

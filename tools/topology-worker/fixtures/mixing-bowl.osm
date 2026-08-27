@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="Magnus Version 8 topology fixture">
+  <bounds minlat="38.8000" minlon="-77.2100" maxlat="38.8100" maxlon="-77.1900"/>
+  <node id="1" lat="38.8000" lon="-77.2000"/>
+  <node id="2" lat="38.8020" lon="-77.2000"/>
+  <node id="3" lat="38.8040" lon="-77.2000"/>
+  <node id="4" lat="38.8060" lon="-77.2000"/>
+  <node id="5" lat="38.8005" lon="-77.2050"/>
+  <node id="6" lat="38.8015" lon="-77.2020"/>
+  <node id="7" lat="38.8050" lon="-77.1970"/>
+  <node id="8" lat="38.8065" lon="-77.1950"/>
+  <node id="9" lat="38.8025" lon="-77.2070"/>
+  <node id="10" lat="38.8025" lon="-77.1930"/>
+  <node id="20" lat="38.8000" lon="-77.1900"/>
+  <node id="21" lat="38.8010" lon="-77.1900"/>
+  <way id="100">
+    <nd ref="1"/><nd ref="2"/>
+    <tag k="highway" v="motorway"/><tag k="ref" v="I 95"/><tag k="lanes" v="3"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="101">
+    <nd ref="2"/><nd ref="3"/><nd ref="4"/>
+    <tag k="highway" v="motorway"/><tag k="ref" v="I 95"/><tag k="lanes" v="3"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="200">
+    <nd ref="5"/><nd ref="6"/><nd ref="2"/>
+    <tag k="highway" v="motorway_link"/><tag k="lanes" v="1"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="201">
+    <nd ref="3"/><nd ref="7"/><nd ref="8"/>
+    <tag k="highway" v="motorway_link"/><tag k="lanes" v="1"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="300">
+    <nd ref="9"/><nd ref="10"/>
+    <tag k="highway" v="motorway"/><tag k="ref" v="I 495"/><tag k="lanes" v="2"/><tag k="oneway" v="yes"/><tag k="bridge" v="yes"/><tag k="layer" v="1"/>
+  </way>
+  <way id="301">
+    <nd ref="1"/><nd ref="9"/>
+    <tag k="highway" v="motorway_link"/><tag k="lanes" v="1"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="302">
+    <nd ref="10"/><nd ref="4"/>
+    <tag k="highway" v="motorway_link"/><tag k="lanes" v="1"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="400">
+    <nd ref="20"/><nd ref="21"/>
+    <tag k="highway" v="primary"/><tag k="name" v="Disconnected test road"/>
+  </way>
+</osm>

@@ -2,6 +2,8 @@ mod compiler;
 mod location;
 mod overpass;
 mod scene;
+mod topology;
+mod topology_adapter;
 #[path = "index.rs"]
 mod spatial_index;
 
@@ -13,3 +15,4 @@ pub use scene::{
     RoadScene, SceneSource, SceneSourceType, Viewport,
 };
 pub use spatial_index::SpatialFeatureIndex;
+pub use topology_adapter::{TopologyAdapterError, compile_topology_scene};

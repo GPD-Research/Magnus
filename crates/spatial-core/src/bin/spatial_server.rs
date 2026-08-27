@@ -4,6 +4,7 @@ use std::{
     hash::{Hash, Hasher},
     net::SocketAddr,
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
     time::Duration,
 };
@@ -17,9 +18,10 @@ use axum::{
 };
 use magnus_spatial_core::{
     Geometry, RoadFeatureKind, RoadLocationRequest, RoadScene, compile_overpass_json,
-    compile_pbf_location,
+    compile_pbf_location, compile_topology_scene,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::{Mutex, RwLock, oneshot};
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -28,9 +30,9 @@ const DEFAULT_OVERPASS_URLS: [&str; 3] = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 ];
-const CACHE_VERSION: &str = "road-scene-v11";
-const LEGACY_CACHE_VERSIONS: [&str; 6] =
-    ["road-scene-v10", "road-scene-v9", "road-scene-v8", "road-scene-v7", "road-scene-v4", "road-scene-v3"];
+const CACHE_VERSION: &str = "road-scene-v12";
+const LEGACY_CACHE_VERSIONS: [&str; 7] =
+    ["road-scene-v11", "road-scene-v10", "road-scene-v9", "road-scene-v8", "road-scene-v7", "road-scene-v4", "road-scene-v3"];
 
 #[derive(Clone)]
 struct AppState {
@@ -165,25 +167,32 @@ async fn resolve_road_scene(
         .map_err(|message| api_error(StatusCode::BAD_REQUEST, message))?;
     let overpass_query = request.overpass_query();
     let cache_key = scene_cache_key(&overpass_query);
-    if let Some(scene) = state.scene_cache.read().await.get(&cache_key).cloned() {
-        return Ok(Json(scene));
+    let topology_worker = env::var("MAGNUS_TOPOLOGY_WORKER").ok();
+    if topology_worker.is_none() {
+        if let Some(scene) = state.scene_cache.read().await.get(&cache_key).cloned() {
+            return Ok(Json(scene));
+        }
     }
-    if let Some(scene) = read_cached_scene(&state.cache_directory, &cache_key).await {
-        state
-            .scene_cache
-            .write()
-            .await
-            .insert(cache_key, scene.clone());
-        return Ok(Json(scene));
+    if topology_worker.is_none() {
+        if let Some(scene) = read_cached_scene(&state.cache_directory, &cache_key).await {
+            state
+                .scene_cache
+                .write()
+                .await
+                .insert(cache_key, scene.clone());
+            return Ok(Json(scene));
+        }
     }
-    if let Some(scene) = read_legacy_cached_scene(&state.cache_directory, &overpass_query).await {
-        state
-            .scene_cache
-            .write()
-            .await
-            .insert(cache_key.clone(), scene.clone());
-        write_cached_scene(&state.cache_directory, &cache_key, &scene).await;
-        return Ok(Json(scene));
+    if topology_worker.is_none() {
+        if let Some(scene) = read_legacy_cached_scene(&state.cache_directory, &overpass_query).await {
+            state
+                .scene_cache
+                .write()
+                .await
+                .insert(cache_key.clone(), scene.clone());
+            write_cached_scene(&state.cache_directory, &cache_key, &scene).await;
+            return Ok(Json(scene));
+        }
     }
 
     if source_mode == SceneSourceMode::Offline {
@@ -246,7 +255,12 @@ async fn resolve_road_scene(
                     continue;
                 }
             };
-            let scene = match compile_overpass_json(&body, &request) {
+            let scene_result = match topology_worker.as_deref() {
+                Some(worker) => compile_with_topology_worker(&body, worker, &request),
+                None => compile_overpass_json(&body, &request)
+                    .map_err(|error| error.to_string()),
+            };
+            let scene = match scene_result {
                 Ok(scene) => scene,
                 Err(error) => {
                     failures.push(format!("provider {} {attempt_label} data failed: {error}", index + 1));
@@ -270,6 +284,106 @@ async fn resolve_road_scene(
             &format!("all map providers failed: {}", failures.join("; ")),
         )),
     }
+}
+
+fn compile_with_topology_worker(
+    overpass_json: &str,
+    worker: &str,
+    request: &RoadLocationRequest,
+) -> Result<RoadScene, String> {
+    let input_path = env::temp_dir().join(format!("magnus-topology-{}.osm", std::process::id()));
+    let output_path = env::temp_dir().join(format!("magnus-topology-{}.json", std::process::id()));
+    let result = (|| {
+        let response: Value = serde_json::from_str(overpass_json).map_err(|error| error.to_string())?;
+        std::fs::write(&input_path, overpass_to_osm_xml(&response)?)
+            .map_err(|error| error.to_string())?;
+        let status = Command::new(worker)
+            .arg(&input_path)
+            .arg(&output_path)
+            .status()
+            .map_err(|error| error.to_string())?;
+        if !status.success() {
+            return Err(format!("topology worker exited with {status}"));
+        }
+        let topology = std::fs::read_to_string(&output_path).map_err(|error| error.to_string())?;
+        compile_topology_scene(
+            &topology,
+            format!("OpenStreetMap {} {:?} {:?} {}", request.highway, request.direction, request.reference_type, request.reference),
+        )
+        .map_err(|error| error.to_string())
+    })();
+    let _ = std::fs::remove_file(input_path);
+    let _ = std::fs::remove_file(output_path);
+    result
+}
+
+fn overpass_to_osm_xml(response: &Value) -> Result<String, String> {
+    let nodes = response["elements"]
+        .as_array()
+        .ok_or("Overpass response has no elements")?
+        .iter()
+        .filter(|element| element["type"] == "node")
+        .collect::<Vec<_>>();
+    let minimum_latitude = nodes
+        .iter()
+        .filter_map(|node| node["lat"].as_f64())
+        .reduce(f64::min)
+        .ok_or("Overpass response has no node latitudes")?;
+    let maximum_latitude = nodes
+        .iter()
+        .filter_map(|node| node["lat"].as_f64())
+        .reduce(f64::max)
+        .ok_or("Overpass response has no node latitudes")?;
+    let minimum_longitude = nodes
+        .iter()
+        .filter_map(|node| node["lon"].as_f64())
+        .reduce(f64::min)
+        .ok_or("Overpass response has no node longitudes")?;
+    let maximum_longitude = nodes
+        .iter()
+        .filter_map(|node| node["lon"].as_f64())
+        .reduce(f64::max)
+        .ok_or("Overpass response has no node longitudes")?;
+    let mut xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?><osm version="0.6" generator="Magnus topology worker"><bounds minlat="{minimum_latitude}" minlon="{minimum_longitude}" maxlat="{maximum_latitude}" maxlon="{maximum_longitude}"/>"#
+    );
+    for element in response["elements"].as_array().ok_or("Overpass response has no elements")? {
+        match element["type"].as_str() {
+            Some("node") => {
+                xml.push_str(&format!(
+                    r#"<node id="{}" lat="{}" lon="{}">"#,
+                    element["id"].as_i64().ok_or("node id is not an integer")?,
+                    element["lat"].as_f64().ok_or("node latitude is not a number")?,
+                    element["lon"].as_f64().ok_or("node longitude is not a number")?,
+                ));
+                append_xml_tags(&mut xml, &element["tags"]);
+                xml.push_str("</node>");
+            }
+            Some("way") => {
+                xml.push_str(&format!(r#"<way id="{}">"#, element["id"].as_i64().ok_or("way id is not an integer")?));
+                for node_id in element["nodes"].as_array().ok_or("way has no nodes")? {
+                    xml.push_str(&format!(r#"<nd ref="{}"/>"#, node_id.as_i64().ok_or("way node id is not an integer")?));
+                }
+                append_xml_tags(&mut xml, &element["tags"]);
+                xml.push_str("</way>");
+            }
+            _ => {}
+        }
+    }
+    xml.push_str("</osm>");
+    Ok(xml)
+}
+
+fn append_xml_tags(xml: &mut String, tags: &Value) {
+    let Some(tags) = tags.as_object() else { return };
+    for (key, value) in tags {
+        let Some(value) = value.as_str() else { continue };
+        xml.push_str(&format!(r#"<tag k="{}" v="{}"/>"#, xml_escape(key), xml_escape(value)));
+    }
+}
+
+fn xml_escape(value: &str) -> String {
+    value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 async fn resolve_prepared_scene(

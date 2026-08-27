@@ -291,6 +291,7 @@
 .road-feature-direction-arrow { fill: none; stroke: #f5f6ee; marker-end: url(#mergeArrow); }
 .road-feature-ramp-casing-ribbon { fill: #111716; stroke: none; }
 .road-feature-ramp-surface-ribbon { fill: url(#roadSurfacePattern); stroke: none; }
+.road-feature-intersection-surface { fill: url(#roadSurfacePattern); stroke: none; }
 .roadway-label { fill: #111; stroke: #fff; stroke-width: 1.2; paint-order: stroke fill; font: 700 3px 'IBM Plex Sans', sans-serif; letter-spacing: 0; pointer-events: none; }
 .road-feature-road-casing[data-bridge='true'], .road-feature-ramp-casing-ribbon[data-bridge='true'] { filter: drop-shadow(0 7px 4px rgba(0,0,0,.8)); }
 .road-feature-road-surface[data-bridge='true'], .road-feature-ramp-surface-ribbon[data-bridge='true'] { filter: brightness(1.18); }

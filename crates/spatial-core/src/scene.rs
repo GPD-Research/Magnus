@@ -24,6 +24,7 @@ pub enum RoadFeatureKind {
     RampSurfaceRibbon,
     RampCasingRibbon,
     AuxiliaryLaneLine,
+    IntersectionSurface,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

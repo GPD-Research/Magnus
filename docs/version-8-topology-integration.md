@@ -30,6 +30,14 @@ OSM PBF
 
 The initial upstream revision selected for evaluation is `fc119c47`.
 
+## Production status
+
+The first adapter slice is active in the spatial core. Prepared PBF compilation
+now removes disconnected road subnetworks by retaining the largest connected
+component, while preserving the source way IDs and metadata of retained ways.
+The existing `RoadScene` output and gore compiler remain the compatibility path
+until normalized road and intersection geometry are available.
+
 The topology transformation sequence should evaluate:
 
 - removal of disconnected roads

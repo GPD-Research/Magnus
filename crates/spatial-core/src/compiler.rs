@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::{
     CoordinateSystem, FeatureProperties, Geometry, RoadFeature, RoadFeatureKind, RoadScene,
     RoadLocationRequest, RoadReferenceType, SceneSource, SceneSourceType, Viewport,
-    compile_overpass_json,
+    compile_overpass_json, topology::largest_connected_component,
 };
 
 const FEET_PER_METER: f64 = 3.280_839_895;
@@ -115,8 +115,17 @@ pub fn compile_pbf(
         }
     })?;
 
+    let way_nodes = ways
+        .iter()
+        .map(|way| (way.id, way.refs.clone()))
+        .collect::<HashMap<_, _>>();
+    let connected_way_ids = largest_connected_component(&way_nodes);
+
     let mut features = Vec::new();
     for way in ways {
+        if !connected_way_ids.contains(&way.id) {
+            continue;
+        }
         let coordinates: Vec<[f64; 2]> = way
             .refs
             .iter()

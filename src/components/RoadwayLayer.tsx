@@ -183,6 +183,7 @@ export function RoadwayLayer({
               data-geometry-type={feature.geometry.type}
               data-osm-id={feature.properties.osmId}
               strokeWidth={feature.properties.renderWidthFeet}
+              style={{ strokeWidth: feature.properties.renderWidthFeet }}
               strokeDasharray={feature.kind === 'skip-line'
                 ? `${ROADWAY_DIMENSIONS_FEET.skipStripeLength} ${ROADWAY_DIMENSIONS_FEET.skipGapLength}`
                 : undefined}
