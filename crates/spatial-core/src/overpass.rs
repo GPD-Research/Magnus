@@ -669,6 +669,7 @@ pub fn compile_overpass_json(
             right_shoulder_width_feet: Some(right_shoulder_width),
             direction: Some("forward".into()),
             render_width_feet: Some(width),
+            marking_type: None,
         };
         let fragment_count = fragments.len();
         // Zones are computed in the full (unclipped) way's own arc-length units, so they only line

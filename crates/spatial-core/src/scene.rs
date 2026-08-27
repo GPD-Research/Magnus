@@ -25,6 +25,7 @@ pub enum RoadFeatureKind {
     RampCasingRibbon,
     AuxiliaryLaneLine,
     IntersectionSurface,
+    SemanticMarking,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -56,6 +57,8 @@ pub struct FeatureProperties {
     pub direction: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render_width_feet: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marking_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

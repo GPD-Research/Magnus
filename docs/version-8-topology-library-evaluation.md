@@ -124,6 +124,13 @@ and the external library has not been connected to Magnus's scene contract.
 The next implementation task is now the live worker invocation and golden
 fixture comparison, not another fog-line or gore-distance patch.
 
+The worker now exports the upstream semantic marking polygons and the adapter
+renders them as `semantic-marking` features. The synthetic fixture currently
+produces upstream lane separators and lane arrows. The upstream marking API
+does not emit edge/fog lines, so fog boundaries remain a separate topology
+boundary contract to implement; Magnus no longer fabricates them from a road
+lane count in the topology-backed path.
+
 ## Mixing Bowl baseline
 
 On 2026-08-27, a live request for `I-95 / Northbound / Mile marker 170`

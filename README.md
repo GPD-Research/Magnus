@@ -8,13 +8,19 @@ The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.
 
 The Version 8 topology integration direction is recorded in [docs/version-8-topology-integration.md](docs/version-8-topology-integration.md).
 
-## Version 8.0 production development
+Version 8 is the legacy scene-builder baseline. The Version 9 navigation
+foundation rewrite plan is recorded in [docs/version-9-rewrite-plan.md](docs/version-9-rewrite-plan.md).
+
+## Version 8.0 legacy baseline
 
 The spatial core now begins topology normalization by retaining the largest
 connected road component when compiling prepared PBF data. Source way IDs and
 metadata remain unchanged so the normalized output can continue through the
 existing `RoadScene` contract while intersection and pavement geometry move
 into the topology adapter.
+
+Version 9 development moves roadway representation to a navigation-oriented
+OSM topology pipeline. The SSP scene and diagram system remains the overlay.
 
 ## Version 7.0 release
 

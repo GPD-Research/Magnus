@@ -16,6 +16,7 @@ export type RoadFeatureKind =
   | 'ramp-casing-ribbon'
   | 'auxiliary-lane-line'
   | 'intersection-surface'
+  | 'semantic-marking'
 
 export interface RoadFeature {
   id: string

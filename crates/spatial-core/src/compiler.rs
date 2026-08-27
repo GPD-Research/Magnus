@@ -150,6 +150,7 @@ pub fn compile_pbf(
             right_shoulder_width_feet: None,
             direction: Some(way.direction),
             render_width_feet: Some(width),
+            marking_type: None,
         };
         features.push(RoadFeature {
             id: format!("way-{}-casing", way.id),

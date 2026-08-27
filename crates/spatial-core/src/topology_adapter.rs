@@ -21,6 +21,8 @@ struct TopologyScene {
     coordinate_units: String,
     roads: Vec<TopologyRoad>,
     intersections: Vec<TopologyIntersection>,
+    #[serde(default)]
+    markings: Vec<TopologyMarking>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,6 +35,8 @@ struct TopologyRoad {
     lane_count: usize,
     #[serde(rename = "centerLine")]
     center_line: Vec<[f64; 2]>,
+    #[serde(rename = "surfacePolygon")]
+    surface_polygon: Vec<[f64; 2]>,
     #[serde(rename = "widthFeet")]
     width_feet: f64,
 }
@@ -42,6 +46,15 @@ struct TopologyIntersection {
     #[serde(rename = "sourceNodeIds")]
     source_node_ids: Vec<i64>,
     polygon: Vec<[f64; 2]>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TopologyMarking {
+    #[serde(rename = "sourceWayIds")]
+    source_way_ids: Vec<i64>,
+    #[serde(rename = "type")]
+    marking_type: String,
+    geometry: Vec<[f64; 2]>,
 }
 
 pub fn compile_topology_scene(
@@ -62,7 +75,7 @@ pub fn compile_topology_scene(
         let properties = FeatureProperties {
             osm_id,
             highway: Some(road.highway),
-            lanes: None,
+            lanes: Some(road.lane_count as u16),
             direction: Some("forward".into()),
             render_width_feet: Some(road.width_feet),
             ..FeatureProperties::default()
@@ -72,9 +85,9 @@ pub fn compile_topology_scene(
             id: format!("{id}-casing"),
             kind: RoadFeatureKind::RoadCasing,
             layer: road.layer,
-            geometry: Geometry::LineString(road.center_line.clone()),
+            geometry: Geometry::Polygon(vec![road.surface_polygon.clone()]),
             properties: FeatureProperties {
-                render_width_feet: Some(road.width_feet + 8.0),
+                render_width_feet: Some(0.0),
                 ..properties.clone()
             },
         });
@@ -83,9 +96,11 @@ pub fn compile_topology_scene(
             kind: RoadFeatureKind::RoadSurface,
             layer: road.layer,
             geometry: Geometry::LineString(road.center_line.clone()),
-            properties,
+            properties: FeatureProperties {
+                render_width_feet: Some(0.0),
+                ..properties
+            },
         });
-        append_normalized_markings(&mut features, &id, road.layer, &road.center_line, road.width_feet, road.lane_count);
     }
     for (index, intersection) in topology.intersections.into_iter().enumerate() {
         if intersection.polygon.len() < 4 {
@@ -99,6 +114,23 @@ pub fn compile_topology_scene(
             properties: FeatureProperties {
                 osm_id: intersection.source_node_ids.first().copied(),
                 highway: Some("intersection".into()),
+                render_width_feet: Some(0.0),
+                ..FeatureProperties::default()
+            },
+        });
+    }
+    for (index, marking) in topology.markings.into_iter().enumerate() {
+        if marking.geometry.len() < 2 {
+            continue;
+        }
+        features.push(RoadFeature {
+            id: format!("topology-marking-{index}"),
+            kind: RoadFeatureKind::SemanticMarking,
+            layer: 10,
+            geometry: Geometry::Polygon(vec![marking.geometry]),
+            properties: FeatureProperties {
+                osm_id: marking.source_way_ids.first().copied(),
+                marking_type: Some(marking.marking_type),
                 render_width_feet: Some(0.0),
                 ..FeatureProperties::default()
             },
@@ -124,62 +156,6 @@ pub fn compile_topology_scene(
     })
 }
 
-fn append_normalized_markings(
-    features: &mut Vec<RoadFeature>,
-    feature_prefix: &str,
-    layer: i16,
-    center_line: &[[f64; 2]],
-    width_feet: f64,
-    lane_count: usize,
-) {
-    let half_width = width_feet / 2.0;
-    let properties = FeatureProperties {
-        render_width_feet: Some(0.5),
-        ..FeatureProperties::default()
-    };
-    for (suffix, kind, offset) in [
-        ("left-fog", RoadFeatureKind::LeftFogLine, -half_width),
-        ("right-fog", RoadFeatureKind::RightFogLine, half_width),
-    ] {
-        features.push(RoadFeature {
-            id: format!("{feature_prefix}-{suffix}"),
-            kind,
-            layer: layer + 1,
-            geometry: Geometry::LineString(offset_line(center_line, offset)),
-            properties: properties.clone(),
-        });
-    }
-    if lane_count > 1 {
-        for lane in 1..lane_count {
-            let offset = -half_width + width_feet * lane as f64 / lane_count as f64;
-            features.push(RoadFeature {
-                id: format!("{feature_prefix}-lane-{lane}"),
-                kind: RoadFeatureKind::SkipLine,
-                layer: layer + 1,
-                geometry: Geometry::LineString(offset_line(center_line, offset)),
-                properties: properties.clone(),
-            });
-        }
-    }
-}
-
-fn offset_line(center_line: &[[f64; 2]], offset: f64) -> Vec<[f64; 2]> {
-    center_line
-        .iter()
-        .enumerate()
-        .map(|(index, point)| {
-            let previous = center_line[index.saturating_sub(1)];
-            let next = center_line[(index + 1).min(center_line.len() - 1)];
-            let delta = [next[0] - previous[0], next[1] - previous[1]];
-            let length = delta[0].hypot(delta[1]);
-            if length <= 1e-9 {
-                *point
-            } else {
-                [point[0] - delta[1] / length * offset, point[1] + delta[0] / length * offset]
-            }
-        })
-        .collect()
-}
 
 fn normalize_to_viewport(features: &mut [RoadFeature]) {
     let Some([minimum_x, minimum_y, _, _]) = bounds(features) else {
@@ -240,6 +216,7 @@ mod tests {
                     "highway": "motorway_link",
                     "laneCount": 1,
                     "centerLine": [[10.0, 20.0], [110.0, 20.0]],
+                    "surfacePolygon": [[10.0, 14.0], [110.0, 14.0], [110.0, 26.0], [10.0, 26.0], [10.0, 14.0]],
                     "widthFeet": 12.0,
                     "trimStartFeet": 30.0,
                     "trimEndFeet": 0.0
@@ -254,11 +231,17 @@ mod tests {
         .expect("topology scene should parse");
 
         assert_eq!(scene.source.source_type, SceneSourceType::OsmPbf);
-        assert_eq!(scene.features.len(), 5);
+        assert_eq!(scene.features.len(), 3);
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::RoadSurface
                 && feature.properties.osm_id == Some(95)
-                && feature.properties.render_width_feet == Some(12.0)
+                && feature.properties.render_width_feet == Some(0.0)
+                && matches!(feature.geometry, Geometry::LineString(_))
+        }));
+        assert!(scene.features.iter().any(|feature| {
+            feature.kind == RoadFeatureKind::RoadCasing
+                && feature.properties.osm_id == Some(95)
+                && matches!(feature.geometry, Geometry::Polygon(_))
         }));
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::IntersectionSurface
