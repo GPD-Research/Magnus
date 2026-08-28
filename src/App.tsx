@@ -526,7 +526,7 @@ function App() {
   const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>(savedScenario?.locationRequest ?? DEFAULT_LOCATION_REQUEST)
   const [resolvedLocation, setResolvedLocation] = useState<ResolvedRoadLocation | null>(savedScenario?.resolvedLocation ?? null)
   const [locationErrors, setLocationErrors] = useState<string[]>([])
-  const [locationLoading, setLocationLoading] = useState(!savedScenario)
+  const [locationLoading, setLocationLoading] = useState(true)
   const [sectionSelectionEnabled, setSectionSelectionEnabled] = useState(false)
   const [selectedRoadSectionId, setSelectedRoadSectionId] = useState<string | null>(null)
   const [scenario, setScenario] = useState<ScenarioType>(savedScenario?.scenario ?? 'right-lane')
@@ -575,6 +575,7 @@ function App() {
   const leftPaneRestoreRef = useRef<HTMLButtonElement>(null)
   const rightPaneRestoreRef = useRef<HTMLButtonElement>(null)
   const locationResolutionRef = useRef(0)
+  const initialLocationRequestRef = useRef(savedScenario?.locationRequest ?? DEFAULT_LOCATION_REQUEST)
   const panPointersRef = useRef(new Map<number, { x: number; y: number }>())
   const gestureFrameRef = useRef<number | null>(null)
   const drawingStrokeRef = useRef<DrawingStroke | null>(null)
@@ -825,28 +826,32 @@ function App() {
   }, [])
 
   useEffect(() => {
+    // Always refresh the roadway from the live spatial service on startup, even
+    // when a saved scenario exists, so stale cached topology (from before a
+    // backend fix) never masquerades as current data. Only the initial scene
+    // placement is skipped when a saved scenario already positioned equipment.
     let active = true
-    if (savedScenario) {
-      return () => { active = false }
-    }
     const resolution = ++locationResolutionRef.current
-    void resolveRoadLocation(DEFAULT_LOCATION_REQUEST, undefined, appSettings.connectivityMode).then((resolved) => {
+    void resolveRoadLocation(initialLocationRequestRef.current, undefined, appSettings.connectivityMode).then((resolved) => {
       if (!active || resolution !== locationResolutionRef.current) return
       setRoadScene(resolved.scene)
-      const initialScenario = 'right-lane'
-      const placement = laterallyAlignedPlacement(
-        centeredRoadPlacement(resolved.scene, resolved.request.highway),
-        initialScenario,
-      )
-      if (!savedScenario && placement) {
-        setSceneOrigin({ x: placement.x - sceneAnchorX, y: placement.y - sceneAnchorY })
-        setSceneRotation(placement.rotation)
+      if (!savedScenario) {
+        const initialScenario = 'right-lane'
+        const placement = laterallyAlignedPlacement(
+          centeredRoadPlacement(resolved.scene, resolved.request.highway),
+          initialScenario,
+        )
+        if (placement) {
+          setSceneOrigin({ x: placement.x - sceneAnchorX, y: placement.y - sceneAnchorY })
+          setSceneRotation(placement.rotation)
+        }
       }
       setResolvedLocation(resolved)
       setLocationLoading(false)
     })
     return () => { active = false }
-  }, [appSettings.connectivityMode, savedScenario, sceneAnchorX, sceneAnchorY])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appSettings.connectivityMode, sceneAnchorX, sceneAnchorY])
 
   async function prepareRegion(region: OfflineRegionStatus['id']) {
     setOfflinePreparing(region)

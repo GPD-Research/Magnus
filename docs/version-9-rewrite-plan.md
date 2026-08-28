@@ -150,3 +150,37 @@ The SSP diagram system is deliberately out of scope for the roadway rewrite
 except for its placement bridge. It should continue to receive a selected
 logical road, lane reference, point/tangent queries, source IDs, and a shared
 map transform rather than raw OSM ways or handcrafted gore geometry.
+
+## Status as of 2026-08-28 (resume notes)
+
+Topology rendering is the default `npm run dev` path (`MAGNUS_TOPOLOGY_WORKER`
+is set automatically). Recent work, in order:
+
+- Real per-side shoulder width is derived from `lane_specs_ltr` (the
+  left-to-right ordered OSM lane list osm2streets already exposes), replacing
+  a hardcoded stopgap constant in `topology_adapter.rs`.
+- `osm2streets` has no concept of a pavement edge/fog line at all (confirmed
+  by reading its `to_lane_markings_geojson`) — fog lines are now synthesized
+  in `tools/topology-worker/src/main.rs` (`fog_line_markings_for_road`) from
+  lane widths, and correctly surfaced as `LeftFogLine`/`RightFogLine` features
+  in `topology_adapter.rs` (previously all markings were collapsed into one
+  generic per-layer polygon blob, discarding the real marking type).
+- Fog lines now break near any ramp/acceleration/deceleration lane connection
+  instead of drawing through the gore (`gore_fog_line_breaks` in
+  `tools/topology-worker/src/main.rs`), per explicit design requirement.
+- Fixed a startup bug in `src/App.tsx`: the app used to skip re-resolving the
+  roadway from the live spatial API entirely whenever a saved scenario existed
+  in browser `localStorage`, silently replaying old cached roadway geometry
+  from before any of the above fixes. The startup effect now always calls
+  `resolveRoadLocation`; only the initial SSP scene placement is still
+  restored from the saved scenario. **If a rendering fix looks like it "isn't
+  there" during manual testing, suspect a stale browser tab (or that specific
+  browser's `localStorage['magnus.scenario']`) before suspecting the repo.**
+
+All Rust workspace tests (`cargo test --workspace`) and frontend tests/build
+(`npm run lint`, `npm test -- --run`, `npm run build`) pass as of this commit.
+
+Next candidates: extend fog-line/gore-break handling to intersections that
+aren't simple two-road connections (multi-way junctions), and audit whether
+`shoulder edge` and `skip line` markings need the same per-type treatment fog
+lines just received instead of remaining in the generic grouped polygon path.
