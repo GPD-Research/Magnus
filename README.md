@@ -1,8 +1,8 @@
-# Magnus 8.0.0
+# Magnus 9.0.0
 
 <img src="public/favicon.svg" alt="Magnus arrow-M logo" width="96" height="96">
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 8.0.0 is now in production development.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 9.0.0 is the navigation-foundation rewrite branch.
 
 The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md). A full version-by-version development timeline reconstructed from git history is in [docs/development-history.md](docs/development-history.md).
 
@@ -11,7 +11,7 @@ The Version 8 topology integration direction is recorded in [docs/version-8-topo
 Version 8 is the legacy scene-builder baseline. The Version 9 navigation
 foundation rewrite plan is recorded in [docs/version-9-rewrite-plan.md](docs/version-9-rewrite-plan.md).
 
-## Version 8.0 legacy baseline
+## Version 9.0 navigation foundation rewrite
 
 The spatial core now begins topology normalization by retaining the largest
 connected road component when compiling prepared PBF data. Source way IDs and
@@ -19,8 +19,48 @@ metadata remain unchanged so the normalized output can continue through the
 existing `RoadScene` contract while intersection and pavement geometry move
 into the topology adapter.
 
-Version 9 development moves roadway representation to a navigation-oriented
-OSM topology pipeline. The SSP scene and diagram system remains the overlay.
+Version 9 moves roadway representation to a navigation-oriented OSM topology
+pipeline. The SSP scene and diagram system remains the overlay. Exit 143 on
+I-95 is the first acceptance case; the Mixing Bowl remains a later stress case.
+
+Version 9 treats Magnus as a local navigation-map application with an SSP
+training overlay. It does not need start/destination routing or turn-by-turn
+navigation. The map subsystem resolves a local area on a VDOT-maintained
+major artery by mile marker or exit number, then supplies normalized roads,
+lanes, intersections, markings, labels, and structural layers to the existing
+scene-builder interface.
+
+The map and overlay communicate through a versioned bridge contract described
+in [docs/version-9-map-bridge-contract.md](docs/version-9-map-bridge-contract.md).
+The roadway subsystem owns visible pavement and map semantics. The SSP
+subsystem owns cones, vehicles, responders, hazards, annotations,
+communications, audits, and scene persistence. This separation allows the
+roadway renderer to be rewritten without replacing the working SSP GUI.
+
+## Version 9 roadway truth model
+
+The rewrite uses a 2.5D roadway model rather than full elevation. A 2D
+geometric crossing is not by itself a merge:
+
+```text
+shared OSM node
+	-> connected merge/diverge candidate
+
+unshared nodes plus different layer/bridge/tunnel structure
+	-> grade-separated crossing
+
+unshared nodes at the same structural level
+	-> unresolved diagnostic, never an automatic gore
+```
+
+This relationship is the controlling feature for pavement polygons, fog-line
+termination, gore creation, and lane transitions. Overpasses remain crossings
+without shared pavement or marking termination. Same-level connected roads are
+processed as logical intersections by the navigation topology subsystem.
+
+Magnus preserves source way, node, relation, lane, shoulder, bridge, tunnel,
+layer, destination, and marking evidence wherever OSM provides it. Inferred
+values are diagnostics, not silently presented as surveyed roadway truth.
 
 ## Version 7.0 release
 

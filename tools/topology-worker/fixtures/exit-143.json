@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "coordinateUnits": "feet",
+  "roads": [
+    {
+      "sourceWayIds": [14300],
+      "endpointNodeIds": [1430000, 1430001],
+      "layer": 0,
+      "highway": "motorway",
+      "laneCount": 3,
+      "centerLine": [[0.0, 200.0], [800.0, 200.0]],
+      "surfacePolygon": [[0.0, 182.0], [800.0, 182.0], [800.0, 218.0], [0.0, 218.0], [0.0, 182.0]],
+      "widthFeet": 36.0,
+      "laneRecords": [
+        { "laneType": "driving", "direction": "forward", "widthFeet": 12.0 },
+        { "laneType": "driving", "direction": "forward", "widthFeet": 12.0 },
+        { "laneType": "driving", "direction": "forward", "widthFeet": 12.0 }
+      ],
+      "trimStartFeet": 0.0,
+      "trimEndFeet": 0.0
+    },
+    {
+      "sourceWayIds": [14301],
+      "endpointNodeIds": [1430002, 1430001],
+      "layer": 0,
+      "highway": "motorway_link",
+      "laneCount": 1,
+      "centerLine": [[400.0, 500.0], [400.0, 200.0]],
+      "surfacePolygon": [[394.0, 500.0], [394.0, 200.0], [406.0, 200.0], [406.0, 500.0], [394.0, 500.0]],
+      "widthFeet": 12.0,
+      "laneRecords": [
+        {
+          "laneType": "driving",
+          "direction": "forward",
+          "widthFeet": 12.0,
+          "sourceEvidence": { "lane": "through|merge_to_right" }
+        }
+      ],
+      "trimStartFeet": 0.0,
+      "trimEndFeet": 0.0
+    },
+    {
+      "sourceWayIds": [14302],
+      "endpointNodeIds": [1430003, 1430004],
+      "layer": 1,
+      "highway": "motorway",
+      "laneCount": 2,
+      "centerLine": [[100.0, 100.0], [700.0, 300.0]],
+      "surfacePolygon": [[97.0, 91.0], [697.0, 291.0], [703.0, 309.0], [103.0, 109.0], [97.0, 91.0]],
+      "widthFeet": 18.0,
+      "laneRecords": [
+        { "laneType": "driving", "direction": "forward", "widthFeet": 9.0 },
+        { "laneType": "driving", "direction": "forward", "widthFeet": 9.0 }
+      ],
+      "trimStartFeet": 0.0,
+      "trimEndFeet": 0.0
+    }
+  ],
+  "intersections": [
+    {
+      "sourceNodeIds": [1430001],
+      "relationship": "connected-at-node",
+      "polygon": [[382.0, 182.0], [418.0, 182.0], [418.0, 218.0], [382.0, 218.0], [382.0, 182.0]]
+    }
+  ],
+  "markings": [
+    {
+      "sourceWayIds": [14301],
+      "type": "merge-boundary",
+      "geometry": [[394.0, 200.0], [394.0, 260.0]]
+    }
+  ]
+}

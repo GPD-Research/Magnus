@@ -2,8 +2,8 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
-    CoordinateSystem, FeatureProperties, Geometry, RoadFeature, RoadFeatureKind, RoadScene,
-    SceneSource, SceneSourceType, Viewport,
+    CoordinateSystem, FeatureProperties, Geometry, LaneRecord, RoadFeature, RoadFeatureKind,
+    RoadScene, SceneSource, SceneSourceType, Viewport,
 };
 
 #[derive(Debug, Error)]
@@ -39,6 +39,10 @@ struct TopologyRoad {
     surface_polygon: Vec<[f64; 2]>,
     #[serde(rename = "widthFeet")]
     width_feet: f64,
+    #[serde(default, rename = "endpointNodeIds")]
+    endpoint_node_ids: Vec<i64>,
+    #[serde(default, rename = "laneRecords")]
+    lane_records: Vec<LaneRecord>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,6 +50,8 @@ struct TopologyIntersection {
     #[serde(rename = "sourceNodeIds")]
     source_node_ids: Vec<i64>,
     polygon: Vec<[f64; 2]>,
+    #[serde(default)]
+    relationship: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +80,9 @@ pub fn compile_topology_scene(
         let osm_id = road.source_way_ids.first().copied();
         let properties = FeatureProperties {
             osm_id,
+            source_way_ids: road.source_way_ids.clone(),
+            endpoint_node_ids: road.endpoint_node_ids,
+            lane_records: road.lane_records,
             highway: Some(road.highway),
             lanes: Some(road.lane_count as u16),
             direction: Some("forward".into()),
@@ -114,6 +123,7 @@ pub fn compile_topology_scene(
             properties: FeatureProperties {
                 osm_id: intersection.source_node_ids.first().copied(),
                 highway: Some("intersection".into()),
+                relationship: intersection.relationship,
                 render_width_feet: Some(0.0),
                 ..FeatureProperties::default()
             },
@@ -130,6 +140,7 @@ pub fn compile_topology_scene(
             geometry: Geometry::Polygon(vec![marking.geometry]),
             properties: FeatureProperties {
                 osm_id: marking.source_way_ids.first().copied(),
+                source_way_ids: marking.source_way_ids,
                 marking_type: Some(marking.marking_type),
                 render_width_feet: Some(0.0),
                 ..FeatureProperties::default()
@@ -143,7 +154,8 @@ pub fn compile_topology_scene(
             source_type: SceneSourceType::OsmPbf,
             dataset: dataset.into(),
             generated_at: "topology-worker".into(),
-            attribution: "© OpenStreetMap contributors, ODbL 1.0; normalized with osm2streets".into(),
+            attribution: "© OpenStreetMap contributors, ODbL 1.0; normalized with osm2streets"
+                .into(),
         },
         coordinate_system: CoordinateSystem {
             world_crs: "LOCAL_OSM2STREETS_FEET".into(),
@@ -155,7 +167,6 @@ pub fn compile_topology_scene(
         features,
     })
 }
-
 
 fn normalize_to_viewport(features: &mut [RoadFeature]) {
     let Some([minimum_x, minimum_y, _, _]) = bounds(features) else {
@@ -179,7 +190,10 @@ fn viewport_for_features(features: &[RoadFeature]) -> Viewport {
             width: maximum_x - minimum_x + 60.0,
             height: maximum_y - minimum_y + 60.0,
         })
-        .unwrap_or(Viewport { width: 0.0, height: 0.0 })
+        .unwrap_or(Viewport {
+            width: 0.0,
+            height: 0.0,
+        })
 }
 
 fn bounds(features: &[RoadFeature]) -> Option<[f64; 4]> {
@@ -189,15 +203,17 @@ fn bounds(features: &[RoadFeature]) -> Option<[f64; 4]> {
             Geometry::LineString(points) => points.iter().collect::<Vec<_>>(),
             Geometry::Polygon(rings) => rings.iter().flatten().collect(),
         })
-        .fold(None, |bounds, point| Some(match bounds {
-            None => [point[0], point[1], point[0], point[1]],
-            Some([minimum_x, minimum_y, maximum_x, maximum_y]) => [
-                minimum_x.min(point[0]),
-                minimum_y.min(point[1]),
-                maximum_x.max(point[0]),
-                maximum_y.max(point[1]),
-            ],
-        }))
+        .fold(None, |bounds, point| {
+            Some(match bounds {
+                None => [point[0], point[1], point[0], point[1]],
+                Some([minimum_x, minimum_y, maximum_x, maximum_y]) => [
+                    minimum_x.min(point[0]),
+                    minimum_y.min(point[1]),
+                    maximum_x.max(point[0]),
+                    maximum_y.max(point[1]),
+                ],
+            })
+        })
 }
 
 #[cfg(test)]
@@ -211,7 +227,7 @@ mod tests {
                 "version": 1,
                 "coordinateUnits": "feet",
                 "roads": [{
-                    "sourceWayIds": [95],
+                    "sourceWayIds": [95, 96],
                     "layer": 0,
                     "highway": "motorway_link",
                     "laneCount": 1,
@@ -235,6 +251,7 @@ mod tests {
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::RoadSurface
                 && feature.properties.osm_id == Some(95)
+                && feature.properties.source_way_ids == vec![95, 96]
                 && feature.properties.render_width_feet == Some(0.0)
                 && matches!(feature.geometry, Geometry::LineString(_))
         }));
@@ -260,5 +277,57 @@ mod tests {
         .expect_err("meter coordinates must not enter feet scene");
 
         assert!(matches!(error, TopologyAdapterError::UnsupportedVersion));
+    }
+
+    #[test]
+    fn compiles_exit_143_fixture_without_promoting_overpass_to_intersection() {
+        let scene = compile_topology_scene(
+            include_str!("../../../tools/topology-worker/fixtures/exit-143.json"),
+            "Exit 143 golden fixture",
+        )
+        .expect("Exit 143 fixture should parse");
+
+        let mainline = scene
+            .features
+            .iter()
+            .find(|feature| feature.properties.osm_id == Some(14300))
+            .expect("mainline should remain in the normalized scene");
+        let ramp = scene
+            .features
+            .iter()
+            .find(|feature| feature.properties.osm_id == Some(14301))
+            .expect("connected ramp should remain in the normalized scene");
+        let overpass = scene
+            .features
+            .iter()
+            .find(|feature| feature.properties.osm_id == Some(14302))
+            .expect("grade-separated overpass should remain in the normalized scene");
+
+        assert_eq!(mainline.layer, 0);
+        assert_eq!(ramp.layer, 0);
+        assert_eq!(overpass.layer, 1);
+        assert_eq!(
+            mainline.properties.endpoint_node_ids,
+            vec![1430000, 1430001]
+        );
+        assert_eq!(mainline.properties.lane_records.len(), 3);
+        assert_eq!(ramp.properties.lane_records[0].lane_type, "driving");
+        assert_eq!(ramp.properties.lane_records[0].width_feet, 12.0);
+        assert!(scene.features.iter().any(|feature| {
+            feature.kind == RoadFeatureKind::IntersectionSurface
+                && feature.properties.osm_id == Some(1430001)
+                && feature.properties.relationship.as_deref() == Some("connected-at-node")
+        }));
+        assert!(scene.features.iter().any(|feature| {
+            feature.kind == RoadFeatureKind::SemanticMarking
+                && feature.properties.osm_id == Some(14301)
+                && feature.properties.marking_type.as_deref() == Some("merge-boundary")
+        }));
+        assert!(
+            !scene
+                .features
+                .iter()
+                .any(|feature| feature.properties.osm_id == Some(14999))
+        );
     }
 }

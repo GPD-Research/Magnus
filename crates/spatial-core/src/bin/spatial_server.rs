@@ -31,8 +31,15 @@ const DEFAULT_OVERPASS_URLS: [&str; 3] = [
     "https://overpass.private.coffee/api/interpreter",
 ];
 const CACHE_VERSION: &str = "road-scene-v12";
-const LEGACY_CACHE_VERSIONS: [&str; 7] =
-    ["road-scene-v11", "road-scene-v10", "road-scene-v9", "road-scene-v8", "road-scene-v7", "road-scene-v4", "road-scene-v3"];
+const LEGACY_CACHE_VERSIONS: [&str; 7] = [
+    "road-scene-v11",
+    "road-scene-v10",
+    "road-scene-v9",
+    "road-scene-v8",
+    "road-scene-v7",
+    "road-scene-v4",
+    "road-scene-v3",
+];
 
 #[derive(Clone)]
 struct AppState {
@@ -132,7 +139,9 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(address).await?;
     println!("Magnus listening on http://{address}");
     axum::serve(listener, app)
-        .with_graceful_shutdown(async { let _ = shutdown_receiver.await; })
+        .with_graceful_shutdown(async {
+            let _ = shutdown_receiver.await;
+        })
         .await?;
     Ok(())
 }
@@ -184,7 +193,8 @@ async fn resolve_road_scene(
         }
     }
     if topology_worker.is_none() {
-        if let Some(scene) = read_legacy_cached_scene(&state.cache_directory, &overpass_query).await {
+        if let Some(scene) = read_legacy_cached_scene(&state.cache_directory, &overpass_query).await
+        {
             state
                 .scene_cache
                 .write()
@@ -214,18 +224,21 @@ async fn resolve_road_scene(
         .chain(state.overpass_urls.first());
     for (index, overpass_url) in provider_attempts.enumerate() {
         let query_attempts = if prefer_route_geometry {
-            [route_geometry_query.as_deref(), Some(overpass_query.as_str())]
+            [
+                route_geometry_query.as_deref(),
+                Some(overpass_query.as_str()),
+            ]
         } else {
-            [Some(overpass_query.as_str()), route_geometry_query.as_deref()]
+            [
+                Some(overpass_query.as_str()),
+                route_geometry_query.as_deref(),
+            ]
         };
-        for (query, attempt_label) in query_attempts
-            .into_iter()
-            .zip(if prefer_route_geometry {
-                ["route fallback", "exact lookup"]
-            } else {
-                ["exact lookup", "route fallback"]
-            })
-        {
+        for (query, attempt_label) in query_attempts.into_iter().zip(if prefer_route_geometry {
+            ["route fallback", "exact lookup"]
+        } else {
+            ["exact lookup", "route fallback"]
+        }) {
             let Some(query) = query else { continue };
             let response = match state
                 .client
@@ -236,7 +249,10 @@ async fn resolve_road_scene(
             {
                 Ok(response) => response,
                 Err(error) => {
-                    failures.push(format!("provider {} {attempt_label} request failed: {error}", index + 1));
+                    failures.push(format!(
+                        "provider {} {attempt_label} request failed: {error}",
+                        index + 1
+                    ));
                     continue;
                 }
             };
@@ -251,19 +267,24 @@ async fn resolve_road_scene(
             let body = match response.text().await {
                 Ok(body) => body,
                 Err(error) => {
-                    failures.push(format!("provider {} {attempt_label} response failed: {error}", index + 1));
+                    failures.push(format!(
+                        "provider {} {attempt_label} response failed: {error}",
+                        index + 1
+                    ));
                     continue;
                 }
             };
             let scene_result = match topology_worker.as_deref() {
                 Some(worker) => compile_with_topology_worker(&body, worker, &request),
-                None => compile_overpass_json(&body, &request)
-                    .map_err(|error| error.to_string()),
+                None => compile_overpass_json(&body, &request).map_err(|error| error.to_string()),
             };
             let scene = match scene_result {
                 Ok(scene) => scene,
                 Err(error) => {
-                    failures.push(format!("provider {} {attempt_label} data failed: {error}", index + 1));
+                    failures.push(format!(
+                        "provider {} {attempt_label} data failed: {error}",
+                        index + 1
+                    ));
                     continue;
                 }
             };
@@ -294,7 +315,8 @@ fn compile_with_topology_worker(
     let input_path = env::temp_dir().join(format!("magnus-topology-{}.osm", std::process::id()));
     let output_path = env::temp_dir().join(format!("magnus-topology-{}.json", std::process::id()));
     let result = (|| {
-        let response: Value = serde_json::from_str(overpass_json).map_err(|error| error.to_string())?;
+        let response: Value =
+            serde_json::from_str(overpass_json).map_err(|error| error.to_string())?;
         std::fs::write(&input_path, overpass_to_osm_xml(&response)?)
             .map_err(|error| error.to_string())?;
         let status = Command::new(worker)
@@ -308,7 +330,10 @@ fn compile_with_topology_worker(
         let topology = std::fs::read_to_string(&output_path).map_err(|error| error.to_string())?;
         compile_topology_scene(
             &topology,
-            format!("OpenStreetMap {} {:?} {:?} {}", request.highway, request.direction, request.reference_type, request.reference),
+            format!(
+                "OpenStreetMap {} {:?} {:?} {}",
+                request.highway, request.direction, request.reference_type, request.reference
+            ),
         )
         .map_err(|error| error.to_string())
     })();
@@ -347,22 +372,35 @@ fn overpass_to_osm_xml(response: &Value) -> Result<String, String> {
     let mut xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?><osm version="0.6" generator="Magnus topology worker"><bounds minlat="{minimum_latitude}" minlon="{minimum_longitude}" maxlat="{maximum_latitude}" maxlon="{maximum_longitude}"/>"#
     );
-    for element in response["elements"].as_array().ok_or("Overpass response has no elements")? {
+    for element in response["elements"]
+        .as_array()
+        .ok_or("Overpass response has no elements")?
+    {
         match element["type"].as_str() {
             Some("node") => {
                 xml.push_str(&format!(
                     r#"<node id="{}" lat="{}" lon="{}">"#,
                     element["id"].as_i64().ok_or("node id is not an integer")?,
-                    element["lat"].as_f64().ok_or("node latitude is not a number")?,
-                    element["lon"].as_f64().ok_or("node longitude is not a number")?,
+                    element["lat"]
+                        .as_f64()
+                        .ok_or("node latitude is not a number")?,
+                    element["lon"]
+                        .as_f64()
+                        .ok_or("node longitude is not a number")?,
                 ));
                 append_xml_tags(&mut xml, &element["tags"]);
                 xml.push_str("</node>");
             }
             Some("way") => {
-                xml.push_str(&format!(r#"<way id="{}">"#, element["id"].as_i64().ok_or("way id is not an integer")?));
+                xml.push_str(&format!(
+                    r#"<way id="{}">"#,
+                    element["id"].as_i64().ok_or("way id is not an integer")?
+                ));
                 for node_id in element["nodes"].as_array().ok_or("way has no nodes")? {
-                    xml.push_str(&format!(r#"<nd ref="{}"/>"#, node_id.as_i64().ok_or("way node id is not an integer")?));
+                    xml.push_str(&format!(
+                        r#"<nd ref="{}"/>"#,
+                        node_id.as_i64().ok_or("way node id is not an integer")?
+                    ));
                 }
                 append_xml_tags(&mut xml, &element["tags"]);
                 xml.push_str("</way>");
@@ -377,13 +415,23 @@ fn overpass_to_osm_xml(response: &Value) -> Result<String, String> {
 fn append_xml_tags(xml: &mut String, tags: &Value) {
     let Some(tags) = tags.as_object() else { return };
     for (key, value) in tags {
-        let Some(value) = value.as_str() else { continue };
-        xml.push_str(&format!(r#"<tag k="{}" v="{}"/>"#, xml_escape(key), xml_escape(value)));
+        let Some(value) = value.as_str() else {
+            continue;
+        };
+        xml.push_str(&format!(
+            r#"<tag k="{}" v="{}"/>"#,
+            xml_escape(key),
+            xml_escape(value)
+        ));
     }
 }
 
 fn xml_escape(value: &str) -> String {
-    value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 async fn resolve_prepared_scene(
@@ -392,7 +440,10 @@ async fn resolve_prepared_scene(
     cache_key: &str,
 ) -> ApiResult<RoadScene> {
     let paths = prepared_map_paths();
-    let available = paths.into_iter().filter(|path| path.is_file()).collect::<Vec<_>>();
+    let available = paths
+        .into_iter()
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
     if available.is_empty() {
         return Err(api_error(
             StatusCode::PRECONDITION_FAILED,
@@ -405,10 +456,19 @@ async fn resolve_prepared_scene(
         let display_path = path.display().to_string();
         let result = tokio::task::spawn_blocking(move || compile_pbf_location(path, &request))
             .await
-            .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("local map worker failed: {error}")))?;
+            .map_err(|error| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("local map worker failed: {error}"),
+                )
+            })?;
         match result {
             Ok(scene) => {
-                state.scene_cache.write().await.insert(cache_key.into(), scene.clone());
+                state
+                    .scene_cache
+                    .write()
+                    .await
+                    .insert(cache_key.into(), scene.clone());
                 write_cached_scene(&state.cache_directory, cache_key, &scene).await;
                 return Ok(Json(scene));
             }
@@ -417,21 +477,32 @@ async fn resolve_prepared_scene(
     }
     Err(api_error(
         StatusCode::PRECONDITION_FAILED,
-        &format!("the installed local map package could not resolve this location: {}", failures.join("; ")),
+        &format!(
+            "the installed local map package could not resolve this location: {}",
+            failures.join("; ")
+        ),
     ))
 }
 
 fn prepared_map_paths() -> Vec<PathBuf> {
     vec![
-        env::var("MAGNUS_NOVA_PBF").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("data/processed/nova-highways.osm.pbf")),
-        env::var("MAGNUS_VIRGINIA_PBF").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("data/raw/virginia-latest.osm.pbf")),
+        env::var("MAGNUS_NOVA_PBF")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("data/processed/nova-highways.osm.pbf")),
+        env::var("MAGNUS_VIRGINIA_PBF")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("data/raw/virginia-latest.osm.pbf")),
     ]
 }
 
 async fn offline_status(State(state): State<AppState>) -> Json<OfflineStatus> {
     let paths = prepared_map_paths();
     let regions = [
-        ("northern-virginia", "Northern Virginia highways", paths[0].as_path()),
+        (
+            "northern-virginia",
+            "Northern Virginia highways",
+            paths[0].as_path(),
+        ),
         ("virginia", "Virginia statewide source", paths[1].as_path()),
     ];
     let mut statuses = Vec::new();
@@ -445,7 +516,11 @@ async fn offline_status(State(state): State<AppState>) -> Json<OfflineStatus> {
         });
     }
     let (cached_scenes, cache_bytes) = directory_inventory(&state.cache_directory).await;
-    Json(OfflineStatus { regions: statuses, cached_scenes, cache_bytes })
+    Json(OfflineStatus {
+        regions: statuses,
+        cached_scenes,
+        cache_bytes,
+    })
 }
 
 async fn prepare_offline_region(
@@ -453,14 +528,22 @@ async fn prepare_offline_region(
     Json(request): Json<PrepareOfflineRequest>,
 ) -> Result<Json<OfflineStatus>, (StatusCode, Json<ApiError>)> {
     if !matches!(request.region.as_str(), "northern-virginia" | "virginia") {
-        return Err(api_error(StatusCode::BAD_REQUEST, "unsupported offline region"));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "unsupported offline region",
+        ));
     }
     let output = tokio::process::Command::new("bash")
         .arg("scripts/prepare-nova-data.sh")
         .arg(&request.region)
         .output()
         .await
-        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, &format!("offline preparation could not start: {error}")))?;
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("offline preparation could not start: {error}"),
+            )
+        })?;
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr);
         return Err(api_error(StatusCode::BAD_GATEWAY, message.trim()));
@@ -537,7 +620,10 @@ async fn read_legacy_cached_scene(directory: &Path, query: &str) -> Option<RoadS
             if version == "road-scene-v3" {
                 upgrade_v3_fog_lines(&mut scene);
             }
-            scene.source.attribution.push_str("; restored from local map cache");
+            scene
+                .source
+                .attribution
+                .push_str("; restored from local map cache");
             return Some(scene);
         }
     }
@@ -655,7 +741,10 @@ mod tests {
                 origin: "top-left".into(),
                 traffic_flow: "bottom-to-top".into(),
             },
-            viewport: magnus_spatial_core::Viewport { width: 100.0, height: 100.0 },
+            viewport: magnus_spatial_core::Viewport {
+                width: 100.0,
+                height: 100.0,
+            },
             features: vec![
                 magnus_spatial_core::RoadFeature {
                     id: "way-1-0-surface".into(),

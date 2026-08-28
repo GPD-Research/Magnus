@@ -2,6 +2,13 @@ export type Position = readonly [number, number]
 export interface LineGeometry { type: 'LineString'; coordinates: Position[] }
 export interface PolygonGeometry { type: 'Polygon'; coordinates: Position[][] }
 
+export interface LaneRecord {
+  laneType: string
+  direction: string
+  widthFeet: number
+  sourceEvidence?: unknown
+}
+
 export type RoadFeatureKind =
   | 'road-casing'
   | 'road-surface'
@@ -25,6 +32,10 @@ export interface RoadFeature {
   geometry: LineGeometry | PolygonGeometry
   properties: {
     osmId?: number
+    sourceWayIds?: number[]
+    endpointNodeIds?: number[]
+    laneRecords?: LaneRecord[]
+    relationship?: string
     name?: string
     highway?: string
     reference?: string
@@ -37,6 +48,7 @@ export interface RoadFeature {
     rightShoulderWidthFeet?: number
     direction?: 'forward' | 'backward'
     renderWidthFeet?: number
+    markingType?: string
   }
 }
 

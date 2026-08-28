@@ -16,6 +16,11 @@ The vector incident diagram is an overlay on top of the normalized map. SSP
 trucks, cones, responders, hazards, annotations, communications, and training
 controls remain Magnus-owned features.
 
+Version 9 is a navigation-map rewrite, not a rewrite of the SSP application.
+The map subsystem must be independently replaceable behind the bridge contract;
+the existing diagram GUI should remain a consumer of normalized road and lane
+references.
+
 ## Data pipeline
 
 ```text
@@ -42,6 +47,12 @@ The rewrite should preserve as much OSM information as the source provides:
 - logical road endpoints and trim distances
 - normalized intersection polygons
 - semantic lane markings
+
+The controlling topology invariant is shared-node connectivity. A 2D crossing
+without shared node connectivity is never promoted to a merge or diverge. Layer,
+bridge, and tunnel metadata distinguish grade-separated crossings; an
+unshared same-level crossing is retained as an unresolved diagnostic until the
+source or topology engine supplies stronger evidence.
 
 Magnus should infer only when the source or topology library cannot provide a
 value. Inferred values must be marked as such in diagnostics and must never be
@@ -96,14 +107,21 @@ visible.
 3. Extend the worker artifact with complete lane specifications, semantic
    markings, shoulder evidence, structural metadata, and uncertainty flags.
 4. Add the Exit 143 golden fixture and compare normalized output against
-   explicit topology assertions.
+   explicit topology assertions, including shared versus unshared crossings.
+   The initial bridge fixture now covers a connected ramp, a layer-separated
+   overpass, semantic marking provenance, and exclusion of a disconnected way.
+   The worker now emits typed relationship classifications for normalized
+   intersections through the shared topology API.
 5. Replace the current RoadScene adapter with a navigation-map adapter that
    consumes polygons and semantic markings without reconstructing gores in the
    frontend.
-6. Keep the incident diagram overlay unchanged while map rendering migrates.
-7. Enable the new map path for Exit 143 first, then expand to other VDOT
+6. Preserve lane-level and marking-level semantics through the stable map bridge
+   instead of reducing roads to a width and lane count.
+7. Use the stable map bridge in `docs/version-9-map-bridge-contract.md` so the
+   incident diagram overlay remains unchanged while map rendering migrates.
+8. Enable the new map path for Exit 143 first, then expand to other VDOT
    major-artery mile-marker and exit scenes.
-8. Retire Version 8 gore compatibility code only after the acceptance suite and
+9. Retire Version 8 gore compatibility code only after the acceptance suite and
    visual review pass.
 
 ## Budget rule
@@ -113,3 +131,8 @@ acceptance requirement needs it. The initial Version 9 foundation should use
 local OSM preparation plus `streets_reader` and `osm2streets`, with a stable
 JSON boundary into Magnus. This keeps infrastructure small while replacing the
 fragile roadway geometry ownership model.
+
+The SSP diagram system is deliberately out of scope for the roadway rewrite
+except for its placement bridge. It should continue to receive a selected
+logical road, lane reference, point/tangent queries, source IDs, and a shared
+map transform rather than raw OSM ways or handcrafted gore geometry.

@@ -1,13 +1,16 @@
-use std::{env, fs::File, io::BufWriter, path::PathBuf};
+use std::{collections::HashMap, env, fs::File, io::BufWriter, path::PathBuf};
 
-use anyhow::{Context, Result, bail};
 use abstio::MapName;
 use abstutil::Timer;
-use convert_osm::{Options, convert};
-use geom::{GPSBounds, LonLat};
+use anyhow::{bail, Context, Result};
+use convert_osm::{convert, Options};
 use geojson::{GeoJson, Value as GeoJsonValue};
+use geom::{GPSBounds, LonLat};
+use magnus_spatial_core::topology::{
+    classify_road_relationship, CrossingCandidate, RoadRelationship, RoadStructure,
+};
 use osm2streets::{Filter, StreetNetwork, Transformation};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 fn main() -> Result<()> {
     let arguments: Vec<String> = env::args().collect();
@@ -19,7 +22,13 @@ fn main() -> Result<()> {
     let output = PathBuf::from(&arguments[2]);
     let clip = arguments.get(3).cloned();
     let mut timer = Timer::throwaway();
-    let mut map = convert(input, MapName::new("us", "magnus", "topology"), clip, Options::default(), &mut timer);
+    let mut map = convert(
+        input,
+        MapName::new("us", "magnus", "topology"),
+        clip,
+        Options::default(),
+        &mut timer,
+    );
     map.streets.apply_transformations(
         vec![
             Transformation::RemoveDisconnectedRoads,
@@ -41,6 +50,8 @@ fn main() -> Result<()> {
 
 fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
     let serialized = serde_json::to_value(streets).expect("StreetNetwork should serialize");
+    let serialized_intersections = &serialized["intersections"];
+    let road_structures = road_structures(&serialized["roads"]);
     let roads = serialized["roads"]
         .as_array()
         .into_iter()
@@ -51,9 +62,11 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
             let width_feet = meters_to_feet(sum_lane_widths(&road["lane_specs_ltr"]));
             json!({
                 "sourceWayIds": road["osm_ids"],
+                "endpointNodeIds": source_endpoint_node_ids(road, serialized_intersections),
                 "layer": road["layer"],
                 "highway": road["highway_type"],
                 "laneCount": road["lane_specs_ltr"].as_array().map_or(1, Vec::len),
+                "laneRecords": lane_records(&road["lane_specs_ltr"]),
                 "centerLine": center_line,
                 "surfacePolygon": ribbon(&center_line, width_feet),
                 "widthFeet": width_feet,
@@ -70,6 +83,7 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
         .map(|intersection| {
             json!({
                 "sourceNodeIds": intersection["osm_ids"],
+                "relationship": intersection_relationship(intersection, &road_structures),
                 "polygon": points(&intersection["polygon"]["rings"][0]["pts"]),
             })
         })
@@ -87,6 +101,85 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
     }))
 }
 
+fn road_structures(roads: &Value) -> HashMap<i64, RoadStructure> {
+    roads
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let road = entry.get(1)?;
+            Some((
+                entry.get(0)?.as_i64()?,
+                RoadStructure {
+                    layer: road["layer"].as_i64()? as i16,
+                    bridge: false,
+                    tunnel: false,
+                },
+            ))
+        })
+        .collect()
+}
+
+fn intersection_relationship(
+    intersection: &Value,
+    road_structures: &HashMap<i64, RoadStructure>,
+) -> Option<&'static str> {
+    let roads = intersection["roads"].as_array()?;
+    let first = road_structures.get(&roads.first()?.as_i64()?)?;
+    let second = road_structures.get(&roads.get(1)?.as_i64()?)?;
+    let shared_node_ids = intersection["osm_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_i64)
+        .collect();
+    match classify_road_relationship(CrossingCandidate {
+        shared_node_ids,
+        first: *first,
+        second: *second,
+    }) {
+        RoadRelationship::ConnectedAtNode { .. } => Some("connected-at-node"),
+        RoadRelationship::GradeSeparated { .. } => Some("grade-separated"),
+        RoadRelationship::Unresolved { .. } => Some("unresolved"),
+    }
+}
+
+fn source_endpoint_node_ids(road: &Value, intersections: &Value) -> Vec<i64> {
+    ["src_i", "dst_i"]
+        .into_iter()
+        .filter_map(|endpoint| road[endpoint].as_i64())
+        .filter_map(|intersection_id| {
+            intersections
+                .as_array()?
+                .iter()
+                .find(|entry| entry.get(0).and_then(Value::as_i64) == Some(intersection_id))
+                .and_then(|entry| entry.get(1))
+                .and_then(|intersection| intersection["osm_ids"].as_array())
+                .and_then(|node_ids| node_ids.first())
+                .and_then(Value::as_i64)
+        })
+        .collect()
+}
+
+fn lane_records(value: &Value) -> Vec<Value> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|lane| {
+            json!({
+                "laneType": lane["lt"].as_str().unwrap_or("unknown").to_ascii_lowercase(),
+                "direction": lane["dir"].as_str().unwrap_or("unknown").to_ascii_lowercase(),
+                "widthFeet": serialized_distance_to_feet(&lane["width"]),
+                "sourceEvidence": {
+                    "lane": lane["lane"],
+                    "allowedTurns": lane["allowed_turns"],
+                },
+            })
+        })
+        .collect()
+}
+
 fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Result<Vec<Value>> {
     let Ok(GeoJson::FeatureCollection(collection)) = markings.parse::<GeoJson>() else {
         bail!("topology markings are not a feature collection");
@@ -102,7 +195,9 @@ fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Resul
         .collect::<std::collections::HashMap<_, _>>();
     let mut output = Vec::new();
     for feature in collection.features {
-        let Some(geometry) = feature.geometry.clone() else { continue };
+        let Some(geometry) = feature.geometry.clone() else {
+            continue;
+        };
         let kind = feature
             .property("type")
             .and_then(Value::as_str)
@@ -191,7 +286,10 @@ fn ribbon(points: &[[f64; 2]], width_feet: f64) -> Vec<[f64; 2]> {
         let normal = if length <= 1e-9 {
             [0.0, 0.0]
         } else {
-            [-delta[1] / length * half_width, delta[0] / length * half_width]
+            [
+                -delta[1] / length * half_width,
+                delta[0] / length * half_width,
+            ]
         };
         left.push([point[0] + normal[0], point[1] + normal[1]]);
         right.push([point[0] - normal[0], point[1] - normal[1]]);

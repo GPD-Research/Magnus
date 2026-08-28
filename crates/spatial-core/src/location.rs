@@ -69,14 +69,21 @@ impl RoadLocationRequest {
     #[must_use]
     pub fn prefers_route_geometry_query(&self) -> bool {
         self.reference_type == RoadReferenceType::MileMarker
-            && self.reference.trim().parse::<f64>().is_ok_and(|value| value.fract() != 0.0)
+            && self
+                .reference
+                .trim()
+                .parse::<f64>()
+                .is_ok_and(|value| value.fract() != 0.0)
     }
 }
 
 fn highway_ref_pattern(highway: &str) -> String {
     let normalized = highway.trim().to_uppercase().replace('.', "");
     let compact = normalized.replace([' ', '-'], "");
-    if let Some(number) = compact.strip_prefix('I').filter(|value| is_route_number(value)) {
+    if let Some(number) = compact
+        .strip_prefix('I')
+        .filter(|value| is_route_number(value))
+    {
         return format!("(^|;)[ ]*I[ -]?{}[ ]*(;|$)", overpass_regex_escape(number));
     }
     let route_number = compact
@@ -89,11 +96,17 @@ fn highway_ref_pattern(highway: &str) -> String {
             overpass_regex_escape(number)
         );
     }
-    format!("(^|;)[ ]*{}[ ]*(;|$)", overpass_regex_escape(highway.trim()))
+    format!(
+        "(^|;)[ ]*{}[ ]*(;|$)",
+        overpass_regex_escape(highway.trim())
+    )
 }
 
 fn is_route_number(value: &str) -> bool {
-    !value.is_empty() && value.chars().all(|character| character.is_ascii_alphanumeric())
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
 }
 
 fn overpass_regex_escape(value: &str) -> String {
@@ -162,7 +175,11 @@ mod tests {
         assert!(query.contains(".routeWays out body;"));
         assert!(query.contains("node(w.routeWays);"));
         assert!(query.contains("out skel;"));
-        assert!(request("I-395", RoadReferenceType::Exit).route_geometry_query().is_none());
+        assert!(
+            request("I-395", RoadReferenceType::Exit)
+                .route_geometry_query()
+                .is_none()
+        );
     }
 
     #[test]
@@ -191,10 +208,16 @@ mod tests {
     #[test]
     fn rejects_empty_or_unreasonably_long_query_fields() {
         let mut location = request("", RoadReferenceType::Exit);
-        assert_eq!(location.validate(), Err("highway must contain between 1 and 32 characters"));
+        assert_eq!(
+            location.validate(),
+            Err("highway must contain between 1 and 32 characters")
+        );
 
         location.highway = "I-95".into();
         location.reference = "".into();
-        assert_eq!(location.validate(), Err("reference must contain between 1 and 16 characters"));
+        assert_eq!(
+            location.validate(),
+            Err("reference must contain between 1 and 16 characters")
+        );
     }
 }

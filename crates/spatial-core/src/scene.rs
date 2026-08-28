@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub type Position = [f64; 2];
 
@@ -7,6 +8,16 @@ pub type Position = [f64; 2];
 pub enum Geometry {
     LineString(Vec<Position>),
     Polygon(Vec<Vec<Position>>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaneRecord {
+    pub lane_type: String,
+    pub direction: String,
+    pub width_feet: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_evidence: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,6 +44,14 @@ pub enum RoadFeatureKind {
 pub struct FeatureProperties {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub osm_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_way_ids: Vec<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoint_node_ids: Vec<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_records: Vec<LaneRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

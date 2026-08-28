@@ -110,7 +110,11 @@ fn mainline_edge_anchors(
 ) -> HashMap<i64, MainlineAnchor> {
     let mut anchors = HashMap::new();
     for way in ways {
-        let highway = way.tags.get("highway").map(String::as_str).unwrap_or_default();
+        let highway = way
+            .tags
+            .get("highway")
+            .map(String::as_str)
+            .unwrap_or_default();
         if !matches!(highway, "motorway" | "trunk") {
             continue;
         }
@@ -125,7 +129,11 @@ fn mainline_edge_anchors(
         let points: Vec<(i64, [f64; 2])> = way
             .nodes
             .iter()
-            .filter_map(|node_id| nodes.get(node_id).map(|node| (*node_id, oriented_local_feet(node, anchor, direction))))
+            .filter_map(|node_id| {
+                nodes
+                    .get(node_id)
+                    .map(|node| (*node_id, oriented_local_feet(node, anchor, direction)))
+            })
             .collect();
         for (index, (node_id, _)) in points.iter().enumerate() {
             let previous = points[index.saturating_sub(1)].1;
@@ -148,7 +156,12 @@ fn mainline_edge_anchors(
 /// The point on the mainline's pavement edge (nearest the ramp) below a shared junction node,
 /// instead of the node itself, which OSM places on the mainline's centerline. Used only as a
 /// fallback when the precise ramp/mainline line-intersection geometry is degenerate.
-fn mainline_edge_point(node: [f64; 2], half_width: f64, sign: f64, anchor: &MainlineAnchor) -> [f64; 2] {
+fn mainline_edge_point(
+    node: [f64; 2],
+    half_width: f64,
+    sign: f64,
+    anchor: &MainlineAnchor,
+) -> [f64; 2] {
     let perpendicular = [-anchor.tangent[1], anchor.tangent[0]];
     [
         node[0] + perpendicular[0] * half_width * sign,
@@ -162,7 +175,11 @@ fn mainline_edge_point(node: [f64; 2], half_width: f64, sign: f64, anchor: &Main
 fn mainline_side_sign(node: [f64; 2], adjacent: [f64; 2], anchor: &MainlineAnchor) -> f64 {
     let perpendicular = [-anchor.tangent[1], anchor.tangent[0]];
     let toward_ramp = [adjacent[0] - node[0], adjacent[1] - node[1]];
-    if perpendicular[0] * toward_ramp[0] + perpendicular[1] * toward_ramp[1] >= 0.0 { 1.0 } else { -1.0 }
+    if perpendicular[0] * toward_ramp[0] + perpendicular[1] * toward_ramp[1] >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    }
 }
 
 /// The precise geometry of a single ramp/mainline junction: exactly where the ramp's own fog line
@@ -227,25 +244,56 @@ fn compute_gore_geometry(
     let ramp_perp = [-ramp_tangent[1], ramp_tangent[0]];
     let mainline_perp = [-mainline_anchor.tangent[1], mainline_anchor.tangent[0]];
     let mainline_side_sign = mainline_side_sign(node, ramp_adjacent, mainline_anchor);
-    let alignment = ramp_tangent[0] * mainline_anchor.tangent[0] + ramp_tangent[1] * mainline_anchor.tangent[1];
-    let near_side_sign = if alignment >= 0.0 { mainline_side_sign } else { -mainline_side_sign };
+    let alignment =
+        ramp_tangent[0] * mainline_anchor.tangent[0] + ramp_tangent[1] * mainline_anchor.tangent[1];
+    let near_side_sign = if alignment >= 0.0 {
+        mainline_side_sign
+    } else {
+        -mainline_side_sign
+    };
     let ramp_fog_half_width = f64::from(ramp_lanes) * LANE_WIDTH_FEET / 2.0;
-    let ramp_near_shoulder_width = if near_side_sign < 0.0 { ramp_left_shoulder_width } else { ramp_right_shoulder_width };
+    let ramp_near_shoulder_width = if near_side_sign < 0.0 {
+        ramp_left_shoulder_width
+    } else {
+        ramp_right_shoulder_width
+    };
     let ramp_shoulder_half_width = ramp_fog_half_width + ramp_near_shoulder_width;
 
     let offset_point = |base: [f64; 2], perpendicular: [f64; 2], half_width: f64, sign: f64| {
-        [base[0] + perpendicular[0] * half_width * sign, base[1] + perpendicular[1] * half_width * sign]
+        [
+            base[0] + perpendicular[0] * half_width * sign,
+            base[1] + perpendicular[1] * half_width * sign,
+        ]
     };
 
     let ramp_fog_origin = offset_point(node, ramp_perp, ramp_fog_half_width, near_side_sign);
-    let mainline_fog_origin = offset_point(node, mainline_perp, mainline_anchor.fog_half_width, mainline_side_sign);
-    let (ramp_t_tip, mainline_s_tip) =
-        line_intersection(ramp_fog_origin, ramp_tangent, mainline_fog_origin, mainline_anchor.tangent)?;
+    let mainline_fog_origin = offset_point(
+        node,
+        mainline_perp,
+        mainline_anchor.fog_half_width,
+        mainline_side_sign,
+    );
+    let (ramp_t_tip, mainline_s_tip) = line_intersection(
+        ramp_fog_origin,
+        ramp_tangent,
+        mainline_fog_origin,
+        mainline_anchor.tangent,
+    )?;
 
-    let ramp_shoulder_origin = offset_point(node, ramp_perp, ramp_shoulder_half_width, near_side_sign);
-    let mainline_shoulder_origin = offset_point(node, mainline_perp, mainline_anchor.half_width, mainline_side_sign);
-    let (ramp_t_base, mainline_s_base) =
-        line_intersection(ramp_shoulder_origin, ramp_tangent, mainline_shoulder_origin, mainline_anchor.tangent)?;
+    let ramp_shoulder_origin =
+        offset_point(node, ramp_perp, ramp_shoulder_half_width, near_side_sign);
+    let mainline_shoulder_origin = offset_point(
+        node,
+        mainline_perp,
+        mainline_anchor.half_width,
+        mainline_side_sign,
+    );
+    let (ramp_t_base, mainline_s_base) = line_intersection(
+        ramp_shoulder_origin,
+        ramp_tangent,
+        mainline_shoulder_origin,
+        mainline_anchor.tangent,
+    )?;
 
     if ramp_t_tip <= 0.0 || ramp_t_base <= ramp_t_tip {
         return None;
@@ -326,14 +374,22 @@ fn build_mainline_profiles(
 ) -> HashMap<i64, MainlineProfile> {
     let mut profiles = HashMap::new();
     for way in ways {
-        let highway = way.tags.get("highway").map(String::as_str).unwrap_or_default();
+        let highway = way
+            .tags
+            .get("highway")
+            .map(String::as_str)
+            .unwrap_or_default();
         if !matches!(highway, "motorway" | "trunk") {
             continue;
         }
         let mut pairs: Vec<(i64, [f64; 2])> = way
             .nodes
             .iter()
-            .filter_map(|node_id| nodes.get(node_id).map(|node| (*node_id, oriented_local_feet(node, anchor, direction))))
+            .filter_map(|node_id| {
+                nodes
+                    .get(node_id)
+                    .map(|node| (*node_id, oriented_local_feet(node, anchor, direction)))
+            })
             .collect();
         if pairs.len() < 2 {
             continue;
@@ -347,7 +403,13 @@ fn build_mainline_profiles(
         for ((node_id, _), arc) in pairs.iter().zip(cumulative.iter()) {
             node_arc.entry(*node_id).or_insert(*arc);
         }
-        profiles.insert(way.id, MainlineProfile { node_arc, total_length: *cumulative.last().unwrap_or(&0.0) });
+        profiles.insert(
+            way.id,
+            MainlineProfile {
+                node_arc,
+                total_length: *cumulative.last().unwrap_or(&0.0),
+            },
+        );
     }
     profiles
 }
@@ -388,7 +450,11 @@ fn build_ramp_noses(
         let mut oriented: Vec<(i64, [f64; 2])> = way
             .nodes
             .iter()
-            .filter_map(|node_id| nodes.get(node_id).map(|node| (*node_id, oriented_local_feet(node, anchor, direction))))
+            .filter_map(|node_id| {
+                nodes
+                    .get(node_id)
+                    .map(|node| (*node_id, oriented_local_feet(node, anchor, direction)))
+            })
             .collect();
         if oriented.len() < 2 {
             continue;
@@ -402,28 +468,42 @@ fn build_ramp_noses(
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(1);
         let (left_shoulder_width, right_shoulder_width) = shoulder_widths(&way.tags, &highway);
-        let mut add_nose = |node_id: i64, adjacent_point: [f64; 2], node_point: [f64; 2], kind: RampNoseKind| {
-            let Some(mainline_anchor) = mainline_anchors.get(&node_id) else { return };
-            let side_sign = mainline_side_sign(node_point, adjacent_point, mainline_anchor);
-            let gore =
-                gore_geometry_for_end(node_point, adjacent_point, lanes, left_shoulder_width, right_shoulder_width, mainline_anchor);
-            for (mainline_way_id, profile) in mainline_profiles {
-                if let Some(&node_arc) = profile.node_arc.get(&node_id) {
-                    noses.entry(*mainline_way_id).or_default().push(RampNose {
-                        fog_arc: node_arc + gore.mainline_arc_to_tip,
-                        shoulder_arc: node_arc + gore.mainline_arc_to_base,
-                        kind,
-                        side_sign,
-                    });
+        let mut add_nose =
+            |node_id: i64, adjacent_point: [f64; 2], node_point: [f64; 2], kind: RampNoseKind| {
+                let Some(mainline_anchor) = mainline_anchors.get(&node_id) else {
+                    return;
+                };
+                let side_sign = mainline_side_sign(node_point, adjacent_point, mainline_anchor);
+                let gore = gore_geometry_for_end(
+                    node_point,
+                    adjacent_point,
+                    lanes,
+                    left_shoulder_width,
+                    right_shoulder_width,
+                    mainline_anchor,
+                );
+                for (mainline_way_id, profile) in mainline_profiles {
+                    if let Some(&node_arc) = profile.node_arc.get(&node_id) {
+                        noses.entry(*mainline_way_id).or_default().push(RampNose {
+                            fog_arc: node_arc + gore.mainline_arc_to_tip,
+                            shoulder_arc: node_arc + gore.mainline_arc_to_base,
+                            kind,
+                            side_sign,
+                        });
+                    }
                 }
-            }
-        };
+            };
         let (first_id, first_point) = oriented[0];
         let (_, second_point) = oriented[1];
         add_nose(first_id, second_point, first_point, RampNoseKind::Exit);
         let (last_id, last_point) = oriented[oriented.len() - 1];
         let (_, second_last_point) = oriented[oriented.len() - 2];
-        add_nose(last_id, second_last_point, last_point, RampNoseKind::Entrance);
+        add_nose(
+            last_id,
+            second_last_point,
+            last_point,
+            RampNoseKind::Entrance,
+        );
     }
     for way_noses in noses.values_mut() {
         way_noses.sort_by(|first, second| first.fog_arc.total_cmp(&second.fog_arc));
@@ -451,7 +531,11 @@ enum ZoneReference {
 /// Real interchanges mark the stretch between a merge and the next, nearby diverge as a
 /// continuous auxiliary lane (a dashed interior line, not a solid edge) instead of two separate
 /// short acceleration/deceleration zones, so a chained entrance->exit pair shares one zone.
-fn compute_marking_zones(noses: &[RampNose], total_length: f64, reference: ZoneReference) -> Vec<MarkingZone> {
+fn compute_marking_zones(
+    noses: &[RampNose],
+    total_length: f64,
+    reference: ZoneReference,
+) -> Vec<MarkingZone> {
     let arc = |nose: &RampNose| match reference {
         ZoneReference::FogLine => nose.fog_arc,
         ZoneReference::ShoulderEdge => nose.shoulder_arc,
@@ -466,11 +550,17 @@ fn compute_marking_zones(noses: &[RampNose], total_length: f64, reference: ZoneR
             .iter()
             .enumerate()
             .skip(index + 1)
-            .find(|(_, candidate)| candidate.kind == RampNoseKind::Exit && candidate.side_sign == nose.side_sign);
+            .find(|(_, candidate)| {
+                candidate.kind == RampNoseKind::Exit && candidate.side_sign == nose.side_sign
+            });
         match chained_exit {
             Some((exit_index, exit_nose)) => {
                 chained_exit_indices.insert(exit_index);
-                zones.push(MarkingZone { start: arc(nose), end: arc(exit_nose), side_sign: nose.side_sign });
+                zones.push(MarkingZone {
+                    start: arc(nose),
+                    end: arc(exit_nose),
+                    side_sign: nose.side_sign,
+                });
             }
             None => zones.push(MarkingZone {
                 start: arc(nose),
@@ -507,12 +597,7 @@ pub fn compile_overpass_json(
     let mut ways = Vec::new();
     for element in response.elements {
         match element {
-            OverpassElement::Node {
-                id,
-                lat,
-                lon,
-                tags,
-            } => {
+            OverpassElement::Node { id, lat, lon, tags } => {
                 nodes.insert(
                     id,
                     NodeRecord {
@@ -552,13 +637,22 @@ pub fn compile_overpass_json(
     let scene_bounds = scene_bounds(&anchor_coordinates);
     let mainline_anchors = mainline_edge_anchors(&ways, &nodes, &anchor, &request.direction);
     let mainline_profiles = build_mainline_profiles(&ways, &nodes, &anchor, &request.direction);
-    let ramp_noses = build_ramp_noses(&ways, &mainline_anchors, &mainline_profiles, &nodes, &anchor, &request.direction);
+    let ramp_noses = build_ramp_noses(
+        &ways,
+        &mainline_anchors,
+        &mainline_profiles,
+        &nodes,
+        &anchor,
+        &request.direction,
+    );
     let mainline_fog_zones: HashMap<i64, Vec<MarkingZone>> = mainline_profiles
         .iter()
         .map(|(way_id, profile)| {
             let zones = ramp_noses
                 .get(way_id)
-                .map(|noses| compute_marking_zones(noses, profile.total_length, ZoneReference::FogLine))
+                .map(|noses| {
+                    compute_marking_zones(noses, profile.total_length, ZoneReference::FogLine)
+                })
                 .unwrap_or_default();
             (*way_id, zones)
         })
@@ -568,7 +662,9 @@ pub fn compile_overpass_json(
         .map(|(way_id, profile)| {
             let zones = ramp_noses
                 .get(way_id)
-                .map(|noses| compute_marking_zones(noses, profile.total_length, ZoneReference::ShoulderEdge))
+                .map(|noses| {
+                    compute_marking_zones(noses, profile.total_length, ZoneReference::ShoulderEdge)
+                })
                 .unwrap_or_default();
             (*way_id, zones)
         })
@@ -619,7 +715,14 @@ pub fn compile_overpass_json(
                 let node_point = *coordinates.first()?;
                 let adjacent_point = *coordinates.get(1)?;
                 let mainline_anchor = mainline_anchors.get(way.nodes.first()?)?;
-                Some(gore_geometry_for_end(node_point, adjacent_point, lanes, left_shoulder_width, right_shoulder_width, mainline_anchor))
+                Some(gore_geometry_for_end(
+                    node_point,
+                    adjacent_point,
+                    lanes,
+                    left_shoulder_width,
+                    right_shoulder_width,
+                    mainline_anchor,
+                ))
             })
             .flatten();
         let mut end_gore = is_link
@@ -628,7 +731,14 @@ pub fn compile_overpass_json(
                 let node_point = *coordinates.get(last_index)?;
                 let adjacent_point = *coordinates.get(last_index.checked_sub(1)?)?;
                 let mainline_anchor = mainline_anchors.get(way.nodes.last()?)?;
-                Some(gore_geometry_for_end(node_point, adjacent_point, lanes, left_shoulder_width, right_shoulder_width, mainline_anchor))
+                Some(gore_geometry_for_end(
+                    node_point,
+                    adjacent_point,
+                    lanes,
+                    left_shoulder_width,
+                    right_shoulder_width,
+                    mainline_anchor,
+                ))
             })
             .flatten();
         let mut start_has_gore = start_gore.is_some();
@@ -657,6 +767,10 @@ pub fn compile_overpass_json(
         let layer = inferred_layer(&way.tags);
         let properties = FeatureProperties {
             osm_id: Some(way.id),
+            source_way_ids: Vec::new(),
+            endpoint_node_ids: Vec::new(),
+            lane_records: Vec::new(),
+            relationship: None,
             name: way.tags.get("name").cloned(),
             highway: Some(highway.clone()),
             reference: way.tags.get("ref").cloned(),
@@ -678,14 +792,24 @@ pub fn compile_overpass_json(
         let zone_ranges = |zones: Option<&Vec<MarkingZone>>| -> (Vec<(f64, f64)>, Vec<(f64, f64)>) {
             zones
                 .map(|zones| {
-                    let left = zones.iter().filter(|zone| zone.side_sign < 0.0).map(|zone| (zone.start, zone.end)).collect();
-                    let right = zones.iter().filter(|zone| zone.side_sign > 0.0).map(|zone| (zone.start, zone.end)).collect();
+                    let left = zones
+                        .iter()
+                        .filter(|zone| zone.side_sign < 0.0)
+                        .map(|zone| (zone.start, zone.end))
+                        .collect();
+                    let right = zones
+                        .iter()
+                        .filter(|zone| zone.side_sign > 0.0)
+                        .map(|zone| (zone.start, zone.end))
+                        .collect();
                     (left, right)
                 })
                 .unwrap_or_default()
         };
-        let (left_fog_zone_ranges, right_fog_zone_ranges) = zone_ranges(mainline_fog_zones.get(&way.id));
-        let (left_shoulder_zone_ranges, right_shoulder_zone_ranges) = zone_ranges(mainline_shoulder_zones.get(&way.id));
+        let (left_fog_zone_ranges, right_fog_zone_ranges) =
+            zone_ranges(mainline_fog_zones.get(&way.id));
+        let (left_shoulder_zone_ranges, right_shoulder_zone_ranges) =
+            zone_ranges(mainline_shoulder_zones.get(&way.id));
         let no_zones: Vec<(f64, f64)> = Vec::new();
         for (fragment_index, coordinates) in fragments.into_iter().enumerate() {
             let fragment_id = format!("way-{}-{fragment_index}", way.id);
@@ -735,19 +859,45 @@ pub fn compile_overpass_json(
                     layer,
                     &visual_coordinates,
                     width,
-                    start_gore.as_ref().filter(|_| trim_marking_start).map_or(0.0, |gore| gore.ramp_trim_to_base),
-                    end_gore.as_ref().filter(|_| trim_marking_end).map_or(0.0, |gore| gore.ramp_trim_to_base),
+                    start_gore
+                        .as_ref()
+                        .filter(|_| trim_marking_start)
+                        .map_or(0.0, |gore| gore.ramp_trim_to_base),
+                    end_gore
+                        .as_ref()
+                        .filter(|_| trim_marking_end)
+                        .map_or(0.0, |gore| gore.ramp_trim_to_base),
                     &properties,
                 );
-                append_direction_arrow(&mut features, &fragment_id, layer, &visual_coordinates, &properties);
+                append_direction_arrow(
+                    &mut features,
+                    &fragment_id,
+                    layer,
+                    &visual_coordinates,
+                    &properties,
+                );
                 if trim_marking_start {
                     if let Some(gore) = &start_gore {
-                        append_ramp_gore(&mut features, &fragment_id, layer, gore, true, &properties);
+                        append_ramp_gore(
+                            &mut features,
+                            &fragment_id,
+                            layer,
+                            gore,
+                            true,
+                            &properties,
+                        );
                     }
                 }
                 if trim_marking_end {
                     if let Some(gore) = &end_gore {
-                        append_ramp_gore(&mut features, &fragment_id, layer, gore, false, &properties);
+                        append_ramp_gore(
+                            &mut features,
+                            &fragment_id,
+                            layer,
+                            gore,
+                            false,
+                            &properties,
+                        );
                     }
                 }
             }
@@ -786,10 +936,26 @@ pub fn compile_overpass_json(
                     right_fog_trim,
                     left_shoulder_trim,
                     right_shoulder_trim,
-                    left_fog_zones: if fragment_index == 0 { &left_fog_zone_ranges } else { &no_zones },
-                    right_fog_zones: if fragment_index == 0 { &right_fog_zone_ranges } else { &no_zones },
-                    left_shoulder_zones: if fragment_index == 0 { &left_shoulder_zone_ranges } else { &no_zones },
-                    right_shoulder_zones: if fragment_index == 0 { &right_shoulder_zone_ranges } else { &no_zones },
+                    left_fog_zones: if fragment_index == 0 {
+                        &left_fog_zone_ranges
+                    } else {
+                        &no_zones
+                    },
+                    right_fog_zones: if fragment_index == 0 {
+                        &right_fog_zone_ranges
+                    } else {
+                        &no_zones
+                    },
+                    left_shoulder_zones: if fragment_index == 0 {
+                        &left_shoulder_zone_ranges
+                    } else {
+                        &no_zones
+                    },
+                    right_shoulder_zones: if fragment_index == 0 {
+                        &right_shoulder_zone_ranges
+                    } else {
+                        &no_zones
+                    },
                 },
                 &properties,
             );
@@ -868,22 +1034,27 @@ fn estimate_mile_marker_anchor(
         .flat_map(|way| way.nodes.iter())
         .filter_map(|node_id| nodes.get(node_id))
         .collect();
-    let latitude_span = route_nodes
-        .iter()
-        .map(|node| node.latitude)
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(minimum, maximum), value| {
-            (minimum.min(value), maximum.max(value))
-        });
-    let longitude_span = route_nodes
-        .iter()
-        .map(|node| node.longitude)
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(minimum, maximum), value| {
-            (minimum.min(value), maximum.max(value))
-        });
-    let north_south_route = latitude_span.1 - latitude_span.0 >= longitude_span.1 - longitude_span.0;
+    let latitude_span = route_nodes.iter().map(|node| node.latitude).fold(
+        (f64::INFINITY, f64::NEG_INFINITY),
+        |(minimum, maximum), value| (minimum.min(value), maximum.max(value)),
+    );
+    let longitude_span = route_nodes.iter().map(|node| node.longitude).fold(
+        (f64::INFINITY, f64::NEG_INFINITY),
+        |(minimum, maximum), value| (minimum.min(value), maximum.max(value)),
+    );
+    let north_south_route =
+        latitude_span.1 - latitude_span.0 >= longitude_span.1 - longitude_span.0;
     let origin = route_nodes.iter().copied().min_by(|first, second| {
-        let first_axis = if north_south_route { first.latitude } else { first.longitude };
-        let second_axis = if north_south_route { second.latitude } else { second.longitude };
+        let first_axis = if north_south_route {
+            first.latitude
+        } else {
+            first.longitude
+        };
+        let second_axis = if north_south_route {
+            second.latitude
+        } else {
+            second.longitude
+        };
         first_axis.total_cmp(&second_axis)
     })?;
     let candidate = route_nodes.iter().copied().min_by(|first, second| {
@@ -897,13 +1068,20 @@ fn estimate_mile_marker_anchor(
 
 fn scene_bounds(anchor_coordinates: &[[f64; 2]]) -> [f64; 4] {
     anchor_coordinates.iter().fold(
-        [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY],
-        |bounds, point| [
-            bounds[0].min(point[0] - SCENE_RADIUS_FEET),
-            bounds[1].min(point[1] - SCENE_RADIUS_FEET),
-            bounds[2].max(point[0] + SCENE_RADIUS_FEET),
-            bounds[3].max(point[1] + SCENE_RADIUS_FEET),
+        [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
         ],
+        |bounds, point| {
+            [
+                bounds[0].min(point[0] - SCENE_RADIUS_FEET),
+                bounds[1].min(point[1] - SCENE_RADIUS_FEET),
+                bounds[2].max(point[0] + SCENE_RADIUS_FEET),
+                bounds[3].max(point[1] + SCENE_RADIUS_FEET),
+            ]
+        },
     )
 }
 
@@ -934,10 +1112,8 @@ fn oriented_local_feet(
     direction: &TravelDirection,
 ) -> [f64; 2] {
     let latitude_radians = anchor.latitude.to_radians();
-    let east = (node.longitude - anchor.longitude)
-        * 111_320.0
-        * latitude_radians.cos()
-        * FEET_PER_METER;
+    let east =
+        (node.longitude - anchor.longitude) * 111_320.0 * latitude_radians.cos() * FEET_PER_METER;
     let north = (node.latitude - anchor.latitude) * 111_132.0 * FEET_PER_METER;
     match direction {
         TravelDirection::Northbound | TravelDirection::All => [east, -north],
@@ -959,7 +1135,9 @@ fn clip_line_to_scene(coordinates: &[[f64; 2]], bounds: [f64; 4]) -> Vec<Vec<[f6
             continue;
         };
         if let Some(fragment) = fragments.last_mut().filter(|fragment| {
-            fragment.last().is_some_and(|point| points_are_close(*point, start))
+            fragment
+                .last()
+                .is_some_and(|point| points_are_close(*point, start))
         }) {
             if !points_are_close(*fragment.last().expect("fragment has a point"), end) {
                 fragment.push(end);
@@ -1101,7 +1279,8 @@ fn append_edge_line(
     zones: &[(f64, f64)],
     properties: &FeatureProperties,
 ) {
-    let offset_coordinates = trim_line_ends(&offset_line(coordinates, offset), trim.start, trim.end);
+    let offset_coordinates =
+        trim_line_ends(&offset_line(coordinates, offset), trim.start, trim.end);
     if offset_coordinates.len() < 2 {
         return;
     }
@@ -1118,8 +1297,9 @@ fn append_edge_line(
         });
         return;
     }
-    for (segment_index, (inside_zone, segment)) in
-        split_line_by_zones(&offset_coordinates, zones).into_iter().enumerate()
+    for (segment_index, (inside_zone, segment)) in split_line_by_zones(&offset_coordinates, zones)
+        .into_iter()
+        .enumerate()
     {
         if segment.len() < 2 {
             continue;
@@ -1137,10 +1317,13 @@ fn append_edge_line(
             });
             continue;
         }
-        for (dash_index, dash) in
-            dashed_sub_segments(&segment, AUXILIARY_DASH_LENGTH_FEET, AUXILIARY_GAP_LENGTH_FEET)
-                .into_iter()
-                .enumerate()
+        for (dash_index, dash) in dashed_sub_segments(
+            &segment,
+            AUXILIARY_DASH_LENGTH_FEET,
+            AUXILIARY_GAP_LENGTH_FEET,
+        )
+        .into_iter()
+        .enumerate()
         {
             features.push(RoadFeature {
                 id: format!("{feature_prefix}-{suffix}-{segment_index}-dash-{dash_index}"),
@@ -1174,7 +1357,8 @@ fn append_shoulder_edge(
     if width <= 0.0 {
         return;
     }
-    let offset_coordinates = trim_line_ends(&offset_line(coordinates, offset), trim.start, trim.end);
+    let offset_coordinates =
+        trim_line_ends(&offset_line(coordinates, offset), trim.start, trim.end);
     if offset_coordinates.len() < 2 {
         return;
     }
@@ -1191,8 +1375,9 @@ fn append_shoulder_edge(
         });
         return;
     }
-    for (segment_index, (inside_zone, segment)) in
-        split_line_by_zones(&offset_coordinates, zones).into_iter().enumerate()
+    for (segment_index, (inside_zone, segment)) in split_line_by_zones(&offset_coordinates, zones)
+        .into_iter()
+        .enumerate()
     {
         if inside_zone || segment.len() < 2 {
             continue;
@@ -1215,8 +1400,12 @@ fn shoulder_widths(tags: &HashMap<String, String>, highway: &str) -> (f64, f64) 
     let default_present = matches!(highway, "motorway" | "trunk");
     let left_present =
         shoulder_side_present(tags.get("shoulder:left"), generic, "left", default_present);
-    let right_present =
-        shoulder_side_present(tags.get("shoulder:right"), generic, "right", default_present);
+    let right_present = shoulder_side_present(
+        tags.get("shoulder:right"),
+        generic,
+        "right",
+        default_present,
+    );
     let left_width = shoulder_width(
         tags,
         "shoulder:left:width",
@@ -1259,7 +1448,10 @@ fn shoulder_width(
     }
     tags.get(width_key)
         .and_then(|value| parse_osm_width_feet(value))
-        .or_else(|| tags.get("shoulder:width").and_then(|value| parse_osm_width_feet(value)))
+        .or_else(|| {
+            tags.get("shoulder:width")
+                .and_then(|value| parse_osm_width_feet(value))
+        })
         .unwrap_or(default_width)
 }
 
@@ -1281,7 +1473,10 @@ fn parse_osm_width_feet(value: &str) -> Option<f64> {
 }
 
 fn inferred_layer(tags: &HashMap<String, String>) -> i16 {
-    if let Some(layer) = tags.get("layer").and_then(|value| value.parse::<i16>().ok()) {
+    if let Some(layer) = tags
+        .get("layer")
+        .and_then(|value| value.parse::<i16>().ok())
+    {
         return layer;
     }
     // OSM contributors frequently omit `layer` on bridges/tunnels since it is implied by convention.
@@ -1314,12 +1509,16 @@ fn ramp_intersection_trims(
     if total <= 2.0 {
         return (0.0, 0.0);
     }
-    let Some((_, _, layer, bridge, tunnel, _)) = way_paths.iter().find(|(id, _, _, _, _, _)| *id == way_id) else {
+    let Some((_, _, layer, bridge, tunnel, _)) =
+        way_paths.iter().find(|(id, _, _, _, _, _)| *id == way_id)
+    else {
         return (0.0, 0.0);
     };
     let mut start_trim = 0.0;
     let mut end_trim = 0.0;
-    for (other_id, other_coordinates, other_layer, other_bridge, other_tunnel, other_is_link) in way_paths {
+    for (other_id, other_coordinates, other_layer, other_bridge, other_tunnel, other_is_link) in
+        way_paths
+    {
         if *other_id == way_id
             || *other_layer != *layer
             || *other_bridge != *bridge
@@ -1329,17 +1528,23 @@ fn ramp_intersection_trims(
         }
         for (index, segment) in coordinates.windows(2).enumerate() {
             for (other_index, other_segment) in other_coordinates.windows(2).enumerate() {
-                let Some((current_ratio, other_ratio)) = segment_intersection(*segment.first().unwrap(), *segment.last().unwrap(), *other_segment.first().unwrap(), *other_segment.last().unwrap()) else {
+                let Some((current_ratio, other_ratio)) = segment_intersection(
+                    *segment.first().unwrap(),
+                    *segment.last().unwrap(),
+                    *other_segment.first().unwrap(),
+                    *other_segment.last().unwrap(),
+                ) else {
                     continue;
                 };
                 let distance = cumulative[index]
-                    + (segment[1][0] - segment[0][0]).hypot(segment[1][1] - segment[0][1]) * current_ratio;
+                    + (segment[1][0] - segment[0][0]).hypot(segment[1][1] - segment[0][1])
+                        * current_ratio;
                 if distance <= 2.0 || total - distance <= 2.0 {
                     continue;
                 }
                 let distance_from_end = total - distance;
-                let near_start = distance <= TERMINAL_INTERSECTION_SEARCH_FEET
-                    && distance <= distance_from_end;
+                let near_start =
+                    distance <= TERMINAL_INTERSECTION_SEARCH_FEET && distance <= distance_from_end;
                 let near_end = distance_from_end <= TERMINAL_INTERSECTION_SEARCH_FEET
                     && distance_from_end < distance;
                 if !near_start && !near_end {
@@ -1351,18 +1556,26 @@ fn ramp_intersection_trims(
                 let other_total = *other_cumulative.last().unwrap_or(&0.0);
                 let other_segment_length = (other_segment[1][0] - other_segment[0][0])
                     .hypot(other_segment[1][1] - other_segment[0][1]);
-                let other_distance = other_cumulative[other_index]
-                    + other_segment_length * other_ratio;
+                let other_distance =
+                    other_cumulative[other_index] + other_segment_length * other_ratio;
                 let other_near_terminal = other_distance <= TERMINAL_INTERSECTION_SEARCH_FEET
                     || other_total - other_distance <= TERMINAL_INTERSECTION_SEARCH_FEET;
                 if *other_is_link && !other_near_terminal {
                     continue;
                 }
                 if near_start {
-                    start_trim = if start_trim == 0.0 { distance } else { start_trim.min(distance) };
+                    start_trim = if start_trim == 0.0 {
+                        distance
+                    } else {
+                        start_trim.min(distance)
+                    };
                 }
                 if near_end {
-                    end_trim = if end_trim == 0.0 { distance_from_end } else { end_trim.min(distance_from_end) };
+                    end_trim = if end_trim == 0.0 {
+                        distance_from_end
+                    } else {
+                        end_trim.min(distance_from_end)
+                    };
                 }
             }
         }
@@ -1378,8 +1591,10 @@ fn segment_intersection(
 ) -> Option<(f64, f64)> {
     let first_direction = [end[0] - start[0], end[1] - start[1]];
     let second_direction = [other_end[0] - other_start[0], other_end[1] - other_start[1]];
-    let (first_ratio, second_ratio) = line_intersection(start, first_direction, other_start, second_direction)?;
-    (0.0..=1.0).contains(&first_ratio)
+    let (first_ratio, second_ratio) =
+        line_intersection(start, first_direction, other_start, second_direction)?;
+    (0.0..=1.0)
+        .contains(&first_ratio)
         .then_some((first_ratio, second_ratio))
         .filter(|(_, second_ratio)| (0.0..=1.0).contains(second_ratio))
 }
@@ -1405,11 +1620,15 @@ fn tapered_ribbon_ring(
         .map(|&distance_from_start| {
             let mut half = full_half_width;
             if effective_taper_length_start > 0.0 {
-                half = half.min(full_half_width * (distance_from_start / effective_taper_length_start).min(1.0));
+                half = half.min(
+                    full_half_width * (distance_from_start / effective_taper_length_start).min(1.0),
+                );
             }
             if effective_taper_length_end > 0.0 {
                 let distance_from_end = total - distance_from_start;
-                half = half.min(full_half_width * (distance_from_end / effective_taper_length_end).min(1.0));
+                half = half.min(
+                    full_half_width * (distance_from_end / effective_taper_length_end).min(1.0),
+                );
             }
             half.max(0.0)
         })
@@ -1420,10 +1639,9 @@ fn tapered_ribbon_ring(
         let previous = coordinates[index.saturating_sub(1)];
         let next = coordinates[(index + 1).min(coordinates.len() - 1)];
         let half = half_widths[index];
-        let previous_direction = unit_direction(*point, previous)
-            .or_else(|| unit_direction(next, *point));
-        let next_direction = unit_direction(next, *point)
-            .or_else(|| previous_direction);
+        let previous_direction =
+            unit_direction(*point, previous).or_else(|| unit_direction(next, *point));
+        let next_direction = unit_direction(next, *point).or_else(|| previous_direction);
         let (left_offset, right_offset) = match (previous_direction, next_direction) {
             (Some(previous_direction), Some(next_direction)) => {
                 let previous_normal = [-previous_direction[1], previous_direction[0]];
@@ -1460,7 +1678,10 @@ fn bounded_miter(first_normal: [f64; 2], second_normal: [f64; 2], half_width: f6
     if half_width == 0.0 {
         return [0.0, 0.0];
     }
-    let bisector = [first_normal[0] + second_normal[0], first_normal[1] + second_normal[1]];
+    let bisector = [
+        first_normal[0] + second_normal[0],
+        first_normal[1] + second_normal[1],
+    ];
     let bisector_length = bisector[0].hypot(bisector[1]);
     if bisector_length <= 1e-9 {
         return [second_normal[0] * half_width, second_normal[1] * half_width];
@@ -1482,24 +1703,36 @@ fn append_ramp_ribbon(
     taper_length_end: f64,
     properties: &FeatureProperties,
 ) {
-    let casing_ring = tapered_ribbon_ring(coordinates, width + 8.0, taper_length_start, taper_length_end);
+    let casing_ring = tapered_ribbon_ring(
+        coordinates,
+        width + 8.0,
+        taper_length_start,
+        taper_length_end,
+    );
     if !casing_ring.is_empty() {
         features.push(RoadFeature {
             id: format!("{feature_prefix}-casing-ribbon"),
             kind: RoadFeatureKind::RampCasingRibbon,
             layer,
             geometry: Geometry::Polygon(vec![casing_ring]),
-            properties: FeatureProperties { render_width_feet: Some(width + 8.0), ..properties.clone() },
+            properties: FeatureProperties {
+                render_width_feet: Some(width + 8.0),
+                ..properties.clone()
+            },
         });
     }
-    let surface_ring = tapered_ribbon_ring(coordinates, width, taper_length_start, taper_length_end);
+    let surface_ring =
+        tapered_ribbon_ring(coordinates, width, taper_length_start, taper_length_end);
     if !surface_ring.is_empty() {
         features.push(RoadFeature {
             id: format!("{feature_prefix}-surface-ribbon"),
             kind: RoadFeatureKind::RampSurfaceRibbon,
             layer,
             geometry: Geometry::Polygon(vec![surface_ring]),
-            properties: FeatureProperties { render_width_feet: Some(width), ..properties.clone() },
+            properties: FeatureProperties {
+                render_width_feet: Some(width),
+                ..properties.clone()
+            },
         });
     }
 }
@@ -1519,7 +1752,10 @@ fn append_direction_arrow(
         kind: RoadFeatureKind::DirectionArrow,
         layer: layer + 2,
         geometry: Geometry::LineString(vec![start, end]),
-        properties: FeatureProperties { render_width_feet: Some(1.5), ..properties.clone() },
+        properties: FeatureProperties {
+            render_width_feet: Some(1.5),
+            ..properties.clone()
+        },
     });
 }
 
@@ -1535,7 +1771,10 @@ fn append_ramp_gore(
     properties: &FeatureProperties,
 ) {
     features.push(RoadFeature {
-        id: format!("{feature_prefix}-gore-{}", if at_start { "start" } else { "end" }),
+        id: format!(
+            "{feature_prefix}-gore-{}",
+            if at_start { "start" } else { "end" }
+        ),
         kind: RoadFeatureKind::RampGore,
         layer: layer + 2,
         geometry: Geometry::Polygon(vec![vec![
@@ -1558,8 +1797,7 @@ fn trim_line_ends(
             return coordinates.to_vec();
         }
         for (index, segment) in coordinates.windows(2).enumerate() {
-            let length =
-                (segment[1][0] - segment[0][0]).hypot(segment[1][1] - segment[0][1]);
+            let length = (segment[1][0] - segment[0][0]).hypot(segment[1][1] - segment[0][1]);
             if length > distance {
                 let ratio = distance / length;
                 let trimmed_start = [
@@ -1595,7 +1833,10 @@ fn offset_line(coordinates: &[[f64; 2]], offset: f64) -> Vec<[f64; 2]> {
             if length == 0.0 {
                 *point
             } else {
-                [point[0] - delta_y / length * offset, point[1] + delta_x / length * offset]
+                [
+                    point[0] - delta_y / length * offset,
+                    point[1] + delta_x / length * offset,
+                ]
             }
         })
         .collect()
@@ -1611,17 +1852,24 @@ fn point_at_distance(coordinates: &[[f64; 2]], cumulative: &[f64], distance: f64
                 ((distance - cumulative[index - 1]) / segment_length).clamp(0.0, 1.0)
             };
             return [
-                coordinates[index - 1][0] + (coordinates[index][0] - coordinates[index - 1][0]) * ratio,
-                coordinates[index - 1][1] + (coordinates[index][1] - coordinates[index - 1][1]) * ratio,
+                coordinates[index - 1][0]
+                    + (coordinates[index][0] - coordinates[index - 1][0]) * ratio,
+                coordinates[index - 1][1]
+                    + (coordinates[index][1] - coordinates[index - 1][1]) * ratio,
             ];
         }
     }
-    *coordinates.last().expect("coordinates has at least one point")
+    *coordinates
+        .last()
+        .expect("coordinates has at least one point")
 }
 
 /// Splits a polyline at the given arc-length zone boundaries, tagging each resulting piece as
 /// inside or outside one of the zones (e.g. an auxiliary-lane stretch alongside a ramp).
-fn split_line_by_zones(coordinates: &[[f64; 2]], zones: &[(f64, f64)]) -> Vec<(bool, Vec<[f64; 2]>)> {
+fn split_line_by_zones(
+    coordinates: &[[f64; 2]],
+    zones: &[(f64, f64)],
+) -> Vec<(bool, Vec<[f64; 2]>)> {
     if zones.is_empty() || coordinates.len() < 2 {
         return vec![(false, coordinates.to_vec())];
     }
@@ -1643,7 +1891,9 @@ fn split_line_by_zones(coordinates: &[[f64; 2]], zones: &[(f64, f64)]) -> Vec<(b
             continue;
         }
         let midpoint = (start + end) / 2.0;
-        let inside_zone = zones.iter().any(|&(zone_start, zone_end)| midpoint >= zone_start && midpoint <= zone_end);
+        let inside_zone = zones
+            .iter()
+            .any(|&(zone_start, zone_end)| midpoint >= zone_start && midpoint <= zone_end);
         let mut points = vec![point_at_distance(coordinates, &cumulative, start)];
         for (index, &distance) in cumulative.iter().enumerate() {
             if distance > start + 1e-6 && distance < end - 1e-6 {
@@ -1660,7 +1910,11 @@ fn split_line_by_zones(coordinates: &[[f64; 2]], zones: &[(f64, f64)]) -> Vec<(b
 const AUXILIARY_DASH_LENGTH_FEET: f64 = 3.0;
 const AUXILIARY_GAP_LENGTH_FEET: f64 = 9.0;
 
-fn dashed_sub_segments(coordinates: &[[f64; 2]], dash_length: f64, gap_length: f64) -> Vec<Vec<[f64; 2]>> {
+fn dashed_sub_segments(
+    coordinates: &[[f64; 2]],
+    dash_length: f64,
+    gap_length: f64,
+) -> Vec<Vec<[f64; 2]>> {
     if coordinates.len() < 2 {
         return Vec::new();
     }
@@ -1698,7 +1952,10 @@ fn normalize_to_viewport(features: &mut [RoadFeature]) -> Viewport {
             })
         });
     let Some([minimum_x, minimum_y, maximum_x, maximum_y]) = bounds else {
-        return Viewport { width: 0.0, height: 0.0 };
+        return Viewport {
+            width: 0.0,
+            height: 0.0,
+        };
     };
     let padding = 30.0;
     for feature in features {
@@ -1726,7 +1983,11 @@ mod tests {
     #[test]
     fn mainline_edge_point_offsets_toward_the_ramp() {
         // Mainline runs due "north" (increasing y); sign -1.0 selects the +x side.
-        let anchor = MainlineAnchor { tangent: [0.0, 1.0], fog_half_width: 18.0, half_width: 25.0 };
+        let anchor = MainlineAnchor {
+            tangent: [0.0, 1.0],
+            fog_half_width: 18.0,
+            half_width: 25.0,
+        };
         let junction_node = [100.0, 200.0];
 
         let edge_point = mainline_edge_point(junction_node, 25.0, -1.0, &anchor);
@@ -1740,7 +2001,11 @@ mod tests {
         // Mainline runs due "north" along the y-axis; the ramp approaches due "east" along the
         // x-axis and touches it at the origin — a 90-degree case chosen so every intersection can
         // be checked by hand instead of only trusting the code that produced it.
-        let mainline_anchor = MainlineAnchor { tangent: [0.0, 1.0], fog_half_width: 12.0, half_width: 18.0 };
+        let mainline_anchor = MainlineAnchor {
+            tangent: [0.0, 1.0],
+            fog_half_width: 12.0,
+            half_width: 18.0,
+        };
         let node = [0.0, 0.0];
         let ramp_adjacent = [100.0, 0.0];
 
@@ -1749,8 +2014,14 @@ mod tests {
 
         assert!((gore.tip[0] - 12.0).abs() < 1e-9 && (gore.tip[1] - -6.0).abs() < 1e-9);
         assert!((gore.base[0] - 18.0).abs() < 1e-9 && (gore.base[1] - -10.0).abs() < 1e-9);
-        assert!((gore.ramp_fog_at_base[0] - 18.0).abs() < 1e-9 && (gore.ramp_fog_at_base[1] - -6.0).abs() < 1e-9);
-        assert!((gore.mainline_fog_at_base[0] - 12.0).abs() < 1e-9 && (gore.mainline_fog_at_base[1] - -10.0).abs() < 1e-9);
+        assert!(
+            (gore.ramp_fog_at_base[0] - 18.0).abs() < 1e-9
+                && (gore.ramp_fog_at_base[1] - -6.0).abs() < 1e-9
+        );
+        assert!(
+            (gore.mainline_fog_at_base[0] - 12.0).abs() < 1e-9
+                && (gore.mainline_fog_at_base[1] - -10.0).abs() < 1e-9
+        );
         assert!((gore.ramp_trim_to_tip - 12.0).abs() < 1e-9);
         assert!((gore.ramp_trim_to_base - 18.0).abs() < 1e-9);
         assert!((gore.mainline_arc_to_tip - -6.0).abs() < 1e-9);
@@ -1759,7 +2030,12 @@ mod tests {
     }
 
     fn nose(arc: f64, kind: RampNoseKind, side_sign: f64) -> RampNose {
-        RampNose { fog_arc: arc, shoulder_arc: arc, kind, side_sign }
+        RampNose {
+            fog_arc: arc,
+            shoulder_arc: arc,
+            kind,
+            side_sign,
+        }
     }
 
     #[test]
@@ -1808,8 +2084,16 @@ mod tests {
         let zones = compute_marking_zones(&noses, 2_000.0, ZoneReference::FogLine);
 
         assert_eq!(zones.len(), 2);
-        assert!(zones.iter().any(|zone| zone.side_sign == 1.0 && zone.end == 500.0 + RAMP_GORE_LENGTH_FEET));
-        assert!(zones.iter().any(|zone| zone.side_sign == -1.0 && zone.start == 900.0 - RAMP_GORE_LENGTH_FEET));
+        assert!(
+            zones
+                .iter()
+                .any(|zone| zone.side_sign == 1.0 && zone.end == 500.0 + RAMP_GORE_LENGTH_FEET)
+        );
+        assert!(
+            zones
+                .iter()
+                .any(|zone| zone.side_sign == -1.0 && zone.start == 900.0 - RAMP_GORE_LENGTH_FEET)
+        );
     }
 
     #[test]
@@ -1832,7 +2116,8 @@ mod tests {
     fn dashes_a_segment_using_the_virginia_3ft_dash_9ft_gap_pattern() {
         let line = vec![[0.0, 0.0], [24.0, 0.0]];
 
-        let dashes = dashed_sub_segments(&line, AUXILIARY_DASH_LENGTH_FEET, AUXILIARY_GAP_LENGTH_FEET);
+        let dashes =
+            dashed_sub_segments(&line, AUXILIARY_DASH_LENGTH_FEET, AUXILIARY_GAP_LENGTH_FEET);
 
         // 24 ft / (3 ft dash + 9 ft gap = 12 ft period) starts 2 dashes within the segment.
         assert_eq!(dashes.len(), 2);
@@ -1869,13 +2154,50 @@ mod tests {
         // Both ramps merge/diverge on the same (right) side, so the whole stretch between them
         // reads as one continuous auxiliary lane: a single gap in the shoulder edge, not two, and
         // dashed fog line the entire way instead of reverting solid in between.
-        assert!(!scene.features.iter().any(|feature| feature.id.contains("right-shoulder-edge-1")));
-        assert!(scene.features.iter().any(|feature| feature.id == "way-95-0-right-shoulder-edge-0"));
-        assert!(scene.features.iter().any(|feature| feature.id == "way-95-0-right-shoulder-edge-2"));
-        assert!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::AuxiliaryLaneLine).count() > 0);
-        assert!(scene.features.iter().any(|feature| feature.id == "way-95-0-right-edge-0"));
-        assert!(scene.features.iter().any(|feature| feature.id == "way-95-0-right-edge-2"));
-        assert!(!scene.features.iter().any(|feature| feature.id == "way-95-0-right-edge-1"));
+        assert!(
+            !scene
+                .features
+                .iter()
+                .any(|feature| feature.id.contains("right-shoulder-edge-1"))
+        );
+        assert!(
+            scene
+                .features
+                .iter()
+                .any(|feature| feature.id == "way-95-0-right-shoulder-edge-0")
+        );
+        assert!(
+            scene
+                .features
+                .iter()
+                .any(|feature| feature.id == "way-95-0-right-shoulder-edge-2")
+        );
+        assert!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::AuxiliaryLaneLine)
+                .count()
+                > 0
+        );
+        assert!(
+            scene
+                .features
+                .iter()
+                .any(|feature| feature.id == "way-95-0-right-edge-0")
+        );
+        assert!(
+            scene
+                .features
+                .iter()
+                .any(|feature| feature.id == "way-95-0-right-edge-2")
+        );
+        assert!(
+            !scene
+                .features
+                .iter()
+                .any(|feature| feature.id == "way-95-0-right-edge-1")
+        );
     }
 
     #[test]
@@ -1910,17 +2232,91 @@ mod tests {
         assert_eq!(scene.features.len(), 24);
         assert_eq!(scene.features[1].properties.osm_id, Some(95));
         assert_eq!(scene.features[1].properties.render_width_feet, Some(50.0));
-        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::SkipLine).count(), 2);
-        assert_eq!(scene.features.iter().filter(|feature| matches!(feature.kind, RoadFeatureKind::LeftFogLine | RoadFeatureKind::RightFogLine)).count(), 5);
-        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::AuxiliaryLaneLine).count(), 6);
-        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::ShoulderEdge).count(), 3);
-        assert!(scene.features.iter().any(|feature| feature.id == "way-95-0-right-shoulder-edge-0"));
-        assert!(scene.features.iter().any(|feature| feature.id == "way-95-0-right-shoulder-edge-2"));
-        assert!(!scene.features.iter().any(|feature| feature.id.contains("right-shoulder-edge-1")));
-        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampGore).count(), 1);
-        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::DirectionArrow).count(), 1);
-        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampCasingRibbon).count(), 1);
-        assert_eq!(scene.features.iter().filter(|feature| feature.kind == RoadFeatureKind::RampSurfaceRibbon).count(), 1);
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::SkipLine)
+                .count(),
+            2
+        );
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| matches!(
+                    feature.kind,
+                    RoadFeatureKind::LeftFogLine | RoadFeatureKind::RightFogLine
+                ))
+                .count(),
+            5
+        );
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::AuxiliaryLaneLine)
+                .count(),
+            6
+        );
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::ShoulderEdge)
+                .count(),
+            3
+        );
+        assert!(
+            scene
+                .features
+                .iter()
+                .any(|feature| feature.id == "way-95-0-right-shoulder-edge-0")
+        );
+        assert!(
+            scene
+                .features
+                .iter()
+                .any(|feature| feature.id == "way-95-0-right-shoulder-edge-2")
+        );
+        assert!(
+            !scene
+                .features
+                .iter()
+                .any(|feature| feature.id.contains("right-shoulder-edge-1"))
+        );
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::RampGore)
+                .count(),
+            1
+        );
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::DirectionArrow)
+                .count(),
+            1
+        );
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::RampCasingRibbon)
+                .count(),
+            1
+        );
+        assert_eq!(
+            scene
+                .features
+                .iter()
+                .filter(|feature| feature.kind == RoadFeatureKind::RampSurfaceRibbon)
+                .count(),
+            1
+        );
         let ramp_surface = scene
             .features
             .iter()
@@ -1975,17 +2371,23 @@ mod tests {
         let untrimmed_left_start = offset_line(surface_points, -6.0)[0];
         let left_trim_distance = (left_fog_points[0][0] - untrimmed_left_start[0])
             .hypot(left_fog_points[0][1] - untrimmed_left_start[1]);
-        assert!(left_trim_distance > 1.0, "expected the far-side (left) fog line to stop at the gore, got {left_trim_distance} ft");
+        assert!(
+            left_trim_distance > 1.0,
+            "expected the far-side (left) fog line to stop at the gore, got {left_trim_distance} ft"
+        );
         let untrimmed_right_start = offset_line(surface_points, 6.0)[0];
         let right_trim_distance = (right_fog_points[0][0] - untrimmed_right_start[0])
             .hypot(right_fog_points[0][1] - untrimmed_right_start[1]);
-        assert!(right_trim_distance > 1.0, "expected the near-side (right) fog line to stop at the gore, got {right_trim_distance} ft");
+        assert!(
+            right_trim_distance > 1.0,
+            "expected the near-side (right) fog line to stop at the gore, got {right_trim_distance} ft"
+        );
         // The ribbon narrows to a point at the mainline's pavement edge (offset from the shared
         // OSM junction node using both roadways' real approach angles) instead of continuing at
         // full pavement width all the way to the mainline's centerline.
         let ribbon_ring = &ribbon_rings[0];
-        let tip_offset_from_junction_node =
-            (ribbon_ring[0][0] - surface_points[0][0]).hypot(ribbon_ring[0][1] - surface_points[0][1]);
+        let tip_offset_from_junction_node = (ribbon_ring[0][0] - surface_points[0][0])
+            .hypot(ribbon_ring[0][1] - surface_points[0][1]);
         assert!(
             (20.0..35.0).contains(&tip_offset_from_junction_node),
             "expected the ribbon tip roughly 20-35 ft from the junction node, got {tip_offset_from_junction_node}"
@@ -2009,9 +2411,9 @@ mod tests {
         assert!(scene.viewport.height > 700.0);
     }
 
-        #[test]
-        fn estimates_an_unmapped_mile_marker_from_route_geometry() {
-                let response = r#"{
+    #[test]
+    fn estimates_an_unmapped_mile_marker_from_route_geometry() {
+        let response = r#"{
                     "elements": [
                         {"type":"node","id":1,"lat":38.7900,"lon":-77.1000},
                         {"type":"node","id":2,"lat":38.7972,"lon":-77.1000},
@@ -2019,18 +2421,24 @@ mod tests {
                         {"type":"way","id":395,"nodes":[1,2,3],"tags":{"highway":"motorway","ref":"I 395","lanes":"3","oneway":"yes"}}
                     ]
                 }"#;
-                let request = RoadLocationRequest {
-                        highway: "I-395".into(),
-                        direction: TravelDirection::Southbound,
-                        reference_type: RoadReferenceType::MileMarker,
-                        reference: "0.5".into(),
-                };
+        let request = RoadLocationRequest {
+            highway: "I-395".into(),
+            direction: TravelDirection::Southbound,
+            reference_type: RoadReferenceType::MileMarker,
+            reference: "0.5".into(),
+        };
 
-                let scene = compile_overpass_json(response, &request).expect("route geometry should locate the mile point");
+        let scene = compile_overpass_json(response, &request)
+            .expect("route geometry should locate the mile point");
 
-                assert_eq!(scene.source.source_type, SceneSourceType::OsmApi);
-                assert!(scene.features.iter().any(|feature| feature.properties.osm_id == Some(395)));
-        }
+        assert_eq!(scene.source.source_type, SceneSourceType::OsmApi);
+        assert!(
+            scene
+                .features
+                .iter()
+                .any(|feature| feature.properties.osm_id == Some(395))
+        );
+    }
 
     #[test]
     fn compiles_tagged_shoulder_widths_and_respects_explicit_absence() {
@@ -2048,11 +2456,22 @@ mod tests {
 
     #[test]
     fn clips_long_ways_to_half_a_mile_before_calculating_the_viewport() {
-        let points = vec![[0.0, -4_000.0], [0.0, -2_000.0], [0.0, 0.0], [0.0, 2_000.0], [0.0, 4_000.0]];
+        let points = vec![
+            [0.0, -4_000.0],
+            [0.0, -2_000.0],
+            [0.0, 0.0],
+            [0.0, 2_000.0],
+            [0.0, 4_000.0],
+        ];
 
         let clipped = clip_line_to_scene(
             &points,
-            [-SCENE_RADIUS_FEET, -SCENE_RADIUS_FEET, SCENE_RADIUS_FEET, SCENE_RADIUS_FEET],
+            [
+                -SCENE_RADIUS_FEET,
+                -SCENE_RADIUS_FEET,
+                SCENE_RADIUS_FEET,
+                SCENE_RADIUS_FEET,
+            ],
         );
 
         assert_eq!(clipped.len(), 1);
@@ -2063,16 +2482,12 @@ mod tests {
 
     #[test]
     fn bounds_ramp_ribbon_joins_at_sharp_bends() {
-        let ring = tapered_ribbon_ring(
-            &[[0.0, 0.0], [100.0, 0.0], [100.0, 10.0]],
-            24.0,
-            0.0,
-            0.0,
-        );
+        let ring = tapered_ribbon_ring(&[[0.0, 0.0], [100.0, 0.0], [100.0, 10.0]], 24.0, 0.0, 0.0);
 
-        assert!(ring
-            .iter()
-            .all(|point| point[0].abs() < 200.0 && point[1].abs() < 200.0));
+        assert!(
+            ring.iter()
+                .all(|point| point[0].abs() < 200.0 && point[1].abs() < 200.0)
+        );
     }
 
     #[test]

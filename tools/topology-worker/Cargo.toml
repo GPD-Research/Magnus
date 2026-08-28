@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ magnus-spatial-core = { path = "../../crates/spatial-core" }
 abstio = { git = "https://github.com/a-b-street/abstreet", package = "abstio" }
 abstutil = { git = "https://github.com/a-b-street/abstreet", package = "abstutil" }
 anyhow = "1"

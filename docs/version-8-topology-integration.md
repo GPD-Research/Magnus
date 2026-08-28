@@ -1,4 +1,4 @@
-# Version 8 topology integration
+# Version 8 topology integration (legacy)
 
 Version 8 will replace Magnus's hand-built OSM centerline cleanup and gore
 construction with an intermediate topology produced by
