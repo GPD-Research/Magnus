@@ -180,6 +180,30 @@ is set automatically). Recent work, in order:
 All Rust workspace tests (`cargo test --workspace`) and frontend tests/build
 (`npm run lint`, `npm test -- --run`, `npm run build`) pass as of this commit.
 
+## Session 2026-08-28 (continued)
+
+**Issue**: Despite all topology-worker and adapter logic being correct, fog
+lines were not rendering. Root cause: `topology_adapter.rs` was emitting
+`LeftFogLine` and `RightFogLine` features with `render_width_feet: Some(0.0)`,
+making them invisible in the frontend SVG rendering (stroke width = 0 = no visible
+output). The fix: change to `render_width_feet: Some(0.2)` so fog-line strokes
+render with visible width. This is a critical gap that masked the entire gore-break
+implementation.
+
+**Verification**: Fog-line features were confirmed to be correctly emitted
+(211 features in Exit 143 scene), correctly deserialized in the adapter, and
+mapped to the correct `RoadFeatureKind::LeftFogLine`/`RightFogLine` enums.
+Frontend CSS classes (`.road-feature-left-fog-line`/`.road-feature-right-fog-line`)
+were already in place. The only issue was zero width in the feature properties.
+
+**Commit**: `d3ac4a5` "Fix fog-line rendering: set stroke width to 0.2 feet"
+
+All Rust and frontend tests pass. Fog lines now render with:
+- Yellow (#e2c943) for left fog line
+- Light (#f0f1eb) for right fog line
+- 0.2 feet stroke width (visible but not intrusive)
+- Gore-line breaks at 70 feet before ramp connections (now visible)
+
 Next candidates: extend fog-line/gore-break handling to intersections that
 aren't simple two-road connections (multi-way junctions), and audit whether
 `shoulder edge` and `skip line` markings need the same per-type treatment fog
