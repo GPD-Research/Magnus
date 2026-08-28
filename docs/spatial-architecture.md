@@ -66,6 +66,19 @@ Only the ramp's *near* side (the side actually facing the mainline, `near_side_s
 
 Where a ramp merges in or diverges out, the mainline's own edge markings change too, matching VDOT/MUTCD auxiliary-lane practice: the mainline's fog line on the ramp's side becomes a dotted lane line (3 ft dash / 9 ft gap, `AUXILIARY_DASH_LENGTH_FEET`/`AUXILIARY_GAP_LENGTH_FEET`, rendered as explicit `auxiliary-lane-line` segments) and its shoulder edge is omitted, over an arc-length "zone" computed per mainline way (`build_mainline_profiles`, `build_ramp_noses`, `compute_marking_zones`, `ZoneReference`). The fog-line zone boundary follows the precise `tip` crossing; the shoulder-edge zone boundary follows the precise `base` crossing — they are not the same point. An isolated on-ramp/off-ramp falls back to the standard 70 ft (`RAMP_GORE_LENGTH_FEET`) taper distance from its own nose; when an entrance ramp is followed by an exit ramp on the same side, the whole stretch between the two noses reads as one continuous auxiliary lane (dashed/gapped the entire way) instead of two short, separate zones — matching how closely-spaced interchanges are actually marked. This zone computation currently assumes the mainline fits in a single rendered fragment (true for the scene's typical ~2,640 ft radius); a mainline clipped into multiple disjoint fragments falls back to its normal unzoned treatment.
 
+The topology path follows the same visual contract. `lane_specs_ltr` preserves
+left-to-right lane widths and roles, so ordinary separators are derived only
+between adjacent, same-direction `driving` lanes and follow the imported
+centerline's full curve. Its first acceptance artifact is
+`magnus-gore-sketch-combined.svg`: at I-95 northbound Exit 143, a three-lane
+mainline becomes four lanes through a right-side merge-lane interval bounded
+by two gore tips, then returns to three lanes. The solid right fog line ends
+at each tip; the ramp fog lines meet the tips; the merge-lane boundary is a
+dense white `auxiliary-lane-line`; and the ordinary lane separators continue
+through the interval. The topology overlay must construct all of those paths
+from the same paired gore positions and mainline arc-length interval, rather
+than independently offsetting each road fragment.
+
 When map-derived geometry is unavailable, the UI uses a `reference-layout` with standard highway dimensions so scene-building can continue at an accurate scale. It is explicitly identified as not map-derived and suppresses highway labels. Map scenes carry `source.type = osm-api` or `osm-pbf` and OpenStreetMap attribution.
 
 ## Public data licenses

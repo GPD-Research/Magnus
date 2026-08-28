@@ -168,6 +168,25 @@ is set automatically). Recent work, in order:
 - Fog lines now break near any ramp/acceleration/deceleration lane connection
   instead of drawing through the gore (`gore_fog_line_breaks` in
   `tools/topology-worker/src/main.rs`), per explicit design requirement.
+- The topology adapter now derives ordinary interior `SkipLine` features from
+   adjacent, same-direction `driving` lane records. Each separator is offset
+   from the road's own curved centerline using the imported lane widths, while
+   shoulders remain fog-line boundaries. This establishes the data-driven
+   overlay basis for roads with any imported lane count.
+- `magnus-gore-sketch-combined.svg` is the visual acceptance artifact for the
+   I-95 northbound Exit 143 merge-lane corridor. It defines two gore tips, a
+   continuous right-side merge lane between them, solid mainline fog lines
+   outside them, ramp fog lines meeting them, and a dense white
+   `AuxiliaryLaneLine` inside the interval. "Merge lane" and
+   "acceleration/deceleration lane" are equivalent terms in this context.
+   Ordinary through-lane `SkipLine` markings retain the 10 ft stripe / 30 ft
+   gap cycle; the merge-lane separator uses the VDOT-style 3 ft dash / 9 ft
+   gap treatment already established by the legacy Overpass renderer.
+- The remaining topology overlay work is to carry paired ramp/gore positions
+   into a shared mainline arc-length interval, then taper the added lane into
+   the neighboring three-lane fragments. The overlay must use those common
+   endpoints for fog lines, the dense merge-lane separator, and gore polygons
+   so their geometry stays connected through curves and fragment boundaries.
 - Fixed a startup bug in `src/App.tsx`: the app used to skip re-resolving the
   roadway from the live spatial API entirely whenever a saved scenario existed
   in browser `localStorage`, silently replaying old cached roadway geometry

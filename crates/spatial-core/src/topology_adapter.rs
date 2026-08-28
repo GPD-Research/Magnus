@@ -3,8 +3,7 @@ use thiserror::Error;
 
 use crate::{
     CoordinateSystem, FeatureProperties, Geometry, LaneRecord, RelationshipRecord, RoadFeature,
-    RoadFeatureKind, RoadScene, SceneSource, SceneSourceType, Viewport,
-    TopologyDiagnostic,
+    RoadFeatureKind, RoadScene, SceneSource, SceneSourceType, TopologyDiagnostic, Viewport,
 };
 
 #[derive(Debug, Error)]
@@ -97,6 +96,47 @@ fn shoulder_widths_from_lane_records(lane_records: &[LaneRecord]) -> (Option<f64
     (left, right)
 }
 
+/// Returns each boundary shared by two travel lanes as an offset from the
+/// centerline. Lane records are ordered left-to-right by osm2streets.
+fn driving_lane_boundary_offsets(lane_records: &[LaneRecord]) -> Vec<(usize, f64)> {
+    let total_width_feet = lane_records.iter().map(|lane| lane.width_feet).sum::<f64>();
+    let mut width_from_left_feet = 0.0;
+    let mut offsets = Vec::new();
+
+    for (index, lanes) in lane_records.windows(2).enumerate() {
+        width_from_left_feet += lanes[0].width_feet;
+        if lanes[0].lane_type == "driving"
+            && lanes[1].lane_type == "driving"
+            && lanes[0].direction == lanes[1].direction
+        {
+            offsets.push((index, total_width_feet / 2.0 - width_from_left_feet));
+        }
+    }
+    offsets
+}
+
+fn offset_polyline(points: &[[f64; 2]], offset_feet: f64) -> Vec<[f64; 2]> {
+    points
+        .iter()
+        .enumerate()
+        .map(|(index, point)| {
+            let previous = points[index.saturating_sub(1)];
+            let next = points[(index + 1).min(points.len() - 1)];
+            let delta_x = next[0] - previous[0];
+            let delta_y = next[1] - previous[1];
+            let length = delta_x.hypot(delta_y);
+            if length <= f64::EPSILON {
+                *point
+            } else {
+                [
+                    point[0] - delta_y / length * offset_feet,
+                    point[1] + delta_x / length * offset_feet,
+                ]
+            }
+        })
+        .collect()
+}
+
 pub fn compile_topology_scene(
     json: &str,
     dataset: impl Into<String>,
@@ -116,6 +156,7 @@ pub fn compile_topology_scene(
         let osm_id = road.source_way_ids.first().copied();
         let (left_shoulder_width_feet, right_shoulder_width_feet) =
             shoulder_widths_from_lane_records(&road.lane_records);
+        let lane_boundary_offsets = driving_lane_boundary_offsets(&road.lane_records);
         let properties = FeatureProperties {
             osm_id,
             source_way_ids: road.source_way_ids.clone(),
@@ -152,6 +193,21 @@ pub fn compile_topology_scene(
                 ..properties
             },
         });
+        for (boundary_index, offset_feet) in lane_boundary_offsets {
+            features.push(RoadFeature {
+                id: format!("{id}-skip-line-{boundary_index}"),
+                kind: RoadFeatureKind::SkipLine,
+                layer: road.layer + 1,
+                geometry: Geometry::LineString(offset_polyline(&road.center_line, offset_feet)),
+                properties: FeatureProperties {
+                    osm_id,
+                    source_way_ids: road.source_way_ids.clone(),
+                    marking_type: Some("lane separator".into()),
+                    render_width_feet: Some(0.5),
+                    ..FeatureProperties::default()
+                },
+            });
+        }
     }
     for (index, intersection) in topology.intersections.into_iter().enumerate() {
         if intersection.polygon.len() < 4 {
@@ -173,7 +229,8 @@ pub fn compile_topology_scene(
             },
         });
     }
-    let mut marking_groups = std::collections::BTreeMap::<i16, (Vec<Vec<[f64; 2]>>, Vec<i64>)>::new();
+    let mut marking_groups =
+        std::collections::BTreeMap::<i16, (Vec<Vec<[f64; 2]>>, Vec<i64>)>::new();
     for (index, marking) in topology.markings.into_iter().enumerate() {
         if marking.geometry.len() < 2 {
             continue;
@@ -399,6 +456,50 @@ mod tests {
     }
 
     #[test]
+    fn generates_lane_separators_only_between_adjacent_driving_lanes() {
+        let scene = compile_topology_scene(
+            r#"{
+                "version": 1,
+                "coordinateUnits": "feet",
+                "roads": [{
+                    "sourceWayIds": [10],
+                    "layer": 0,
+                    "highway": "motorway",
+                    "laneCount": 4,
+                    "centerLine": [[0.0, 0.0], [120.0, 0.0]],
+                    "surfacePolygon": [[0.0, -24.0], [120.0, -24.0], [120.0, 24.0], [0.0, 24.0], [0.0, -24.0]],
+                    "widthFeet": 48.0,
+                    "laneRecords": [
+                        {"laneType": "shoulder", "direction": "forward", "widthFeet": 12.0},
+                        {"laneType": "driving", "direction": "forward", "widthFeet": 12.0},
+                        {"laneType": "driving", "direction": "forward", "widthFeet": 12.0},
+                        {"laneType": "driving", "direction": "forward", "widthFeet": 12.0}
+                    ]
+                }],
+                "intersections": []
+            }"#,
+            "topology lane separator test",
+        )
+        .expect("topology roadway should compile");
+
+        let skip_lines = scene
+            .features
+            .iter()
+            .filter(|feature| feature.kind == RoadFeatureKind::SkipLine)
+            .collect::<Vec<_>>();
+        assert_eq!(skip_lines.len(), 2);
+        assert_eq!(skip_lines[0].properties.render_width_feet, Some(0.5));
+        assert!(matches!(
+            &skip_lines[0].geometry,
+            Geometry::LineString(points) if points == &vec![[30.0, 54.0], [150.0, 54.0]]
+        ));
+        assert!(matches!(
+            &skip_lines[1].geometry,
+            Geometry::LineString(points) if points == &vec![[30.0, 42.0], [150.0, 42.0]]
+        ));
+    }
+
+    #[test]
     fn compiles_exit_143_fixture_without_promoting_overpass_to_intersection() {
         let scene = compile_topology_scene(
             include_str!("../../../tools/topology-worker/fixtures/exit-143.json"),
@@ -458,11 +559,9 @@ mod tests {
                 && feature.properties.marking_type.as_deref() == Some("normalized marking")
                 && matches!(&feature.geometry, Geometry::Polygon(rings) if rings.len() == 1)
         }));
-        assert!(
-            !scene
-                .features
-                .iter()
-                .any(|feature| feature.properties.osm_id == Some(14999))
-        );
+        assert!(!scene
+            .features
+            .iter()
+            .any(|feature| feature.properties.osm_id == Some(14999)));
     }
 }
