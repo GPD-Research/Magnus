@@ -194,7 +194,7 @@ pub fn compile_topology_scene(
                 properties: FeatureProperties {
                     source_way_ids: marking.source_way_ids,
                     marking_type: Some(marking.marking_type),
-                    render_width_feet: Some(0.0),
+                    render_width_feet: Some(0.2),
                     ..FeatureProperties::default()
                 },
             });
