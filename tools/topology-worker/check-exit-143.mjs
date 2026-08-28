@@ -11,11 +11,20 @@ const roads = artifact.roads ?? []
 const intersections = artifact.intersections ?? []
 const markings = artifact.markings ?? []
 const diagnostics = artifact.diagnostics ?? []
+const junctions = intersections.filter((intersection) => intersection.connectedRoadIds?.length >= 2)
+const ramps = roads.filter((road) => road.highway === 'motorway_link')
 
 const assertions = [
   ['topology artifact uses feet', artifact.coordinateUnits === 'feet'],
   ['real extract retains normalized roads', roads.length >= 20],
   ['real extract retains normalized intersections', intersections.length >= 1],
+  ['Exit 143 retains motorway ramps', ramps.length >= 4],
+  ['multi-road junction relationships are complete', junctions.every((intersection) => {
+    const roadCount = intersection.connectedRoadIds.length
+    return intersection.relationships?.length === (roadCount * (roadCount - 1)) / 2
+  })],
+  ['junction relationships carry source node evidence', junctions.every((intersection) =>
+    intersection.relationships?.every((relationship) => relationship.sourceNodeIds?.length > 0))],
   ['bridge evidence survives normalization', roads.some((road) => road.bridge === true)],
   ['grade-separated crossing is diagnosed', diagnostics.some((diagnostic) => diagnostic.kind === 'grade-separated')],
   ['semantic markings are exported', markings.length > 0],
@@ -33,6 +42,8 @@ console.log(JSON.stringify({
   intersections: intersections.length,
   markings: markings.length,
   diagnostics: diagnostics.length,
+  ramps: ramps.length,
+  junctions: junctions.length,
   bridgeRoads: roads.filter((road) => road.bridge === true).length,
   gradeSeparatedDiagnostics: diagnostics.filter((diagnostic) => diagnostic.kind === 'grade-separated').length,
 }, null, 2))

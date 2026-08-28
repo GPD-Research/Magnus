@@ -115,7 +115,9 @@ visible.
    A real bounded Exit 143 OSM extract passes the repeatable checker at
    `node tools/topology-worker/check-exit-143.mjs <topology.json>`, or through
    `tools/topology-worker/run-exit-143-acceptance.sh` from source download to
-   normalized artifact.
+   normalized artifact. The checker also requires motorway-ramp retention,
+   complete pairwise relationship records for multi-road junctions, and source
+   node evidence on each relationship.
 5. Replace the current RoadScene adapter with a navigation-map adapter that
    consumes polygons and semantic markings without reconstructing gores in the
    frontend.
