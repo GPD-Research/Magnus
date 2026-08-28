@@ -286,6 +286,8 @@
 .road-feature-skip-line { fill: none; stroke: #edf0e8; }
 .road-feature-auxiliary-lane-line { fill: none; stroke: #edf0e8; }
 .road-feature-shoulder-edge { fill: none; stroke: #d8ddd9; }
+.road-feature-road-surface[data-layer='1'] { opacity: .7; }
+.road-feature-road-surface[data-layer='2'] { opacity: .62; }
 .road-feature-traffic-flow { fill: none; stroke: #dce3da; stroke-width: 1.5; stroke-dasharray: 65 85; marker-end: url(#flowArrow); opacity: .3; }
 .road-feature-ramp-gore { fill: url(#goreStripePattern); stroke: #f5f6ee; stroke-width: .75; }
 .road-feature-direction-arrow { fill: none; stroke: #f5f6ee; marker-end: url(#mergeArrow); }

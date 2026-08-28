@@ -170,7 +170,11 @@ export function RoadwayLayer({
           && feature.kind === 'road-surface'
           && feature.geometry.type === 'LineString'
         const selected = selectedFeatureId === feature.id
+        const isElevated = feature.properties.bridge === true || feature.layer > 0
         const label = feature.properties.name ?? `${feature.properties.highway?.replaceAll('_', ' ') ?? 'Road'} section ${feature.properties.osmId ?? feature.id}`
+        const baseStrokeWidth = feature.properties.renderWidthFeet ?? 0
+        const displayOpacity = isElevated && feature.kind === 'road-surface' ? 0.62 : 1
+        const displayStroke = isElevated && feature.kind === 'road-surface' ? '#7c8b88' : undefined
         return (
           <g className={`road-feature-group${selectable ? ' section-selectable' : ''}`} key={feature.id}>
             <path
@@ -182,8 +186,12 @@ export function RoadwayLayer({
               data-layer={feature.layer}
               data-geometry-type={feature.geometry.type}
               data-osm-id={feature.properties.osmId}
-              strokeWidth={feature.properties.renderWidthFeet}
-              style={{ strokeWidth: feature.properties.renderWidthFeet }}
+              strokeWidth={baseStrokeWidth}
+              style={{
+                strokeWidth: baseStrokeWidth,
+                opacity: displayOpacity,
+                stroke: displayStroke,
+              }}
               strokeDasharray={feature.kind === 'skip-line'
                 ? `${ROADWAY_DIMENSIONS_FEET.skipStripeLength} ${ROADWAY_DIMENSIONS_FEET.skipGapLength}`
                 : undefined}

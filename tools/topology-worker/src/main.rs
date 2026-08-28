@@ -59,6 +59,8 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
     let serialized_intersections = &serialized["intersections"];
     let road_structures = road_structures(&serialized["roads"], osm_tags);
     let road_polygons = normalized_road_polygons(streets);
+    let gore_breaks = gore_fog_line_breaks(&serialized["roads"], serialized_intersections);
+    let mut fog_line_markings = Vec::new();
     let roads = serialized["roads"]
         .as_array()
         .into_iter()
@@ -72,6 +74,23 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
                 .as_i64()
                 .and_then(|id| road_polygons.get(&id).cloned())
                 .unwrap_or_else(|| ribbon(&center_line, width_feet));
+            let (left_shoulder_feet, right_shoulder_feet) =
+                shoulder_widths_feet(&road["lane_specs_ltr"]);
+            let (start_break, end_break) = road["id"]
+                .as_i64()
+                .and_then(|id| gore_breaks.get(&id))
+                .copied()
+                .unwrap_or((None, None));
+            fog_line_markings.extend(fog_line_markings_for_road(
+                &road["osm_ids"],
+                road["layer"].as_i64().unwrap_or(0) as i16,
+                &center_line,
+                width_feet,
+                left_shoulder_feet,
+                right_shoulder_feet,
+                start_break,
+                end_break,
+            ));
             json!({
                 "sourceWayIds": road["osm_ids"],
                 "endpointNodeIds": source_endpoint_node_ids(road, serialized_intersections),
@@ -110,7 +129,8 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
     let markings = streets
         .to_lane_markings_geojson(&Filter::All)
         .map_err(|error| anyhow::anyhow!(error))?;
-    let markings = semantic_markings(&markings, &streets.gps_bounds, &serialized["roads"])?;
+    let mut markings = semantic_markings(&markings, &streets.gps_bounds, &serialized["roads"])?;
+    markings.extend(fog_line_markings);
     Ok(json!({
         "version": 1,
         "coordinateUnits": "feet",
@@ -612,6 +632,296 @@ fn ribbon(points: &[[f64; 2]], width_feet: f64) -> Vec<[f64; 2]> {
     left
 }
 
+/// osm2streets' own marking renderer has no concept of a pavement edge line,
+/// only inter-lane markings, so the fog line boundary is derived here from
+/// the same left-to-right lane widths it already exposes.
+fn shoulder_widths_feet(lane_specs_ltr: &Value) -> (Option<f64>, Option<f64>) {
+    let lanes: Vec<&Value> = lane_specs_ltr.as_array().into_iter().flatten().collect();
+    let left = lanes
+        .first()
+        .filter(|lane| lane["lt"] == "Shoulder")
+        .map(|lane| serialized_distance_to_feet(&lane["width"]));
+    let right = lanes
+        .last()
+        .filter(|lane| lane["lt"] == "Shoulder")
+        .map(|lane| serialized_distance_to_feet(&lane["width"]));
+    (left, right)
+}
+
+/// Distance a fog line is pulled back from a ramp/acceleration/deceleration
+/// gore connection so the line breaks instead of running through the merge.
+const GORE_BREAK_FEET: f64 = 70.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FogLineSide {
+    Left,
+    Right,
+}
+
+fn is_ramp_highway(highway: &str) -> bool {
+    highway.ends_with("_link")
+}
+
+/// For every road endpoint that shares a normalized intersection with a ramp
+/// (or is itself a ramp joining another road), determines which fog line
+/// side faces that connection so it can be broken there instead of drawn
+/// straight through the gore.
+fn gore_fog_line_breaks(
+    roads: &Value,
+    intersections: &Value,
+) -> HashMap<i64, (Option<FogLineSide>, Option<FogLineSide>)> {
+    let mut road_highway = HashMap::new();
+    let mut road_center_line = HashMap::new();
+    let mut road_endpoints = HashMap::new();
+    for entry in roads.as_array().into_iter().flatten() {
+        let Some(id) = entry.get(0).and_then(Value::as_i64) else {
+            continue;
+        };
+        let Some(road) = entry.get(1) else { continue };
+        road_highway.insert(
+            id,
+            road["highway_type"].as_str().unwrap_or_default().to_string(),
+        );
+        road_center_line.insert(id, points(&road["center_line"]["pts"]));
+        if let (Some(src), Some(dst)) = (road["src_i"].as_i64(), road["dst_i"].as_i64()) {
+            road_endpoints.insert(id, (src, dst));
+        }
+    }
+
+    let mut intersection_roads = HashMap::new();
+    for entry in intersections.as_array().into_iter().flatten() {
+        let Some(id) = entry.get(0).and_then(Value::as_i64) else {
+            continue;
+        };
+        let Some(intersection) = entry.get(1) else {
+            continue;
+        };
+        let connected: Vec<i64> = intersection["roads"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_i64)
+            .collect();
+        intersection_roads.insert(id, connected);
+    }
+
+    let mut breaks: HashMap<i64, (Option<FogLineSide>, Option<FogLineSide>)> = HashMap::new();
+    for (&road_id, &(src_id, dst_id)) in &road_endpoints {
+        let Some(center_line) = road_center_line.get(&road_id) else {
+            continue;
+        };
+        let this_highway = road_highway.get(&road_id).map(String::as_str).unwrap_or("");
+        for (is_start, intersection_id) in [(true, src_id), (false, dst_id)] {
+            let Some(siblings) = intersection_roads.get(&intersection_id) else {
+                continue;
+            };
+            let ramp_sibling = siblings.iter().copied().find(|&sibling_id| {
+                sibling_id != road_id
+                    && (is_ramp_highway(this_highway)
+                        || road_highway
+                            .get(&sibling_id)
+                            .is_some_and(|highway| is_ramp_highway(highway)))
+            });
+            let Some(sibling_id) = ramp_sibling else {
+                continue;
+            };
+            let Some(sibling_line) = road_center_line.get(&sibling_id) else {
+                continue;
+            };
+            let Some(side) = fog_line_break_side(center_line, is_start, sibling_line) else {
+                continue;
+            };
+            let entry = breaks.entry(road_id).or_insert((None, None));
+            if is_start {
+                entry.0 = Some(side);
+            } else {
+                entry.1 = Some(side);
+            }
+        }
+    }
+    breaks
+}
+
+/// The near-side rule: a shared node sits on both roads' centerlines, so the
+/// break side is whichever side of this road's own forward tangent the
+/// sibling road's tangent leaves toward (matching `ribbon`'s left-normal
+/// convention: `(-dy, dx)` is left).
+fn fog_line_break_side(
+    this_line: &[[f64; 2]],
+    is_start: bool,
+    sibling_line: &[[f64; 2]],
+) -> Option<FogLineSide> {
+    // Always the forward direction in increasing-index order, matching
+    // `offset_polyline`'s left/right convention at either end of the road.
+    let this_tangent = if is_start {
+        tangent(this_line.first().copied()?, this_line.get(1).copied()?)
+    } else {
+        let last = this_line.len().checked_sub(1)?;
+        tangent(this_line.get(last.checked_sub(1)?).copied()?, this_line[last])
+    };
+    let shared_point = if is_start {
+        this_line.first().copied()?
+    } else {
+        this_line.last().copied()?
+    };
+    let sibling_other_end = nearest_far_endpoint(sibling_line, shared_point)?;
+    let sibling_tangent = tangent(shared_point, sibling_other_end);
+    let left_normal = [-this_tangent[1], this_tangent[0]];
+    let side_value = sibling_tangent[0] * left_normal[0] + sibling_tangent[1] * left_normal[1];
+    if side_value.abs() <= 1e-6 {
+        return None;
+    }
+    Some(if side_value > 0.0 {
+        FogLineSide::Left
+    } else {
+        FogLineSide::Right
+    })
+}
+
+fn nearest_far_endpoint(line: &[[f64; 2]], shared_point: [f64; 2]) -> Option<[f64; 2]> {
+    let first = *line.first()?;
+    let last = *line.last()?;
+    let distance_to_first = (first[0] - shared_point[0]).hypot(first[1] - shared_point[1]);
+    let distance_to_last = (last[0] - shared_point[0]).hypot(last[1] - shared_point[1]);
+    Some(if distance_to_first <= distance_to_last {
+        last
+    } else {
+        first
+    })
+}
+
+fn tangent(from: [f64; 2], to: [f64; 2]) -> [f64; 2] {
+    let delta = [to[0] - from[0], to[1] - from[1]];
+    let length = delta[0].hypot(delta[1]);
+    if length <= 1e-9 {
+        [0.0, 0.0]
+    } else {
+        [delta[0] / length, delta[1] / length]
+    }
+}
+
+/// Removes the last `distance` feet of the polyline, walking in from
+/// whichever end `from_start` names, so the returned line stops short of a
+/// gore connection instead of running through it.
+fn truncate_polyline(points: &[[f64; 2]], distance: f64, from_start: bool) -> Vec<[f64; 2]> {
+    if points.len() < 2 || distance <= 0.0 {
+        return points.to_vec();
+    }
+    let mut ordered = points.to_vec();
+    if !from_start {
+        ordered.reverse();
+    }
+    let mut remaining = distance;
+    let mut result = Vec::with_capacity(ordered.len());
+    for index in 0..ordered.len() - 1 {
+        let start = ordered[index];
+        let end = ordered[index + 1];
+        let segment_length = (end[0] - start[0]).hypot(end[1] - start[1]);
+        if remaining >= segment_length {
+            remaining -= segment_length;
+            continue;
+        }
+        let ratio = if segment_length <= 1e-9 {
+            0.0
+        } else {
+            remaining / segment_length
+        };
+        result.push([
+            start[0] + (end[0] - start[0]) * ratio,
+            start[1] + (end[1] - start[1]) * ratio,
+        ]);
+        result.extend_from_slice(&ordered[index + 1..]);
+        break;
+    }
+    if !from_start {
+        result.reverse();
+    }
+    result
+}
+
+/// Offsets `points` perpendicular to the path by `offset` feet using the same
+/// left-positive convention as `ribbon`: positive offsets shift left.
+fn offset_polyline(points: &[[f64; 2]], offset: f64) -> Vec<[f64; 2]> {
+    points
+        .iter()
+        .enumerate()
+        .map(|(index, point)| {
+            let previous = points[index.saturating_sub(1)];
+            let next = points[(index + 1).min(points.len() - 1)];
+            let delta = [next[0] - previous[0], next[1] - previous[1]];
+            let length = delta[0].hypot(delta[1]);
+            let normal = if length <= 1e-9 {
+                [0.0, 0.0]
+            } else {
+                [-delta[1] / length * offset, delta[0] / length * offset]
+            };
+            [point[0] + normal[0], point[1] + normal[1]]
+        })
+        .collect()
+}
+
+fn fog_line_markings_for_road(
+    source_way_ids: &Value,
+    layer: i16,
+    center_line: &[[f64; 2]],
+    width_feet: f64,
+    left_shoulder_feet: Option<f64>,
+    right_shoulder_feet: Option<f64>,
+    start_break: Option<FogLineSide>,
+    end_break: Option<FogLineSide>,
+) -> Vec<Value> {
+    if center_line.len() < 2 || width_feet <= 0.0 {
+        return Vec::new();
+    }
+    let half_width = width_feet / 2.0;
+    let mut markings = Vec::new();
+    let left_offset = half_width - left_shoulder_feet.unwrap_or(0.0);
+    if left_offset > 0.0 {
+        let line = broken_center_line(center_line, FogLineSide::Left, start_break, end_break);
+        if line.len() >= 2 {
+            markings.push(json!({
+                "type": "left fog line",
+                "sourceWayIds": source_way_ids,
+                "layer": layer,
+                "geometryType": "LineString",
+                "geometry": offset_polyline(&line, left_offset),
+            }));
+        }
+    }
+    let right_offset = half_width - right_shoulder_feet.unwrap_or(0.0);
+    if right_offset > 0.0 {
+        let line = broken_center_line(center_line, FogLineSide::Right, start_break, end_break);
+        if line.len() >= 2 {
+            markings.push(json!({
+                "type": "right fog line",
+                "sourceWayIds": source_way_ids,
+                "layer": layer,
+                "geometryType": "LineString",
+                "geometry": offset_polyline(&line, -right_offset),
+            }));
+        }
+    }
+    markings
+}
+
+/// Truncates the centerline used to derive one fog line so it stops short of
+/// a ramp/acceleration/deceleration gore instead of running through it.
+fn broken_center_line(
+    center_line: &[[f64; 2]],
+    side: FogLineSide,
+    start_break: Option<FogLineSide>,
+    end_break: Option<FogLineSide>,
+) -> Vec<[f64; 2]> {
+    let mut line = center_line.to_vec();
+    if start_break == Some(side) {
+        line = truncate_polyline(&line, GORE_BREAK_FEET, true);
+    }
+    if end_break == Some(side) {
+        line = truncate_polyline(&line, GORE_BREAK_FEET, false);
+    }
+    line
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,5 +956,45 @@ mod tests {
         let second = json!({"src_i": 3, "dst_i": 4});
 
         assert!(!share_normalized_endpoint(&first, &second));
+    }
+
+    #[test]
+    fn truncates_the_start_of_a_polyline_by_the_requested_distance() {
+        let line = truncate_polyline(&[[0.0, 0.0], [100.0, 0.0]], 30.0, true);
+        assert_eq!(line, vec![[30.0, 0.0], [100.0, 0.0]]);
+    }
+
+    #[test]
+    fn truncates_the_end_of_a_polyline_by_the_requested_distance() {
+        let line = truncate_polyline(&[[0.0, 0.0], [100.0, 0.0]], 30.0, false);
+        assert_eq!(line, vec![[0.0, 0.0], [70.0, 0.0]]);
+    }
+
+    #[test]
+    fn empties_a_polyline_shorter_than_the_requested_truncation() {
+        let line = truncate_polyline(&[[0.0, 0.0], [10.0, 0.0]], 30.0, true);
+        assert!(line.is_empty());
+    }
+
+    #[test]
+    fn finds_the_gore_break_side_for_a_ramp_diverging_toward_positive_y() {
+        // Mainline runs straight along +x; left/right follow the same
+        // (-dy, dx) forward-tangent convention as `offset_polyline`.
+        let mainline = [[0.0, 0.0], [100.0, 0.0]];
+        let ramp = [[100.0, 0.0], [140.0, 40.0]];
+        assert_eq!(
+            fog_line_break_side(&mainline, false, &ramp),
+            Some(FogLineSide::Left)
+        );
+    }
+
+    #[test]
+    fn finds_the_gore_break_side_for_a_ramp_diverging_toward_negative_y() {
+        let mainline = [[0.0, 0.0], [100.0, 0.0]];
+        let ramp = [[100.0, 0.0], [140.0, -40.0]];
+        assert_eq!(
+            fog_line_break_side(&mainline, false, &ramp),
+            Some(FogLineSide::Right)
+        );
     }
 }

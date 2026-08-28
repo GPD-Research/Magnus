@@ -74,10 +74,27 @@ struct TopologyMarking {
     #[serde(rename = "sourceWayIds")]
     source_way_ids: Vec<i64>,
     #[serde(rename = "type")]
-    _marking_type: String,
+    marking_type: String,
     geometry: Vec<[f64; 2]>,
     #[serde(default)]
     layer: Option<i16>,
+}
+
+/// Derives left/right shoulder width in feet directly from the OSM-derived,
+/// left-to-right ordered lane records instead of inventing a fixed shoulder
+/// width. Returns `None` for a side when the source topology carries no
+/// shoulder lane there, rather than presenting an inferred value as fact.
+fn shoulder_widths_from_lane_records(lane_records: &[LaneRecord]) -> (Option<f64>, Option<f64>) {
+    let left = lane_records
+        .iter()
+        .find(|lane| lane.lane_type == "shoulder")
+        .map(|lane| lane.width_feet);
+    let right = lane_records
+        .iter()
+        .rev()
+        .find(|lane| lane.lane_type == "shoulder")
+        .map(|lane| lane.width_feet);
+    (left, right)
 }
 
 pub fn compile_topology_scene(
@@ -97,6 +114,8 @@ pub fn compile_topology_scene(
             continue;
         }
         let osm_id = road.source_way_ids.first().copied();
+        let (left_shoulder_width_feet, right_shoulder_width_feet) =
+            shoulder_widths_from_lane_records(&road.lane_records);
         let properties = FeatureProperties {
             osm_id,
             source_way_ids: road.source_way_ids.clone(),
@@ -107,7 +126,9 @@ pub fn compile_topology_scene(
             highway: Some(road.highway),
             lanes: Some(road.lane_count as u16),
             direction: Some("forward".into()),
-            render_width_feet: Some(road.width_feet),
+            left_shoulder_width_feet,
+            right_shoulder_width_feet,
+            render_width_feet: Some(road.width_feet.max(12.0)),
             ..FeatureProperties::default()
         };
         let id = format!("topology-road-{index}");
@@ -117,7 +138,7 @@ pub fn compile_topology_scene(
             layer: road.layer,
             geometry: Geometry::Polygon(vec![road.surface_polygon.clone()]),
             properties: FeatureProperties {
-                render_width_feet: Some(0.0),
+                render_width_feet: Some((road.width_feet.max(12.0)) + 8.0),
                 ..properties.clone()
             },
         });
@@ -127,7 +148,7 @@ pub fn compile_topology_scene(
             layer: road.layer,
             geometry: Geometry::LineString(road.center_line.clone()),
             properties: FeatureProperties {
-                render_width_feet: Some(0.0),
+                render_width_feet: Some(road.width_feet.max(12.0)),
                 ..properties
             },
         });
@@ -153,13 +174,33 @@ pub fn compile_topology_scene(
         });
     }
     let mut marking_groups = std::collections::BTreeMap::<i16, (Vec<Vec<[f64; 2]>>, Vec<i64>)>::new();
-    for marking in topology.markings {
+    for (index, marking) in topology.markings.into_iter().enumerate() {
         if marking.geometry.len() < 2 {
             continue;
         }
-        let entry = marking_groups
-            .entry(marking.layer.unwrap_or(0) + 1)
-            .or_default();
+        let layer = marking.layer.unwrap_or(0) + 1;
+        // Fog lines are open polylines from a single road, not polygon dashes to blend together.
+        let fog_line_kind = match marking.marking_type.as_str() {
+            "left fog line" => Some(RoadFeatureKind::LeftFogLine),
+            "right fog line" => Some(RoadFeatureKind::RightFogLine),
+            _ => None,
+        };
+        if let Some(kind) = fog_line_kind {
+            features.push(RoadFeature {
+                id: format!("topology-fog-line-{index}"),
+                kind,
+                layer,
+                geometry: Geometry::LineString(marking.geometry),
+                properties: FeatureProperties {
+                    source_way_ids: marking.source_way_ids,
+                    marking_type: Some(marking.marking_type),
+                    render_width_feet: Some(0.0),
+                    ..FeatureProperties::default()
+                },
+            });
+            continue;
+        }
+        let entry = marking_groups.entry(layer).or_default();
         entry.0.push(marking.geometry);
         entry.1.extend(marking.source_way_ids);
     }
@@ -291,12 +332,13 @@ mod tests {
             feature.kind == RoadFeatureKind::RoadSurface
                 && feature.properties.osm_id == Some(95)
                 && feature.properties.source_way_ids == vec![95, 96]
-                && feature.properties.render_width_feet == Some(0.0)
+                && feature.properties.render_width_feet == Some(12.0)
                 && matches!(feature.geometry, Geometry::LineString(_))
         }));
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::RoadCasing
                 && feature.properties.osm_id == Some(95)
+                && feature.properties.render_width_feet == Some(20.0)
                 && matches!(feature.geometry, Geometry::Polygon(_))
         }));
         assert!(scene.features.iter().any(|feature| {
@@ -316,6 +358,44 @@ mod tests {
         .expect_err("meter coordinates must not enter feet scene");
 
         assert!(matches!(error, TopologyAdapterError::UnsupportedVersion));
+    }
+
+    #[test]
+    fn preserves_shoulder_width_for_topology_roads() {
+        let scene = compile_topology_scene(
+            r#"{
+                "version": 1,
+                "coordinateUnits": "feet",
+                "roads": [{
+                    "sourceWayIds": [10],
+                    "layer": 0,
+                    "highway": "motorway",
+                    "laneCount": 2,
+                    "centerLine": [[0.0, 0.0], [120.0, 0.0]],
+                    "surfacePolygon": [[0.0, -8.0], [120.0, -8.0], [120.0, 8.0], [0.0, 8.0], [0.0, -8.0]],
+                    "widthFeet": 28.0,
+                    "endpointNodeIds": [1, 2],
+                    "laneRecords": []
+                }],
+                "intersections": []
+            }"#,
+            "topology shoulder test",
+        )
+        .expect("topology roadway should compile");
+
+        let surface = scene
+            .features
+            .iter()
+            .find(|feature| feature.kind == RoadFeatureKind::RoadSurface)
+            .expect("surface should be present");
+        let casing = scene
+            .features
+            .iter()
+            .find(|feature| feature.kind == RoadFeatureKind::RoadCasing)
+            .expect("casing should be present");
+
+        assert_eq!(surface.properties.render_width_feet, Some(28.0));
+        assert_eq!(casing.properties.render_width_feet, Some(36.0));
     }
 
     #[test]
