@@ -142,7 +142,7 @@ export function RoadwayLayer({
   onSelectFeature,
 }: RoadwayLayerProps) {
   const orderedFeatures = scene.features
-    .filter((feature) => visibility[roadLayerForFeature(feature)])
+     .filter((feature) => feature.kind !== 'ramp-gore' && visibility[roadLayerForFeature(feature)])
     .sort((first, second) => first.layer - second.layer)
 
   return (

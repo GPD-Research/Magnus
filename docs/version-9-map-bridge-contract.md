@@ -14,6 +14,10 @@ The map subsystem owns source data, topology, geometry, structure, markings,
 labels, and map coordinate conversion. The overlay owns incident objects,
 training rules, communications, annotations, and portable scene state.
 
+Topology-backed artifacts preserve the complete normalized upstream document in
+`normalizedTopology`. The derived `roads`, `intersections`, and `markings`
+collections are render projections, not replacements for that document.
+
 ## Snapshot shape
 
 The bridge should expose a versioned document equivalent to:
@@ -114,6 +118,12 @@ lane references supplied by the map subsystem.
 - Snapshot coordinates are in feet before the overlay receives them.
 - Version changes are required when IDs, coordinates, or geometry semantics
   change incompatibly.
+
+## Ramp Boundary Policy
+
+`ramp-gore` features are intentionally not rendered. Ramp fog and shoulder
+markings terminate at the computed mainline shoulder boundary instead of using
+an inferred white gore polygon.
 
 ## Migration rule
 

@@ -277,7 +277,7 @@
 .road-canvas { width: 100%; height: 100%; display: block; box-shadow: 0 8px 22px rgba(27,38,36,.18); touch-action: none; }
 .road-canvas.placing-scene { cursor: crosshair; }
 .road-feature { vector-effect: none; }
-.road-feature-road-casing { fill: #111716; stroke: #111716; stroke-width: 12; stroke-linejoin: round; }
+.road-feature-road-casing { fill: #343b3d; stroke: #343b3d; stroke-width: 12; stroke-linejoin: round; }
 .road-feature-road-surface { fill: url(#roadSurfacePattern); stroke: none; }
 .road-feature-road-casing[data-geometry-type='LineString'] { fill: none; }
 .road-feature-road-surface[data-geometry-type='LineString'] { fill: none; stroke: url(#roadSurfacePattern); stroke-linejoin: round; }
@@ -289,7 +289,7 @@
 .road-feature-traffic-flow { fill: none; stroke: #dce3da; stroke-width: 1.5; stroke-dasharray: 65 85; marker-end: url(#flowArrow); opacity: .3; }
 .road-feature-ramp-gore { fill: url(#goreStripePattern); stroke: #f5f6ee; stroke-width: .75; }
 .road-feature-direction-arrow { fill: none; stroke: #f5f6ee; marker-end: url(#mergeArrow); }
-.road-feature-ramp-casing-ribbon { fill: #111716; stroke: none; }
+.road-feature-ramp-casing-ribbon { fill: #343b3d; stroke: none; }
 .road-feature-ramp-surface-ribbon { fill: url(#roadSurfacePattern); stroke: none; }
 .road-feature-intersection-surface { fill: #343b3d; stroke: #343b3d; stroke-width: 0; }
 .road-feature-semantic-marking { fill: #f5f6ee; stroke: #f5f6ee; stroke-width: 0; }

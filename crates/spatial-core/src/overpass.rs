@@ -187,14 +187,8 @@ fn mainline_side_sign(node: [f64; 2], adjacent: [f64; 2], anchor: &MainlineAncho
 /// outer shoulder edges would cross (`base`, where the two roadways' pavement fully separates) —
 /// instead of approximating both as one fixed distance from the shared OSM node.
 struct GoreGeometry {
-    tip: [f64; 2],
     base: [f64; 2],
-    /// Where the ramp's own fog line, and the mainline's own fog line, each are at the "base"
-    /// (shoulder-edge-crossing) distance — the two other corners of the gore stripe polygon.
-    ramp_fog_at_base: [f64; 2],
-    mainline_fog_at_base: [f64; 2],
-    /// Distance back from the junction node, along the ramp's own centerline, to `tip`/`base`.
-    ramp_trim_to_tip: f64,
+    /// Distance back from the junction node, along the ramp's own centerline, to `base`.
     ramp_trim_to_base: f64,
     /// Signed arc-length offset from the junction node, along the mainline's own centerline, to
     /// `tip`/`base` (positive = downstream, negative = upstream).
@@ -300,23 +294,10 @@ fn compute_gore_geometry(
     }
 
     Some(GoreGeometry {
-        tip: [
-            ramp_fog_origin[0] + ramp_tangent[0] * ramp_t_tip,
-            ramp_fog_origin[1] + ramp_tangent[1] * ramp_t_tip,
-        ],
         base: [
             ramp_shoulder_origin[0] + ramp_tangent[0] * ramp_t_base,
             ramp_shoulder_origin[1] + ramp_tangent[1] * ramp_t_base,
         ],
-        ramp_fog_at_base: [
-            ramp_fog_origin[0] + ramp_tangent[0] * ramp_t_base,
-            ramp_fog_origin[1] + ramp_tangent[1] * ramp_t_base,
-        ],
-        mainline_fog_at_base: [
-            mainline_fog_origin[0] + mainline_anchor.tangent[0] * mainline_s_base,
-            mainline_fog_origin[1] + mainline_anchor.tangent[1] * mainline_s_base,
-        ],
-        ramp_trim_to_tip: ramp_t_tip,
         ramp_trim_to_base: ramp_t_base,
         mainline_arc_to_tip: mainline_s_tip,
         mainline_arc_to_base: mainline_s_base,
@@ -347,11 +328,7 @@ fn gore_geometry_for_end(
         let sign = mainline_side_sign(node, ramp_adjacent, mainline_anchor);
         let base = mainline_edge_point(node, mainline_anchor.half_width, sign, mainline_anchor);
         GoreGeometry {
-            tip: mainline_edge_point(node, mainline_anchor.fog_half_width, sign, mainline_anchor),
             base,
-            ramp_fog_at_base: base,
-            mainline_fog_at_base: base,
-            ramp_trim_to_tip: RAMP_GORE_LENGTH_FEET,
             ramp_trim_to_base: RAMP_GORE_LENGTH_FEET,
             mainline_arc_to_tip: 0.0,
             mainline_arc_to_base: RAMP_GORE_LENGTH_FEET,
@@ -878,52 +855,22 @@ pub fn compile_overpass_json(
                     &visual_coordinates,
                     &properties,
                 );
-                if trim_marking_start {
-                    if let Some(gore) = &start_gore {
-                        append_ramp_gore(
-                            &mut features,
-                            &fragment_id,
-                            layer,
-                            gore,
-                            true,
-                            &properties,
-                        );
-                    }
-                }
-                if trim_marking_end {
-                    if let Some(gore) = &end_gore {
-                        append_ramp_gore(
-                            &mut features,
-                            &fragment_id,
-                            layer,
-                            gore,
-                            false,
-                            &properties,
-                        );
-                    }
-                }
             }
             let mut left_fog_trim = EdgeTrim::default();
             let mut right_fog_trim = EdgeTrim::default();
             let mut left_shoulder_trim = EdgeTrim::default();
             let mut right_shoulder_trim = EdgeTrim::default();
             if let Some(gore) = start_gore.as_ref().filter(|_| trim_marking_start) {
-                left_fog_trim.start = gore.ramp_trim_to_tip.max(intersection_trim_start);
-                right_fog_trim.start = gore.ramp_trim_to_tip.max(intersection_trim_start);
-                if gore.near_side_sign < 0.0 {
-                    left_shoulder_trim.start = gore.ramp_trim_to_base;
-                } else {
-                    right_shoulder_trim.start = gore.ramp_trim_to_base;
-                }
+                left_fog_trim.start = gore.ramp_trim_to_base.max(intersection_trim_start);
+                right_fog_trim.start = gore.ramp_trim_to_base.max(intersection_trim_start);
+                left_shoulder_trim.start = gore.ramp_trim_to_base;
+                right_shoulder_trim.start = gore.ramp_trim_to_base;
             }
             if let Some(gore) = end_gore.as_ref().filter(|_| trim_marking_end) {
-                left_fog_trim.end = gore.ramp_trim_to_tip.max(intersection_trim_end);
-                right_fog_trim.end = gore.ramp_trim_to_tip.max(intersection_trim_end);
-                if gore.near_side_sign < 0.0 {
-                    left_shoulder_trim.end = gore.ramp_trim_to_base;
-                } else {
-                    right_shoulder_trim.end = gore.ramp_trim_to_base;
-                }
+                left_fog_trim.end = gore.ramp_trim_to_base.max(intersection_trim_end);
+                right_fog_trim.end = gore.ramp_trim_to_base.max(intersection_trim_end);
+                left_shoulder_trim.end = gore.ramp_trim_to_base;
+                right_shoulder_trim.end = gore.ramp_trim_to_base;
             }
             append_lane_markings(
                 &mut features,
@@ -986,6 +933,7 @@ pub fn compile_overpass_json(
         viewport,
         features,
         diagnostics: Vec::new(),
+        normalized_topology: None,
     })
 }
 
@@ -1762,34 +1710,6 @@ fn append_direction_arrow(
     });
 }
 
-/// The gore stripe polygon: apex at the fog-line crossing (the theoretical gore nose), widening to
-/// the ramp's and the mainline's own fog lines at the shoulder-edge-crossing distance — the depth
-/// MUTCD/VDOT hatching covers.
-fn append_ramp_gore(
-    features: &mut Vec<RoadFeature>,
-    feature_prefix: &str,
-    layer: i16,
-    gore: &GoreGeometry,
-    at_start: bool,
-    properties: &FeatureProperties,
-) {
-    features.push(RoadFeature {
-        id: format!(
-            "{feature_prefix}-gore-{}",
-            if at_start { "start" } else { "end" }
-        ),
-        kind: RoadFeatureKind::RampGore,
-        layer: layer + 2,
-        geometry: Geometry::Polygon(vec![vec![
-            gore.tip,
-            gore.mainline_fog_at_base,
-            gore.ramp_fog_at_base,
-            gore.tip,
-        ]]),
-        properties: properties.clone(),
-    });
-}
-
 fn trim_line_ends(
     coordinates: &[[f64; 2]],
     start_distance: f64,
@@ -2015,17 +1935,7 @@ mod tests {
         let gore = compute_gore_geometry(node, ramp_adjacent, 1, 4.0, 10.0, &mainline_anchor)
             .expect("perpendicular junction should not be degenerate");
 
-        assert!((gore.tip[0] - 12.0).abs() < 1e-9 && (gore.tip[1] - -6.0).abs() < 1e-9);
         assert!((gore.base[0] - 18.0).abs() < 1e-9 && (gore.base[1] - -10.0).abs() < 1e-9);
-        assert!(
-            (gore.ramp_fog_at_base[0] - 18.0).abs() < 1e-9
-                && (gore.ramp_fog_at_base[1] - -6.0).abs() < 1e-9
-        );
-        assert!(
-            (gore.mainline_fog_at_base[0] - 12.0).abs() < 1e-9
-                && (gore.mainline_fog_at_base[1] - -10.0).abs() < 1e-9
-        );
-        assert!((gore.ramp_trim_to_tip - 12.0).abs() < 1e-9);
         assert!((gore.ramp_trim_to_base - 18.0).abs() < 1e-9);
         assert!((gore.mainline_arc_to_tip - -6.0).abs() < 1e-9);
         assert!((gore.mainline_arc_to_base - -10.0).abs() < 1e-9);
@@ -2232,7 +2142,7 @@ mod tests {
         // The on-ramp is isolated (no nearby off-ramp), so the mainline's right fog line/shoulder
         // edge only carry an auxiliary-lane zone for the standard merge-taper distance: the right
         // fog line splits solid/dashed/solid, and the right shoulder edge gets a gap in between.
-        assert_eq!(scene.features.len(), 24);
+        assert_eq!(scene.features.len(), 23);
         assert_eq!(scene.features[1].properties.osm_id, Some(95));
         assert_eq!(scene.features[1].properties.render_width_feet, Some(50.0));
         assert_eq!(
@@ -2288,14 +2198,10 @@ mod tests {
                 .iter()
                 .any(|feature| feature.id.contains("right-shoulder-edge-1"))
         );
-        assert_eq!(
-            scene
-                .features
-                .iter()
-                .filter(|feature| feature.kind == RoadFeatureKind::RampGore)
-                .count(),
-            1
-        );
+        assert!(!scene
+            .features
+            .iter()
+            .any(|feature| feature.kind == RoadFeatureKind::RampGore));
         assert_eq!(
             scene
                 .features
@@ -2344,11 +2250,6 @@ mod tests {
             .iter()
             .find(|feature| feature.id == "way-96-0-right-edge")
             .expect("ramp far-side (right) fog line");
-        let gore = scene
-            .features
-            .iter()
-            .find(|feature| feature.kind == RoadFeatureKind::RampGore)
-            .expect("ramp gore");
         let ramp_surface_ribbon = scene
             .features
             .iter()
@@ -2363,14 +2264,11 @@ mod tests {
         let Geometry::LineString(right_fog_points) = &ramp_right_edge.geometry else {
             panic!("right fog line should be a line")
         };
-        let Geometry::Polygon(gore_rings) = &gore.geometry else {
-            panic!("gore should be a polygon")
-        };
         let Geometry::Polygon(ribbon_rings) = &ramp_surface_ribbon.geometry else {
             panic!("ramp surface ribbon should be a polygon")
         };
-        // Both ramp fog lines must stop at the calculated gore tip instead of crossing the
-        // mainline; the shoulder-side treatment remains asymmetric.
+        // Both ramp fog lines and both shoulder edges must stop at the mainline shoulder boundary,
+        // rather than crossing through the mainline.
         let untrimmed_left_start = offset_line(surface_points, -6.0)[0];
         let left_trim_distance = (left_fog_points[0][0] - untrimmed_left_start[0])
             .hypot(left_fog_points[0][1] - untrimmed_left_start[1]);
@@ -2405,12 +2303,6 @@ mod tests {
             .map(|point| (point[0] - surface_points[1][0]).hypot(point[1] - surface_points[1][1]))
             .fold(f64::INFINITY, f64::min);
         assert!(offsets_from_far_end < 6.5);
-        assert!(
-            gore_rings
-                .iter()
-                .flatten()
-                .all(|point| point[0] >= 0.0 && point[1] >= 0.0)
-        );
         assert!(scene.viewport.height > 700.0);
     }
 

@@ -49,9 +49,13 @@ impl RoadLocationRequest {
                 "(node(around.routeWays:100)[\"highway\"=\"milestone\"][\"distance\"~\"^{reference}(\\.0)?$\",i];node(around.routeWays:100)[\"highway\"=\"motorway_junction\"][\"ref\"~\"^{reference}[A-Za-z]?$\",i];)"
             ),
         };
+        let output_set = match self.reference_type {
+            RoadReferenceType::Exit => "(.anchors;.nearbyWays;>;)".to_string(),
+            RoadReferenceType::MileMarker => "(.anchors;.routeWays;.nearbyWays;>;)".to_string(),
+        };
 
         format!(
-            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\nway(area.searchArea)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\n{anchor_filter}->.candidateAnchors;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:850)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n(.anchors;.routeWays;.nearbyWays;>;);\nout body;"
+            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\nway(area.searchArea)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\n{anchor_filter}->.candidateAnchors;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:850)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n{output_set};\nout body;"
         )
     }
 

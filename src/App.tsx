@@ -226,8 +226,8 @@ type PresentationWindow = Window & {
 const DEFAULT_LOCATION_REQUEST: RoadLocationRequest = {
   highway: 'I-95',
   direction: 'northbound',
-  referenceType: 'mile-marker',
-  reference: '170',
+  referenceType: 'exit',
+  reference: '143',
 }
 
 interface LegacySavedScenario {
@@ -530,7 +530,7 @@ function App() {
   const [sectionSelectionEnabled, setSectionSelectionEnabled] = useState(false)
   const [selectedRoadSectionId, setSelectedRoadSectionId] = useState<string | null>(null)
   const [scenario, setScenario] = useState<ScenarioType>(savedScenario?.scenario ?? 'right-lane')
-  const [sceneVisible, setSceneVisible] = useState(savedScenario?.sceneVisible ?? true)
+  const [sceneVisible, setSceneVisible] = useState(savedScenario?.sceneVisible ?? false)
   const [scenePlacementActive, setScenePlacementActive] = useState(false)
   const [sceneConversionActive, setSceneConversionActive] = useState(false)
   const [sceneOrigin, setSceneOrigin] = useState(savedScenario?.sceneOrigin ?? { x: 0, y: 0 })

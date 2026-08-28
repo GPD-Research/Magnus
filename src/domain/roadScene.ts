@@ -84,6 +84,7 @@ export interface RoadScene {
   viewport: { width: number; height: number }
   features: RoadFeature[]
   diagnostics?: TopologyDiagnostic[]
+  normalizedTopology?: unknown
 }
 
 export const ROADWAY_DIMENSIONS_FEET = {

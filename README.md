@@ -211,7 +211,7 @@ For dependable field use, prepare the required region before disconnecting, then
 
 ## Development and validation
 
-The development command starts both the Rust spatial API and Vite frontend. Use `npm run dev:web` only when a spatial API is already running separately. The left-pane service indicator reports whether spatial resolution is connected; a clearly labeled scale reference remains available when it is not.
+The development command starts the topology-backed Rust spatial API and Vite frontend. It builds the standalone topology worker and sets `MAGNUS_TOPOLOGY_WORKER` automatically, so visual inspection exercises normalized roadway data. Use `npm run dev:spatial` for the legacy Overpass-compatible API or `npm run dev:web` only when a spatial API is already running separately. The left-pane service indicator reports whether spatial resolution is connected; a clearly labeled scale reference remains available when it is not.
 
 To produce the optimized server binary and frontend assets without launching them, run `npm run build:release`. Keep the generated `dist/` directory beside the repository when running `target/release/spatial_server`, or set `MAGNUS_WEB_DIR` to its location.
 

@@ -17,17 +17,17 @@ test('loads the scene builder with a visible roadway and passing audit', async (
 
   await expect(page.getByLabel('Highway', { exact: true })).toHaveValue('I-95')
   await expect(page.getByLabel('Direction')).toHaveValue('northbound')
-  await expect(page.getByLabel('Reference')).toHaveValue('mile-marker')
-  await expect(page.getByLabel('Mile marker', { exact: true })).toHaveValue('170')
-  await expect(page.getByText('I-95 Northbound MM 170 scale reference')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Single right lane closure' })).toBeVisible()
+  await expect(page.getByLabel('Reference')).toHaveValue('exit')
+  await expect(page.getByLabel('Exit', { exact: true })).toHaveValue('143')
+  await expect(page.getByText('I-95 Northbound Exit 143 scale reference')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Roadway only' })).toBeVisible()
   await expect(page.getByLabel('Top-down highway scene with SSP vehicle and traffic cones')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Setup compliant' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Spatial service' })).toContainText('Connected')
-  const brand = page.getByLabel('Magnus version 7.0.0')
+  const brand = page.getByLabel('Magnus version 9.0.0')
   await expect(brand).toBeVisible()
   await expect(brand).toContainText('AGNUS')
-  await expect(brand).toContainText('v7')
+  await expect(brand).toContainText('v9')
 })
 
 test('builds the initial TOC radio exchange from direction and lane closure settings', async ({ page }) => {

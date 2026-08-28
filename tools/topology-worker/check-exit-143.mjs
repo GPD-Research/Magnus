@@ -16,6 +16,7 @@ const ramps = roads.filter((road) => road.highway === 'motorway_link')
 
 const assertions = [
   ['topology artifact uses feet', artifact.coordinateUnits === 'feet'],
+  ['complete normalized topology is preserved', artifact.normalizedTopology?.roads != null],
   ['real extract retains normalized roads', roads.length >= 20],
   ['real extract retains normalized intersections', intersections.length >= 1],
   ['Exit 143 retains motorway ramps', ramps.length >= 4],

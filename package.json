@@ -4,9 +4,10 @@
   "version": "9.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others --names spatial,web --prefix-colors yellow,cyan \"npm:dev:spatial\" \"npm:dev:web\"",
+    "dev": "concurrently --kill-others --names spatial,web --prefix-colors yellow,cyan \"npm:dev:topology\" \"npm:dev:web\"",
     "dev:web": "vite",
     "dev:spatial": "cargo run -p magnus-spatial-core --bin spatial_server",
+    "dev:topology": "cargo build --manifest-path tools/topology-worker/Cargo.toml && MAGNUS_TOPOLOGY_WORKER=$PWD/tools/topology-worker/target/debug/magnus-topology-worker cargo run -p magnus-spatial-core --bin spatial_server",
     "start": "npm run build && npm run serve",
     "serve": "cargo run -p magnus-spatial-core --bin spatial_server",
     "build:release": "npm run build && cargo build --release -p magnus-spatial-core --bin spatial_server",

@@ -121,6 +121,9 @@ visible.
 5. Replace the current RoadScene adapter with a navigation-map adapter that
    consumes polygons and semantic markings without reconstructing gores in the
    frontend.
+   The first rebuild checkpoint now transports the complete normalized
+   `StreetNetwork` document in `normalizedTopology`; the derived RoadScene
+   features remain a compatibility projection while the renderer migrates.
 6. Preserve lane-level and marking-level semantics through the stable map bridge
    instead of reducing roads to a width and lane count.
 7. Use the stable map bridge in `docs/version-9-map-bridge-contract.md` so the
@@ -129,6 +132,11 @@ visible.
    major-artery mile-marker and exit scenes.
 9. Retire Version 8 gore compatibility code only after the acceptance suite and
    visual review pass.
+
+The current line-only boundary policy deliberately suppresses `ramp-gore`
+polygon rendering. Ramp fog and available shoulder-edge markings terminate at
+the mainline shoulder boundary; the remaining pavement and line overlap is
+tracked as an acceptance defect rather than hidden with a misplaced fill.
 
 ## Budget rule
 

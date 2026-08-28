@@ -99,6 +99,7 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
             json!({
                 "sourceNodeIds": intersection["osm_ids"],
                 "connectedRoadIds": intersection["roads"],
+                "layer": intersection_layer(intersection, &road_structures),
                 "relationship": relationships.first().and_then(|record| record["kind"].as_str()),
                 "relationships": relationships,
                 "polygon": points(&intersection["polygon"]["rings"][0]["pts"]),
@@ -113,11 +114,26 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
     Ok(json!({
         "version": 1,
         "coordinateUnits": "feet",
+        "normalizedTopology": serialized,
         "roads": roads,
         "intersections": intersections,
         "markings": markings,
         "diagnostics": diagnostics,
     }))
+}
+
+fn intersection_layer(
+    intersection: &Value,
+    road_structures: &HashMap<i64, RoadStructure>,
+) -> i16 {
+    intersection["roads"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_i64)
+        .filter_map(|road_id| road_structures.get(&road_id).map(|structure| structure.layer))
+        .min()
+        .map_or(-1, |layer| layer.saturating_sub(1))
 }
 
 fn normalized_road_polygons(streets: &StreetNetwork) -> HashMap<i64, Vec<[f64; 2]>> {
@@ -439,6 +455,7 @@ fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Resul
                         .unwrap_or_else(|| source_way_ids_near_geometry(&local_geometry, roads));
                     output.push(json!({
                         "type": kind,
+                        "layer": feature.property("layer").and_then(Value::as_i64),
                         "sourceWayIds": source_way_ids,
                         "geometry": local_geometry,
                     }));
@@ -457,6 +474,7 @@ fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Resul
                             .unwrap_or_else(|| source_way_ids_near_geometry(&local_geometry, roads));
                         output.push(json!({
                             "type": kind,
+                            "layer": feature.property("layer").and_then(Value::as_i64),
                             "sourceWayIds": source_way_ids,
                             "geometry": local_geometry,
                         }));

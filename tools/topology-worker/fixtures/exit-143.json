@@ -67,6 +67,7 @@
       "sourceNodeIds": [1430001],
       "relationship": "connected-at-node",
       "connectedRoadIds": [0, 1],
+      "layer": -1,
       "relationships": [
         {
           "roadIds": [0, 1],

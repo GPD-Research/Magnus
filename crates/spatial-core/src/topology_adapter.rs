@@ -26,6 +26,8 @@ struct TopologyScene {
     markings: Vec<TopologyMarking>,
     #[serde(default)]
     diagnostics: Vec<TopologyDiagnostic>,
+    #[serde(default, rename = "normalizedTopology")]
+    normalized_topology: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +65,8 @@ struct TopologyIntersection {
     connected_road_ids: Vec<i64>,
     #[serde(default)]
     relationships: Vec<RelationshipRecord>,
+    #[serde(default)]
+    layer: i16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,8 +74,10 @@ struct TopologyMarking {
     #[serde(rename = "sourceWayIds")]
     source_way_ids: Vec<i64>,
     #[serde(rename = "type")]
-    marking_type: String,
+    _marking_type: String,
     geometry: Vec<[f64; 2]>,
+    #[serde(default)]
+    layer: Option<i16>,
 }
 
 pub fn compile_topology_scene(
@@ -83,6 +89,7 @@ pub fn compile_topology_scene(
         return Err(TopologyAdapterError::UnsupportedVersion);
     }
     let diagnostics = topology.diagnostics;
+    let normalized_topology = topology.normalized_topology;
 
     let mut features = Vec::new();
     for (index, road) in topology.roads.into_iter().enumerate() {
@@ -132,7 +139,7 @@ pub fn compile_topology_scene(
         features.push(RoadFeature {
             id: format!("topology-intersection-{index}"),
             kind: RoadFeatureKind::IntersectionSurface,
-            layer: 0,
+            layer: intersection.layer,
             geometry: Geometry::Polygon(vec![intersection.polygon]),
             properties: FeatureProperties {
                 osm_id: intersection.source_node_ids.first().copied(),
@@ -145,19 +152,28 @@ pub fn compile_topology_scene(
             },
         });
     }
-    for (index, marking) in topology.markings.into_iter().enumerate() {
+    let mut marking_groups = std::collections::BTreeMap::<i16, (Vec<Vec<[f64; 2]>>, Vec<i64>)>::new();
+    for marking in topology.markings {
         if marking.geometry.len() < 2 {
             continue;
         }
+        let entry = marking_groups
+            .entry(marking.layer.unwrap_or(0) + 1)
+            .or_default();
+        entry.0.push(marking.geometry);
+        entry.1.extend(marking.source_way_ids);
+    }
+    for (layer, (marking_rings, mut marking_source_way_ids)) in marking_groups {
+        marking_source_way_ids.sort_unstable();
+        marking_source_way_ids.dedup();
         features.push(RoadFeature {
-            id: format!("topology-marking-{index}"),
+            id: format!("topology-markings-{layer}"),
             kind: RoadFeatureKind::SemanticMarking,
-            layer: 10,
-            geometry: Geometry::Polygon(vec![marking.geometry]),
+            layer,
+            geometry: Geometry::Polygon(marking_rings),
             properties: FeatureProperties {
-                osm_id: marking.source_way_ids.first().copied(),
-                source_way_ids: marking.source_way_ids,
-                marking_type: Some(marking.marking_type),
+                source_way_ids: marking_source_way_ids,
+                marking_type: Some("normalized marking".into()),
                 render_width_feet: Some(0.0),
                 ..FeatureProperties::default()
             },
@@ -182,6 +198,7 @@ pub fn compile_topology_scene(
         viewport: viewport_for_features(&features),
         features,
         diagnostics,
+        normalized_topology,
     })
 }
 
@@ -243,6 +260,7 @@ mod tests {
             r#"{
                 "version": 1,
                 "coordinateUnits": "feet",
+                "normalizedTopology": {"roads": "preserved"},
                 "roads": [{
                     "sourceWayIds": [95, 96],
                     "layer": 0,
@@ -264,6 +282,10 @@ mod tests {
         .expect("topology scene should parse");
 
         assert_eq!(scene.source.source_type, SceneSourceType::OsmPbf);
+        assert_eq!(
+            scene.normalized_topology,
+            Some(serde_json::json!({"roads": "preserved"}))
+        );
         assert_eq!(scene.features.len(), 3);
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::RoadSurface
@@ -329,6 +351,12 @@ mod tests {
             mainline.properties.endpoint_node_ids,
             vec![1430000, 1430001]
         );
+        let intersection = scene
+            .features
+            .iter()
+            .find(|feature| feature.kind == RoadFeatureKind::IntersectionSurface)
+            .expect("fixture intersection");
+        assert_eq!(intersection.layer, -1);
         assert_eq!(mainline.properties.lane_records.len(), 3);
         assert_eq!(ramp.properties.lane_records[0].lane_type, "driving");
         assert_eq!(ramp.properties.lane_records[0].width_feet, 12.0);
@@ -346,8 +374,9 @@ mod tests {
         }));
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::SemanticMarking
-                && feature.properties.osm_id == Some(14301)
-                && feature.properties.marking_type.as_deref() == Some("merge-boundary")
+                && feature.properties.source_way_ids == vec![14301]
+                && feature.properties.marking_type.as_deref() == Some("normalized marking")
+                && matches!(&feature.geometry, Geometry::Polygon(rings) if rings.len() == 1)
         }));
         assert!(
             !scene

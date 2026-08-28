@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         client: reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(90))
             .user_agent("Magnus SSP Scene Builder/4.0-rc.1")
             .build()?,
         overpass_urls: configured_overpass_urls(),
@@ -177,10 +177,13 @@ async fn resolve_road_scene(
     let overpass_query = request.overpass_query();
     let cache_key = scene_cache_key(&overpass_query);
     let topology_worker = env::var("MAGNUS_TOPOLOGY_WORKER").ok();
-    if topology_worker.is_none() {
-        if let Some(scene) = state.scene_cache.read().await.get(&cache_key).cloned() {
-            return Ok(Json(scene));
-        }
+    let scene_cache_key = if topology_worker.is_some() {
+        format!("topology-v6-{cache_key}")
+    } else {
+        cache_key.clone()
+    };
+    if let Some(scene) = state.scene_cache.read().await.get(&scene_cache_key).cloned() {
+        return Ok(Json(scene));
     }
     if topology_worker.is_none() {
         if let Some(scene) = read_cached_scene(&state.cache_directory, &cache_key).await {
@@ -188,7 +191,7 @@ async fn resolve_road_scene(
                 .scene_cache
                 .write()
                 .await
-                .insert(cache_key, scene.clone());
+                .insert(scene_cache_key.clone(), scene.clone());
             return Ok(Json(scene));
         }
     }
@@ -199,14 +202,14 @@ async fn resolve_road_scene(
                 .scene_cache
                 .write()
                 .await
-                .insert(cache_key.clone(), scene.clone());
-            write_cached_scene(&state.cache_directory, &cache_key, &scene).await;
+                .insert(scene_cache_key.clone(), scene.clone());
+            write_cached_scene(&state.cache_directory, &scene_cache_key, &scene).await;
             return Ok(Json(scene));
         }
     }
 
     if source_mode == SceneSourceMode::Offline {
-        return resolve_prepared_scene(&state, &request, &cache_key).await;
+        return resolve_prepared_scene(&state, &request, &scene_cache_key).await;
     }
     if source_mode == SceneSourceMode::Lan {
         return Err(api_error(
@@ -292,13 +295,13 @@ async fn resolve_road_scene(
                 .scene_cache
                 .write()
                 .await
-                .insert(cache_key.clone(), scene.clone());
-            write_cached_scene(&state.cache_directory, &cache_key, &scene).await;
+                .insert(scene_cache_key.clone(), scene.clone());
+            write_cached_scene(&state.cache_directory, &scene_cache_key, &scene).await;
             return Ok(Json(scene));
         }
     }
 
-    match resolve_prepared_scene(&state, &request, &cache_key).await {
+    match resolve_prepared_scene(&state, &request, &scene_cache_key).await {
         Ok(scene) => Ok(scene),
         Err(_) => Err(api_error(
             StatusCode::BAD_GATEWAY,
@@ -314,14 +317,18 @@ fn compile_with_topology_worker(
 ) -> Result<RoadScene, String> {
     let input_path = env::temp_dir().join(format!("magnus-topology-{}.osm", std::process::id()));
     let output_path = env::temp_dir().join(format!("magnus-topology-{}.json", std::process::id()));
+    let clip_path = env::temp_dir().join(format!("magnus-topology-{}.geojson", std::process::id()));
     let result = (|| {
         let response: Value =
             serde_json::from_str(overpass_json).map_err(|error| error.to_string())?;
         std::fs::write(&input_path, overpass_to_osm_xml(&response)?)
             .map_err(|error| error.to_string())?;
+        std::fs::write(&clip_path, topology_clip_geojson(&response)?)
+            .map_err(|error| error.to_string())?;
         let status = Command::new(worker)
             .arg(&input_path)
             .arg(&output_path)
+            .arg(&clip_path)
             .status()
             .map_err(|error| error.to_string())?;
         if !status.success() {
@@ -339,7 +346,55 @@ fn compile_with_topology_worker(
     })();
     let _ = std::fs::remove_file(input_path);
     let _ = std::fs::remove_file(output_path);
+    let _ = std::fs::remove_file(clip_path);
     result
+}
+
+fn topology_clip_geojson(response: &Value) -> Result<String, String> {
+    let anchors = response["elements"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|element| {
+            element["type"] == "node"
+                && element["tags"]["highway"] == "motorway_junction"
+        })
+        .filter_map(|element| Some((element["lon"].as_f64()?, element["lat"].as_f64()?)))
+        .collect::<Vec<_>>();
+    let Some((minimum_longitude, maximum_longitude, minimum_latitude, maximum_latitude)) = anchors
+        .iter()
+        .fold(None::<(f64, f64, f64, f64)>, |bounds, (longitude, latitude)| {
+            Some(match bounds {
+                None => (*longitude, *longitude, *latitude, *latitude),
+                Some((min_lon, max_lon, min_lat, max_lat)) => (
+                    min_lon.min(*longitude),
+                    max_lon.max(*longitude),
+                    min_lat.min(*latitude),
+                    max_lat.max(*latitude),
+                ),
+            })
+        })
+    else {
+        return Err("topology response contains no motorway junction anchors".into());
+    };
+    let padding = 0.01;
+    Ok(serde_json::json!({
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [minimum_longitude - padding, minimum_latitude - padding],
+                    [maximum_longitude + padding, minimum_latitude - padding],
+                    [maximum_longitude + padding, maximum_latitude + padding],
+                    [minimum_longitude - padding, maximum_latitude + padding],
+                    [minimum_longitude - padding, minimum_latitude - padding]
+                ]]
+            }
+        }]
+    }).to_string())
 }
 
 fn overpass_to_osm_xml(response: &Value) -> Result<String, String> {
@@ -762,6 +817,7 @@ mod tests {
                 },
             ],
             diagnostics: Vec::new(),
+            normalized_topology: None,
         };
 
         upgrade_v3_fog_lines(&mut scene);

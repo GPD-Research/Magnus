@@ -199,6 +199,7 @@ pub fn compile_pbf(
         viewport,
         features,
         diagnostics: Vec::new(),
+        normalized_topology: None,
     })
 }
 
