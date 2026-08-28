@@ -761,6 +761,7 @@ mod tests {
                     properties,
                 },
             ],
+            diagnostics: Vec::new(),
         };
 
         upgrade_v3_fog_lines(&mut scene);

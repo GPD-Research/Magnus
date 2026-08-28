@@ -15,6 +15,13 @@ export interface RelationshipRecord {
   sourceNodeIds: number[]
 }
 
+export interface TopologyDiagnostic {
+  kind: string
+  roadIds: number[]
+  sourceWayIds: number[]
+  crossingPoint: Position
+}
+
 export type RoadFeatureKind =
   | 'road-casing'
   | 'road-surface'
@@ -76,6 +83,7 @@ export interface RoadScene {
   }
   viewport: { width: number; height: number }
   features: RoadFeature[]
+  diagnostics?: TopologyDiagnostic[]
 }
 
 export const ROADWAY_DIMENSIONS_FEET = {

@@ -4,6 +4,7 @@ use thiserror::Error;
 use crate::{
     CoordinateSystem, FeatureProperties, Geometry, LaneRecord, RelationshipRecord, RoadFeature,
     RoadFeatureKind, RoadScene, SceneSource, SceneSourceType, Viewport,
+    TopologyDiagnostic,
 };
 
 #[derive(Debug, Error)]
@@ -23,6 +24,8 @@ struct TopologyScene {
     intersections: Vec<TopologyIntersection>,
     #[serde(default)]
     markings: Vec<TopologyMarking>,
+    #[serde(default)]
+    diagnostics: Vec<TopologyDiagnostic>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +46,10 @@ struct TopologyRoad {
     endpoint_node_ids: Vec<i64>,
     #[serde(default, rename = "laneRecords")]
     lane_records: Vec<LaneRecord>,
+    #[serde(default)]
+    bridge: Option<bool>,
+    #[serde(default)]
+    tunnel: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,6 +82,7 @@ pub fn compile_topology_scene(
     if topology.version != 1 || topology.coordinate_units != "feet" {
         return Err(TopologyAdapterError::UnsupportedVersion);
     }
+    let diagnostics = topology.diagnostics;
 
     let mut features = Vec::new();
     for (index, road) in topology.roads.into_iter().enumerate() {
@@ -87,6 +95,8 @@ pub fn compile_topology_scene(
             source_way_ids: road.source_way_ids.clone(),
             endpoint_node_ids: road.endpoint_node_ids,
             lane_records: road.lane_records,
+            bridge: road.bridge,
+            tunnel: road.tunnel,
             highway: Some(road.highway),
             lanes: Some(road.lane_count as u16),
             direction: Some("forward".into()),
@@ -171,6 +181,7 @@ pub fn compile_topology_scene(
         },
         viewport: viewport_for_features(&features),
         features,
+        diagnostics,
     })
 }
 
@@ -312,6 +323,8 @@ mod tests {
         assert_eq!(mainline.layer, 0);
         assert_eq!(ramp.layer, 0);
         assert_eq!(overpass.layer, 1);
+        assert_eq!(overpass.properties.bridge, Some(true));
+        assert_eq!(overpass.properties.tunnel, Some(false));
         assert_eq!(
             mainline.properties.endpoint_node_ids,
             vec![1430000, 1430001]
@@ -319,6 +332,10 @@ mod tests {
         assert_eq!(mainline.properties.lane_records.len(), 3);
         assert_eq!(ramp.properties.lane_records[0].lane_type, "driving");
         assert_eq!(ramp.properties.lane_records[0].width_feet, 12.0);
+        assert_eq!(scene.diagnostics.len(), 1);
+        assert_eq!(scene.diagnostics[0].kind, "grade-separated");
+        assert_eq!(scene.diagnostics[0].road_ids, vec![0, 2]);
+        assert_eq!(scene.diagnostics[0].crossing_point, [400.0, 200.0]);
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::IntersectionSurface
                 && feature.properties.osm_id == Some(1430001)

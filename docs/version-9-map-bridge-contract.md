@@ -68,6 +68,10 @@ as a compatibility summary of the first pair. The topology worker derives
 these values from typed crossing candidates; the adapter carries the result
 without asking the frontend to reinterpret raw OSM geometry.
 
+Non-intersection 2D crossings are reported in `diagnostics` with `kind`, local
+`roadIds`, contributing `sourceWayIds`, and a feet-based `crossingPoint`. These
+diagnostics never create an intersection surface or marking termination.
+
 ## Crossing invariant
 
 For two roads whose 2D geometries cross, node connectivity is the primary

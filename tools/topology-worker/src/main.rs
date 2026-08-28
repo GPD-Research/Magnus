@@ -1,7 +1,13 @@
-use std::{collections::HashMap, env, fs::File, io::BufWriter, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env,
+    fs::File,
+    io::BufWriter,
+    path::PathBuf,
+};
 
 use abstio::MapName;
-use abstutil::Timer;
+use abstutil::{Tags, Timer};
 use anyhow::{bail, Context, Result};
 use convert_osm::{convert, Options};
 use geojson::{GeoJson, Value as GeoJsonValue};
@@ -9,7 +15,7 @@ use geom::{GPSBounds, LonLat};
 use magnus_spatial_core::topology::{
     classify_road_relationship, CrossingCandidate, RoadRelationship, RoadStructure,
 };
-use osm2streets::{Filter, StreetNetwork, Transformation};
+use osm2streets::{osm::WayID, Filter, StreetNetwork, Transformation};
 use serde_json::{json, Value};
 
 fn main() -> Result<()> {
@@ -42,16 +48,17 @@ fn main() -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let writer = BufWriter::new(File::create(&output)?);
-    serde_json::to_writer_pretty(writer, &topology_scene(&map.streets)?)
+    serde_json::to_writer_pretty(writer, &topology_scene(&map.streets, &map.osm_tags)?)
         .with_context(|| format!("failed to write {}", output.display()))?;
     println!("exported normalized topology to {}", output.display());
     Ok(())
 }
 
-fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
+fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> Result<Value> {
     let serialized = serde_json::to_value(streets).expect("StreetNetwork should serialize");
     let serialized_intersections = &serialized["intersections"];
-    let road_structures = road_structures(&serialized["roads"]);
+    let road_structures = road_structures(&serialized["roads"], osm_tags);
+    let road_polygons = normalized_road_polygons(streets);
     let roads = serialized["roads"]
         .as_array()
         .into_iter()
@@ -60,6 +67,11 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
         .map(|road| {
             let center_line = points(&road["center_line"]["pts"]);
             let width_feet = meters_to_feet(sum_lane_widths(&road["lane_specs_ltr"]));
+            let (bridge, tunnel) = structural_tags(&road["osm_ids"], osm_tags);
+            let surface_polygon = road["id"]
+                .as_i64()
+                .and_then(|id| road_polygons.get(&id).cloned())
+                .unwrap_or_else(|| ribbon(&center_line, width_feet));
             json!({
                 "sourceWayIds": road["osm_ids"],
                 "endpointNodeIds": source_endpoint_node_ids(road, serialized_intersections),
@@ -67,8 +79,10 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
                 "highway": road["highway_type"],
                 "laneCount": road["lane_specs_ltr"].as_array().map_or(1, Vec::len),
                 "laneRecords": lane_records(&road["lane_specs_ltr"]),
+                "bridge": bridge,
+                "tunnel": tunnel,
                 "centerLine": center_line,
-                "surfacePolygon": ribbon(&center_line, width_feet),
+                "surfacePolygon": surface_polygon,
                 "widthFeet": width_feet,
                 "trimStartFeet": serialized_distance_to_feet(&road["trim_start"]),
                 "trimEndFeet": serialized_distance_to_feet(&road["trim_end"]),
@@ -91,6 +105,7 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
             })
         })
         .collect::<Vec<_>>();
+    let diagnostics = non_intersection_diagnostics(&serialized["roads"], &road_structures);
     let markings = streets
         .to_lane_markings_geojson(&Filter::All)
         .map_err(|error| anyhow::anyhow!(error))?;
@@ -101,26 +116,207 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
         "roads": roads,
         "intersections": intersections,
         "markings": markings,
+        "diagnostics": diagnostics,
     }))
 }
 
-fn road_structures(roads: &Value) -> HashMap<i64, RoadStructure> {
+fn normalized_road_polygons(streets: &StreetNetwork) -> HashMap<i64, Vec<[f64; 2]>> {
+    streets
+        .roads
+        .iter()
+        .map(|(id, road)| {
+            let polygon = road
+                .center_line
+                .make_polygons(road.total_width())
+                .get_outer_ring()
+                .points()
+                .iter()
+                .map(|point| [point.x() * 3.280_839_895, point.y() * 3.280_839_895])
+                .collect();
+            (id.0 as i64, polygon)
+        })
+        .collect()
+}
+
+fn non_intersection_diagnostics(
+    roads: &Value,
+    road_structures: &HashMap<i64, RoadStructure>,
+) -> Vec<Value> {
+    let Some(roads) = roads.as_array() else {
+        return Vec::new();
+    };
+    let mut diagnostics = Vec::new();
+    for first_index in 0..roads.len() {
+        for second_index in (first_index + 1)..roads.len() {
+            let Some(first_entry) = roads[first_index].as_array() else {
+                continue;
+            };
+            let Some(second_entry) = roads[second_index].as_array() else {
+                continue;
+            };
+            let Some(first_id) = first_entry.first().and_then(Value::as_i64) else {
+                continue;
+            };
+            let Some(second_id) = second_entry.first().and_then(Value::as_i64) else {
+                continue;
+            };
+            let Some(first) = first_entry.get(1) else {
+                continue;
+            };
+            let Some(second) = second_entry.get(1) else {
+                continue;
+            };
+            if share_normalized_endpoint(first, second) {
+                continue;
+            }
+            let Some(crossing_point) = line_crossing_point(
+                &points(&first["center_line"]["pts"]),
+                &points(&second["center_line"]["pts"]),
+            ) else {
+                continue;
+            };
+            let Some(first_structure) = road_structures.get(&first_id) else {
+                continue;
+            };
+            let Some(second_structure) = road_structures.get(&second_id) else {
+                continue;
+            };
+            let kind = match classify_road_relationship(CrossingCandidate {
+                shared_node_ids: Vec::new(),
+                first: *first_structure,
+                second: *second_structure,
+            }) {
+                RoadRelationship::GradeSeparated { .. } => "grade-separated",
+                RoadRelationship::Unresolved { .. } => "unresolved",
+                RoadRelationship::ConnectedAtNode { .. } => continue,
+            };
+            let mut source_way_ids = first["osm_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_i64)
+                .chain(
+                    second["osm_ids"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_i64),
+                )
+                .collect::<Vec<_>>();
+            source_way_ids.sort_unstable();
+            source_way_ids.dedup();
+            diagnostics.push(json!({
+                "kind": kind,
+                "roadIds": [first_id, second_id],
+                "sourceWayIds": source_way_ids,
+                "crossingPoint": crossing_point,
+            }));
+        }
+    }
+    diagnostics
+}
+
+fn share_normalized_endpoint(first: &Value, second: &Value) -> bool {
+    let first_endpoints = [first["src_i"].as_i64(), first["dst_i"].as_i64()];
+    let second_endpoints = [second["src_i"].as_i64(), second["dst_i"].as_i64()];
+    first_endpoints.into_iter().flatten().any(|first_id| {
+        second_endpoints
+            .into_iter()
+            .flatten()
+            .any(|second_id| first_id == second_id)
+    })
+}
+
+fn line_crossing_point(first: &[[f64; 2]], second: &[[f64; 2]]) -> Option<[f64; 2]> {
+    for first_segment in first.windows(2) {
+        for second_segment in second.windows(2) {
+            if let Some(point) = segment_crossing_point(first_segment, second_segment) {
+                return Some(point);
+            }
+        }
+    }
+    None
+}
+
+fn segment_crossing_point(first: &[[f64; 2]], second: &[[f64; 2]]) -> Option<[f64; 2]> {
+    let origin = first[0];
+    let first_vector = [first[1][0] - origin[0], first[1][1] - origin[1]];
+    let second_origin = second[0];
+    let second_vector = [
+        second[1][0] - second_origin[0],
+        second[1][1] - second_origin[1],
+    ];
+    let denominator = cross(first_vector, second_vector);
+    if denominator.abs() <= f64::EPSILON {
+        return None;
+    }
+    let offset = [second_origin[0] - origin[0], second_origin[1] - origin[1]];
+    let first_distance = cross(offset, second_vector) / denominator;
+    let second_distance = cross(offset, first_vector) / denominator;
+    if !(0.0..=1.0).contains(&first_distance) || !(0.0..=1.0).contains(&second_distance) {
+        return None;
+    }
+    Some([
+        origin[0] + first_vector[0] * first_distance,
+        origin[1] + first_vector[1] * first_distance,
+    ])
+}
+
+fn cross(first: [f64; 2], second: [f64; 2]) -> f64 {
+    first[0] * second[1] - first[1] * second[0]
+}
+
+fn road_structures(roads: &Value, osm_tags: &BTreeMap<WayID, Tags>) -> HashMap<i64, RoadStructure> {
     roads
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|entry| {
             let road = entry.get(1)?;
+            let (bridge, tunnel) = structural_tags(&road["osm_ids"], osm_tags);
             Some((
                 entry.get(0)?.as_i64()?,
                 RoadStructure {
                     layer: road["layer"].as_i64()? as i16,
-                    bridge: None,
-                    tunnel: None,
+                    bridge,
+                    tunnel,
                 },
             ))
         })
         .collect()
+}
+
+fn structural_tags(
+    source_way_ids: &Value,
+    osm_tags: &BTreeMap<WayID, Tags>,
+) -> (Option<bool>, Option<bool>) {
+    (
+        structural_tag(source_way_ids, osm_tags, "bridge"),
+        structural_tag(source_way_ids, osm_tags, "tunnel"),
+    )
+}
+
+fn structural_tag(
+    source_way_ids: &Value,
+    osm_tags: &BTreeMap<WayID, Tags>,
+    key: &str,
+) -> Option<bool> {
+    let mut found = false;
+    for source_way_id in source_way_ids
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_i64)
+    {
+        let Some(tags) = osm_tags.get(&WayID(source_way_id)) else {
+            continue;
+        };
+        found = true;
+        if tags.get(key).is_some_and(|value| value != "no") {
+            return Some(true);
+        }
+    }
+    found.then_some(false)
 }
 
 fn intersection_relationships(
@@ -323,4 +519,41 @@ fn ribbon(points: &[[f64; 2]], width_feet: f64) -> Vec<[f64; 2]> {
     left.extend(right.into_iter().rev());
     left.push(left[0]);
     left
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_crossing_point_for_perpendicular_segments() {
+        assert_eq!(
+            line_crossing_point(&[[0.0, 0.0], [10.0, 0.0]], &[[5.0, -4.0], [5.0, 4.0]]),
+            Some([5.0, 0.0])
+        );
+    }
+
+    #[test]
+    fn ignores_parallel_segments() {
+        assert_eq!(
+            line_crossing_point(&[[0.0, 0.0], [10.0, 0.0]], &[[0.0, 5.0], [10.0, 5.0]]),
+            None
+        );
+    }
+
+    #[test]
+    fn recognizes_shared_normalized_endpoints() {
+        let first = json!({"src_i": 1, "dst_i": 2});
+        let second = json!({"src_i": 2, "dst_i": 3});
+
+        assert!(share_normalized_endpoint(&first, &second));
+    }
+
+    #[test]
+    fn keeps_unshared_normalized_endpoints_distinct() {
+        let first = json!({"src_i": 1, "dst_i": 2});
+        let second = json!({"src_i": 3, "dst_i": 4});
+
+        assert!(!share_normalized_endpoint(&first, &second));
+    }
 }

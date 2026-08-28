@@ -16,6 +16,8 @@
         { "laneType": "driving", "direction": "forward", "widthFeet": 12.0 },
         { "laneType": "driving", "direction": "forward", "widthFeet": 12.0 }
       ],
+      "bridge": false,
+      "tunnel": false,
       "trimStartFeet": 0.0,
       "trimEndFeet": 0.0
     },
@@ -36,6 +38,8 @@
           "sourceEvidence": { "lane": "through|merge_to_right" }
         }
       ],
+      "bridge": false,
+      "tunnel": false,
       "trimStartFeet": 0.0,
       "trimEndFeet": 0.0
     },
@@ -52,6 +56,8 @@
         { "laneType": "driving", "direction": "forward", "widthFeet": 9.0 },
         { "laneType": "driving", "direction": "forward", "widthFeet": 9.0 }
       ],
+      "bridge": true,
+      "tunnel": false,
       "trimStartFeet": 0.0,
       "trimEndFeet": 0.0
     }
@@ -76,6 +82,14 @@
       "sourceWayIds": [14301],
       "type": "merge-boundary",
       "geometry": [[394.0, 200.0], [394.0, 260.0]]
+    }
+  ],
+  "diagnostics": [
+    {
+      "kind": "grade-separated",
+      "roadIds": [0, 2],
+      "sourceWayIds": [14300, 14302],
+      "crossingPoint": [400.0, 200.0]
     }
   ]
 }

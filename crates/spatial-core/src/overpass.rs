@@ -985,6 +985,7 @@ pub fn compile_overpass_json(
         },
         viewport,
         features,
+        diagnostics: Vec::new(),
     })
 }
 

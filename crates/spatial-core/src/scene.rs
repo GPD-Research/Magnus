@@ -28,6 +28,15 @@ pub struct RelationshipRecord {
     pub source_node_ids: Vec<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TopologyDiagnostic {
+    pub kind: String,
+    pub road_ids: Vec<i64>,
+    pub source_way_ids: Vec<i64>,
+    pub crossing_point: Position,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoadFeatureKind {
@@ -144,6 +153,8 @@ pub struct RoadScene {
     pub coordinate_system: CoordinateSystem,
     pub viewport: Viewport,
     pub features: Vec<RoadFeature>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<TopologyDiagnostic>,
 }
 
 #[cfg(test)]
