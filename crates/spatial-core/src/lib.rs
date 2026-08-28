@@ -12,7 +12,7 @@ pub use location::{RoadLocationRequest, RoadReferenceType, TravelDirection};
 pub use overpass::{OverpassSceneError, compile_overpass_json, scene_radius_feet};
 pub use scene::{
     CoordinateSystem, FeatureProperties, Geometry, LaneRecord, Position, RoadFeature,
-    RoadFeatureKind, RoadScene, SceneSource, SceneSourceType, Viewport,
+    RelationshipRecord, RoadFeatureKind, RoadScene, SceneSource, SceneSourceType, Viewport,
 };
 pub use spatial_index::SpatialFeatureIndex;
 pub use topology_adapter::{TopologyAdapterError, compile_topology_scene};

@@ -2,8 +2,8 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
-    CoordinateSystem, FeatureProperties, Geometry, LaneRecord, RoadFeature, RoadFeatureKind,
-    RoadScene, SceneSource, SceneSourceType, Viewport,
+    CoordinateSystem, FeatureProperties, Geometry, LaneRecord, RelationshipRecord, RoadFeature,
+    RoadFeatureKind, RoadScene, SceneSource, SceneSourceType, Viewport,
 };
 
 #[derive(Debug, Error)]
@@ -52,6 +52,10 @@ struct TopologyIntersection {
     polygon: Vec<[f64; 2]>,
     #[serde(default)]
     relationship: Option<String>,
+    #[serde(default, rename = "connectedRoadIds")]
+    connected_road_ids: Vec<i64>,
+    #[serde(default)]
+    relationships: Vec<RelationshipRecord>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,6 +128,8 @@ pub fn compile_topology_scene(
                 osm_id: intersection.source_node_ids.first().copied(),
                 highway: Some("intersection".into()),
                 relationship: intersection.relationship,
+                connected_road_ids: intersection.connected_road_ids,
+                relationships: intersection.relationships,
                 render_width_feet: Some(0.0),
                 ..FeatureProperties::default()
             },
@@ -317,6 +323,9 @@ mod tests {
             feature.kind == RoadFeatureKind::IntersectionSurface
                 && feature.properties.osm_id == Some(1430001)
                 && feature.properties.relationship.as_deref() == Some("connected-at-node")
+                && feature.properties.connected_road_ids == vec![0, 1]
+                && feature.properties.relationships.len() == 1
+                && feature.properties.relationships[0].road_ids == vec![0, 1]
         }));
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::SemanticMarking

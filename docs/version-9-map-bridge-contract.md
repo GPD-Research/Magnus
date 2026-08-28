@@ -61,10 +61,12 @@ Intersections must include:
 - structural classification
 - whether the area is a merge/diverge surface or a grade-separated crossing
 
-The initial artifact uses `relationship` values of `connected-at-node`,
-`grade-separated`, or `unresolved`. The topology worker derives these values
-from a typed crossing candidate; the adapter carries the result without asking
-the frontend to reinterpret raw OSM geometry.
+The artifact uses per-road-pair `relationships` records with `roadIds`,
+`kind`, and `sourceNodeIds`. Values for `kind` are `connected-at-node`,
+`grade-separated`, or `unresolved`. The singular `relationship` value remains
+as a compatibility summary of the first pair. The topology worker derives
+these values from typed crossing candidates; the adapter carries the result
+without asking the frontend to reinterpret raw OSM geometry.
 
 ## Crossing invariant
 

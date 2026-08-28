@@ -145,6 +145,8 @@ pub fn compile_pbf(
             endpoint_node_ids: Vec::new(),
             lane_records: Vec::new(),
             relationship: None,
+            connected_road_ids: Vec::new(),
+            relationships: Vec::new(),
             name: way.name,
             highway: Some(way.highway),
             reference: way.reference,

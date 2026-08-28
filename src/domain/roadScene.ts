@@ -9,6 +9,12 @@ export interface LaneRecord {
   sourceEvidence?: unknown
 }
 
+export interface RelationshipRecord {
+  roadIds: number[]
+  kind: string
+  sourceNodeIds: number[]
+}
+
 export type RoadFeatureKind =
   | 'road-casing'
   | 'road-surface'
@@ -36,6 +42,8 @@ export interface RoadFeature {
     endpointNodeIds?: number[]
     laneRecords?: LaneRecord[]
     relationship?: string
+    connectedRoadIds?: number[]
+    relationships?: RelationshipRecord[]
     name?: string
     highway?: string
     reference?: string

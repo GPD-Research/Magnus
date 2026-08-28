@@ -10,8 +10,8 @@ pub struct CrossingCandidate {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoadStructure {
     pub layer: i16,
-    pub bridge: bool,
-    pub tunnel: bool,
+    pub bridge: Option<bool>,
+    pub tunnel: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,12 +46,12 @@ pub fn classify_road_relationship(candidate: CrossingCandidate) -> RoadRelations
             reason: SeparationReason::DifferentLayer,
         };
     }
-    if candidate.first.bridge || candidate.second.bridge {
+    if candidate.first.bridge == Some(true) || candidate.second.bridge == Some(true) {
         return RoadRelationship::GradeSeparated {
             reason: SeparationReason::BridgeTagged,
         };
     }
-    if candidate.first.tunnel || candidate.second.tunnel {
+    if candidate.first.tunnel == Some(true) || candidate.second.tunnel == Some(true) {
         return RoadRelationship::GradeSeparated {
             reason: SeparationReason::TunnelTagged,
         };
@@ -124,13 +124,13 @@ mod tests {
                 shared_node_ids: vec![2],
                 first: RoadStructure {
                     layer: 0,
-                    bridge: false,
-                    tunnel: false
+                    bridge: None,
+                    tunnel: None
                 },
                 second: RoadStructure {
                     layer: 1,
-                    bridge: true,
-                    tunnel: false
+                    bridge: Some(true),
+                    tunnel: None
                 },
             }),
             RoadRelationship::ConnectedAtNode { node_ids: vec![2] }
@@ -144,13 +144,13 @@ mod tests {
                 shared_node_ids: Vec::new(),
                 first: RoadStructure {
                     layer: 0,
-                    bridge: false,
-                    tunnel: false
+                    bridge: None,
+                    tunnel: None
                 },
                 second: RoadStructure {
                     layer: 1,
-                    bridge: true,
-                    tunnel: false
+                    bridge: Some(true),
+                    tunnel: None
                 },
             }),
             RoadRelationship::GradeSeparated {
@@ -166,13 +166,13 @@ mod tests {
                 shared_node_ids: Vec::new(),
                 first: RoadStructure {
                     layer: 0,
-                    bridge: false,
-                    tunnel: false
+                    bridge: None,
+                    tunnel: None
                 },
                 second: RoadStructure {
                     layer: 0,
-                    bridge: false,
-                    tunnel: false
+                    bridge: None,
+                    tunnel: None
                 },
             }),
             RoadRelationship::Unresolved {
@@ -188,13 +188,13 @@ mod tests {
                 shared_node_ids: Vec::new(),
                 first: RoadStructure {
                     layer: 0,
-                    bridge: true,
-                    tunnel: false
+                    bridge: Some(true),
+                    tunnel: None
                 },
                 second: RoadStructure {
                     layer: 0,
-                    bridge: false,
-                    tunnel: false
+                    bridge: None,
+                    tunnel: None
                 },
             }),
             RoadRelationship::GradeSeparated {

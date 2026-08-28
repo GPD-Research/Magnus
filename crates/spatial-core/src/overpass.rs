@@ -771,6 +771,8 @@ pub fn compile_overpass_json(
             endpoint_node_ids: Vec::new(),
             lane_records: Vec::new(),
             relationship: None,
+            connected_road_ids: Vec::new(),
+            relationships: Vec::new(),
             name: way.tags.get("name").cloned(),
             highway: Some(highway.clone()),
             reference: way.tags.get("ref").cloned(),

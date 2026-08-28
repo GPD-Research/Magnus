@@ -81,9 +81,12 @@ fn topology_scene(streets: &StreetNetwork) -> Result<Value> {
         .flatten()
         .filter_map(|entry| entry.as_array()?.get(1))
         .map(|intersection| {
+            let relationships = intersection_relationships(intersection, &road_structures);
             json!({
                 "sourceNodeIds": intersection["osm_ids"],
-                "relationship": intersection_relationship(intersection, &road_structures),
+                "connectedRoadIds": intersection["roads"],
+                "relationship": relationships.first().and_then(|record| record["kind"].as_str()),
+                "relationships": relationships,
                 "polygon": points(&intersection["polygon"]["rings"][0]["pts"]),
             })
         })
@@ -112,36 +115,59 @@ fn road_structures(roads: &Value) -> HashMap<i64, RoadStructure> {
                 entry.get(0)?.as_i64()?,
                 RoadStructure {
                     layer: road["layer"].as_i64()? as i16,
-                    bridge: false,
-                    tunnel: false,
+                    bridge: None,
+                    tunnel: None,
                 },
             ))
         })
         .collect()
 }
 
-fn intersection_relationship(
+fn intersection_relationships(
     intersection: &Value,
     road_structures: &HashMap<i64, RoadStructure>,
-) -> Option<&'static str> {
-    let roads = intersection["roads"].as_array()?;
-    let first = road_structures.get(&roads.first()?.as_i64()?)?;
-    let second = road_structures.get(&roads.get(1)?.as_i64()?)?;
-    let shared_node_ids = intersection["osm_ids"]
+) -> Vec<Value> {
+    let Some(roads) = intersection["roads"].as_array() else {
+        return Vec::new();
+    };
+    let shared_node_ids: Vec<i64> = intersection["osm_ids"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_i64)
         .collect();
-    match classify_road_relationship(CrossingCandidate {
-        shared_node_ids,
-        first: *first,
-        second: *second,
-    }) {
-        RoadRelationship::ConnectedAtNode { .. } => Some("connected-at-node"),
-        RoadRelationship::GradeSeparated { .. } => Some("grade-separated"),
-        RoadRelationship::Unresolved { .. } => Some("unresolved"),
+    let mut relationships = Vec::new();
+    for first_index in 0..roads.len() {
+        for second_index in (first_index + 1)..roads.len() {
+            let Some(first_id) = roads[first_index].as_i64() else {
+                continue;
+            };
+            let Some(second_id) = roads[second_index].as_i64() else {
+                continue;
+            };
+            let Some(first) = road_structures.get(&first_id) else {
+                continue;
+            };
+            let Some(second) = road_structures.get(&second_id) else {
+                continue;
+            };
+            let kind = match classify_road_relationship(CrossingCandidate {
+                shared_node_ids: shared_node_ids.clone(),
+                first: *first,
+                second: *second,
+            }) {
+                RoadRelationship::ConnectedAtNode { .. } => "connected-at-node",
+                RoadRelationship::GradeSeparated { .. } => "grade-separated",
+                RoadRelationship::Unresolved { .. } => "unresolved",
+            };
+            relationships.push(json!({
+                "roadIds": [first_id, second_id],
+                "kind": kind,
+                "sourceNodeIds": shared_node_ids.clone(),
+            }));
+        }
     }
+    relationships
 }
 
 fn source_endpoint_node_ids(road: &Value, intersections: &Value) -> Vec<i64> {

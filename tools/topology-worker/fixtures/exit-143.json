@@ -60,6 +60,14 @@
     {
       "sourceNodeIds": [1430001],
       "relationship": "connected-at-node",
+      "connectedRoadIds": [0, 1],
+      "relationships": [
+        {
+          "roadIds": [0, 1],
+          "kind": "connected-at-node",
+          "sourceNodeIds": [1430001]
+        }
+      ],
       "polygon": [[382.0, 182.0], [418.0, 182.0], [418.0, 218.0], [382.0, 218.0], [382.0, 182.0]]
     }
   ],

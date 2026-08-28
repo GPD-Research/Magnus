@@ -20,6 +20,14 @@ pub struct LaneRecord {
     pub source_evidence: Option<Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RelationshipRecord {
+    pub road_ids: Vec<i64>,
+    pub kind: String,
+    pub source_node_ids: Vec<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoadFeatureKind {
@@ -52,6 +60,10 @@ pub struct FeatureProperties {
     pub lane_records: Vec<LaneRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub relationship: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connected_road_ids: Vec<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<RelationshipRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
