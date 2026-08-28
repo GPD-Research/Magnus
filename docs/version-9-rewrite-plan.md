@@ -112,6 +112,8 @@ visible.
    overpass, semantic marking provenance, and exclusion of a disconnected way.
    The worker now emits typed relationship classifications for normalized
    intersections through the shared topology API.
+   A real bounded Exit 143 OSM extract passes the repeatable checker at
+   `node tools/topology-worker/check-exit-143.mjs <topology.json>`.
 5. Replace the current RoadScene adapter with a navigation-map adapter that
    consumes polygons and semantic markings without reconstructing gores in the
    frontend.
