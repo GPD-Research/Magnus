@@ -411,8 +411,9 @@ fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Resul
         .into_iter()
         .flatten()
         .filter_map(|entry| {
-            let road = entry.as_array()?.get(1)?;
-            Some((road["id"].as_i64()?, road["osm_ids"].clone()))
+            let road_entry = entry.as_array()?;
+            let road = road_entry.get(1)?;
+            Some((numeric_id(road_entry.first()?)?, road["osm_ids"].clone()))
         })
         .collect::<std::collections::HashMap<_, _>>();
     let mut output = Vec::new();
@@ -425,26 +426,39 @@ fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Resul
             .and_then(Value::as_str)
             .unwrap_or("semantic marking");
         let road_id = feature.property("road").and_then(Value::as_i64);
-        let source_way_ids = road_id
-            .and_then(|id| source_ids.get(&id).cloned())
-            .unwrap_or_else(|| json!([]));
         match geometry.value {
             GeoJsonValue::Polygon(rings) => {
                 for ring in rings {
+                    let local_geometry = ring
+                        .iter()
+                        .cloned()
+                        .map(|point| local_point(point, bounds))
+                        .collect::<Vec<_>>();
+                    let source_way_ids = road_id
+                        .and_then(|id| source_ids.get(&id).cloned())
+                        .unwrap_or_else(|| source_way_ids_near_geometry(&local_geometry, roads));
                     output.push(json!({
                         "type": kind,
                         "sourceWayIds": source_way_ids,
-                        "geometry": ring.into_iter().map(|point| local_point(point, bounds)).collect::<Vec<_>>(),
+                        "geometry": local_geometry,
                     }));
                 }
             }
             GeoJsonValue::MultiPolygon(polygons) => {
                 for polygon in polygons {
                     for ring in polygon {
+                        let local_geometry = ring
+                            .iter()
+                            .cloned()
+                            .map(|point| local_point(point, bounds))
+                            .collect::<Vec<_>>();
+                        let source_way_ids = road_id
+                            .and_then(|id| source_ids.get(&id).cloned())
+                            .unwrap_or_else(|| source_way_ids_near_geometry(&local_geometry, roads));
                         output.push(json!({
                             "type": kind,
                             "sourceWayIds": source_way_ids,
-                            "geometry": ring.into_iter().map(|point| local_point(point, bounds)).collect::<Vec<_>>(),
+                            "geometry": local_geometry,
                         }));
                     }
                 }
@@ -453,6 +467,65 @@ fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Resul
         }
     }
     Ok(output)
+}
+
+fn source_way_ids_near_geometry(geometry: &[[f64; 2]], roads: &Value) -> Value {
+    let Some(center) = centroid(geometry) else {
+        return json!([]);
+    };
+    let mut nearest: Option<(f64, Value)> = None;
+    for entry in roads.as_array().into_iter().flatten() {
+        let Some(road) = entry.as_array().and_then(|entry| entry.get(1)) else {
+            continue;
+        };
+        let center_line = points(&road["center_line"]["pts"]);
+        let Some(distance) = distance_to_polyline(center, &center_line) else {
+            continue;
+        };
+        if nearest.as_ref().is_none_or(|(best, _)| distance < *best) {
+            nearest = Some((distance, road["osm_ids"].clone()));
+        }
+    }
+    nearest
+        .filter(|(distance, _)| *distance <= 500.0)
+        .map(|(_, source_way_ids)| source_way_ids)
+        .unwrap_or_else(|| json!([]))
+}
+
+fn centroid(points: &[[f64; 2]]) -> Option<[f64; 2]> {
+    if points.is_empty() {
+        return None;
+    }
+    let (x, y) = points
+        .iter()
+        .fold((0.0, 0.0), |(x, y), point| (x + point[0], y + point[1]));
+    Some([x / points.len() as f64, y / points.len() as f64])
+}
+
+fn distance_to_polyline(point: [f64; 2], line: &[[f64; 2]]) -> Option<f64> {
+    line.windows(2)
+        .map(|segment| distance_to_segment(point, segment[0], segment[1]))
+        .min_by(f64::total_cmp)
+}
+
+fn distance_to_segment(point: [f64; 2], start: [f64; 2], end: [f64; 2]) -> f64 {
+    let vector = [end[0] - start[0], end[1] - start[1]];
+    let length_squared = vector[0].mul_add(vector[0], vector[1] * vector[1]);
+    let ratio = if length_squared <= f64::EPSILON {
+        0.0
+    } else {
+        ((point[0] - start[0]) * vector[0] + (point[1] - start[1]) * vector[1])
+            / length_squared
+    }
+    .clamp(0.0, 1.0);
+    let closest = [start[0] + vector[0] * ratio, start[1] + vector[1] * ratio];
+    (point[0] - closest[0]).hypot(point[1] - closest[1])
+}
+
+fn numeric_id(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.get("0").and_then(Value::as_i64))
 }
 
 fn local_point(point: Vec<f64>, bounds: &GPSBounds) -> [f64; 2] {
