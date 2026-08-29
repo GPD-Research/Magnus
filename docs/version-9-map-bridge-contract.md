@@ -59,6 +59,39 @@ includes `mergeLaneZone` with a traffic-relative `side` and the
 rendering adapter uses this structured zone, not a width guess, to select the
 dense auxiliary-lane separator and to align future fog-line and gore geometry.
 
+The merge lane is an added outer driving lane on the traffic-relative ramp
+side. A normal three-lane profile is:
+
+```text
+| left shoulder | lane | lane | lane | right shoulder |
+```
+
+For a right-side ramp, the profile becomes:
+
+```text
+| left shoulder | lane | lane | lane | merge lane | right shoulder |
+```
+
+For a left-side ramp, it becomes:
+
+```text
+| left shoulder | merge lane | lane | lane | lane | right shoulder |
+```
+
+The opposite shoulder and all pre-existing through-lane boundaries remain
+anchored across the transition. Only the merge-lane-side pavement edge and
+the dense merge-lane separator move outward. This rule applies equally to
+left- and right-side ramps on every mainline orientation.
+
+Ramp connectivity alone does not create a merge lane. The topology must also
+show an increased imported `driving` lane count on the mainline relative to a
+connected continuing mainline segment. A three-lane road that becomes a
+four-lane road at a connected ramp has a merge lane. A three-lane road whose
+outer lane simply peels away and continues as a two-lane mainline is a
+divergence: it has no added acceleration/deceleration lane and must not emit
+an auxiliary-lane separator or widened merge-lane profile. This distinction
+also applies to complex splits within the Mixing Bowl.
+
 Each lane record should retain semantic values rather than only a total lane
 count. Markings must include their semantic type and geometry, such as edge,
 lane separator, continuity, or merge boundary.

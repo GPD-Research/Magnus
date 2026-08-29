@@ -145,6 +145,25 @@ fn driving_lane_boundaries(
         .collect()
 }
 
+/// A widened road is centered across every lane in its OSM geometry. Shift the
+/// rendering profile half the outer merge-lane width so the existing through
+/// lanes remain aligned with the adjoining narrower mainline segment.
+fn merge_lane_profile_offset(lane_records: &[LaneRecord], side: Option<&str>) -> f64 {
+    let driving_lanes = lane_records
+        .iter()
+        .filter(|lane| lane.lane_type == "driving")
+        .collect::<Vec<_>>();
+    match side {
+        Some("left") => driving_lanes
+            .first()
+            .map_or(0.0, |lane| lane.width_feet / 2.0),
+        Some("right") => driving_lanes
+            .last()
+            .map_or(0.0, |lane| -lane.width_feet / 2.0),
+        _ => 0.0,
+    }
+}
+
 fn offset_polyline(points: &[[f64; 2]], offset_feet: f64) -> Vec<[f64; 2]> {
     points
         .iter()
@@ -165,6 +184,19 @@ fn offset_polyline(points: &[[f64; 2]], offset_feet: f64) -> Vec<[f64; 2]> {
             }
         })
         .collect()
+}
+
+fn ribbon(points: &[[f64; 2]], width_feet: f64) -> Vec<[f64; 2]> {
+    let left = offset_polyline(points, width_feet / 2.0);
+    let mut right = offset_polyline(points, -width_feet / 2.0);
+    if left.len() < 2 || right.len() < 2 {
+        return Vec::new();
+    }
+    let mut ring = left;
+    right.reverse();
+    ring.extend(right);
+    ring.push(ring[0]);
+    ring
 }
 
 pub fn compile_topology_scene(
@@ -193,6 +225,15 @@ pub fn compile_topology_scene(
             .map(|zone| zone.side.as_str())
             .or(road.auxiliary_lane_side.as_deref());
         let lane_boundaries = driving_lane_boundaries(&road.lane_records, merge_lane_side);
+        let rendered_center_line = offset_polyline(
+            &road.center_line,
+            merge_lane_profile_offset(&road.lane_records, merge_lane_side),
+        );
+        let rendered_surface_polygon = if merge_lane_side.is_some() {
+            ribbon(&rendered_center_line, road.width_feet)
+        } else {
+            road.surface_polygon.clone()
+        };
         let properties = FeatureProperties {
             osm_id,
             source_way_ids: road.source_way_ids.clone(),
@@ -213,7 +254,7 @@ pub fn compile_topology_scene(
             id: format!("{id}-casing"),
             kind: RoadFeatureKind::RoadCasing,
             layer: road.layer,
-            geometry: Geometry::Polygon(vec![road.surface_polygon.clone()]),
+            geometry: Geometry::Polygon(vec![rendered_surface_polygon]),
             properties: FeatureProperties {
                 render_width_feet: Some((road.width_feet.max(12.0)) + 8.0),
                 ..properties.clone()
@@ -223,7 +264,7 @@ pub fn compile_topology_scene(
             id: format!("{id}-surface"),
             kind: RoadFeatureKind::RoadSurface,
             layer: road.layer,
-            geometry: Geometry::LineString(road.center_line.clone()),
+            geometry: Geometry::LineString(rendered_center_line.clone()),
             properties: FeatureProperties {
                 render_width_feet: Some(road.width_feet.max(12.0)),
                 ..properties
@@ -239,7 +280,7 @@ pub fn compile_topology_scene(
                 id: format!("{id}-skip-line-{boundary_index}"),
                 kind,
                 layer: road.layer + 1,
-                geometry: Geometry::LineString(offset_polyline(&road.center_line, offset_feet)),
+                geometry: Geometry::LineString(offset_polyline(&rendered_center_line, offset_feet)),
                 properties: FeatureProperties {
                     osm_id,
                     source_way_ids: road.source_way_ids.clone(),
@@ -494,6 +535,40 @@ mod tests {
 
         assert_eq!(surface.properties.render_width_feet, Some(28.0));
         assert_eq!(casing.properties.render_width_feet, Some(36.0));
+    }
+
+    #[test]
+    fn anchors_existing_through_lanes_when_an_outer_merge_lane_is_added() {
+        let lanes = vec![
+            LaneRecord {
+                lane_type: "driving".into(),
+                direction: "forward".into(),
+                width_feet: 12.0,
+                source_evidence: None,
+            },
+            LaneRecord {
+                lane_type: "driving".into(),
+                direction: "forward".into(),
+                width_feet: 12.0,
+                source_evidence: None,
+            },
+            LaneRecord {
+                lane_type: "driving".into(),
+                direction: "forward".into(),
+                width_feet: 12.0,
+                source_evidence: None,
+            },
+            LaneRecord {
+                lane_type: "driving".into(),
+                direction: "forward".into(),
+                width_feet: 12.0,
+                source_evidence: None,
+            },
+        ];
+
+        assert_eq!(merge_lane_profile_offset(&lanes, Some("right")), -6.0);
+        assert_eq!(merge_lane_profile_offset(&lanes, Some("left")), 6.0);
+        assert_eq!(merge_lane_profile_offset(&lanes, None), 0.0);
     }
 
     #[test]
