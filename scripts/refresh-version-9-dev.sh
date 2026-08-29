@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIRECTORY="$(cd -- "$SCRIPT_DIRECTORY/.." && pwd)"
-BRANCH="version-9-rewrite"
+BRANCH="magnus-supreme-v1.0.0"
 WEB_PORT="${MAGNUS_WEB_PORT:-5173}"
 SPATIAL_PORT="${MAGNUS_SPATIAL_PORT:-8787}"
 LOG_FILE="$PROJECT_DIRECTORY/target/magnus-dev.log"
