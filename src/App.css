@@ -299,8 +299,8 @@
 .road-feature-road-surface { fill: url(#roadSurfacePattern); stroke: none; }
 .road-feature-road-casing[data-geometry-type='LineString'] { fill: none; }
 .road-feature-road-surface[data-geometry-type='LineString'] { fill: none; stroke: url(#roadSurfacePattern); stroke-linejoin: round; }
-.road-feature-left-fog-line { fill: none; stroke: #f0f1eb; }
-.road-feature-right-fog-line { fill: none; stroke: #e2c943; }
+.road-feature-left-fog-line { fill: none; stroke: #e2c943; }
+.road-feature-right-fog-line { fill: none; stroke: #f0f1eb; }
 .road-feature-skip-line { fill: none; stroke: #edf0e8; }
 .road-feature-auxiliary-lane-line { fill: none; stroke: #edf0e8; }
 .road-feature-shoulder-edge { fill: none; stroke: #d8ddd9; }

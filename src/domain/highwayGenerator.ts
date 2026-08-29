@@ -1,4 +1,5 @@
 import { ROADWAY_DIMENSIONS_FEET, type Position, type RoadFeature, type RoadScene } from './roadScene'
+import { sideAwareOffsets } from './locationTemplateEditing'
 
 export type HighwayLaneCount = 1 | 2 | 3
 export type HighwayDirectionMode = 'one-direction' | 'both-directions'
@@ -55,19 +56,30 @@ function pt(x: number, y: number): Position {
   return [x, y]
 }
 
-function boundsOf(features: RoadFeature[]): { minX: number; maxX: number } {
+function boundsOf(features: RoadFeature[]): { minX: number; maxX: number; minY: number; maxY: number } {
   let minX = Number.POSITIVE_INFINITY
   let maxX = Number.NEGATIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
   for (const feature of features) {
     const rings = feature.geometry.type === 'Polygon' ? feature.geometry.coordinates : [feature.geometry.coordinates]
     for (const ring of rings) {
-      for (const [x] of ring) {
+      for (const [x, y] of ring) {
         if (x < minX) minX = x
         if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
       }
     }
   }
-  return { minX, maxX }
+  return { minX, maxX, minY, maxY }
+}
+
+function shiftFeature(feature: RoadFeature, dx: number, dy: number): RoadFeature {
+  if (feature.geometry.type === 'Polygon') {
+    return { ...feature, geometry: { type: 'Polygon', coordinates: feature.geometry.coordinates.map((ring) => ring.map(([x, y]): Position => [x + dx, y + dy])) } }
+  }
+  return { ...feature, geometry: { type: 'LineString', coordinates: feature.geometry.coordinates.map(([x, y]): Position => [x + dx, y + dy]) } }
 }
 
 /** Builds one carriageway's pavement/markings, returning the x of its right shoulder edge for attachments. */
@@ -151,31 +163,56 @@ function auxiliaryLaneFeatures(idPrefix: string, rightEdgeX: number, mode: 'dece
   const shoulderEdge = mode === 'decel'
     ? [pt(rightEdgeX, AUX_TAPER_START_Y), pt(outerX, AUX_TAPER_END_Y), pt(outerX, narrowY)]
     : [pt(rightEdgeX, narrowY), pt(outerX, AUX_TAPER_END_Y), pt(outerX, wideY)]
+  // the fog line coloring is left=yellow/right=white with respect to the direction of travel, not
+  // fixed screen sides, so pick geometrically per shoulderEdge's own smaller/larger average X.
+  const fogLineSides = rightEdgeX <= outerX
+    ? { leftFog: [pt(rightEdgeX, mode === 'decel' ? AUX_TAPER_START_Y : narrowY), pt(rightEdgeX, mode === 'decel' ? narrowY : wideY)], rightFog: shoulderEdge }
+    : { leftFog: shoulderEdge, rightFog: [pt(rightEdgeX, mode === 'decel' ? AUX_TAPER_START_Y : narrowY), pt(rightEdgeX, mode === 'decel' ? narrowY : wideY)] }
 
   const features: RoadFeature[] = [
     { id: `${idPrefix}-aux-casing`, kind: 'road-casing', layer: 1, geometry: { type: 'Polygon', coordinates: [casingRing] }, properties },
     { id: `${idPrefix}-aux-surface`, kind: 'road-surface', layer: 1, geometry: { type: 'Polygon', coordinates: [surfaceRing] }, properties },
     { id: `${idPrefix}-aux-shoulder-edge`, kind: 'shoulder-edge', layer: 1, geometry: { type: 'LineString', coordinates: shoulderEdge }, properties: { direction: 'forward', renderWidthFeet: 1 } },
+    { id: `${idPrefix}-aux-left-fog`, kind: 'left-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: fogLineSides.leftFog }, properties: { direction: 'forward', renderWidthFeet: edgeLineWidth } },
+    { id: `${idPrefix}-aux-right-fog`, kind: 'right-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: fogLineSides.rightFog }, properties: { direction: 'forward', renderWidthFeet: edgeLineWidth } },
   ]
   const attachY = mode === 'decel' ? narrowY : wideY
   const attachPoint = pt((rightEdgeX + outerX) / 2, attachY)
   return { features, attachPoint }
 }
 
-/** Builds the ramp curve (straight or circular) running away from `attachPoint`, oriented off/on per style. */
+/**
+ * Builds the ramp curve running away from `attachPoint`, oriented off/on per style. Circular
+ * styles sweep a genuine 1/3-circle (120°) arc — like a cloverleaf loop ramp — starting tangent to
+ * the mainline's direction of travel and continuously curving away from it; straight styles are a
+ * simple diagonal. On-ramps mirror the same relative shape (the path approaches from outside the
+ * frame and curves INTO the attach point instead of away from it).
+ */
 function rampFeatures(idPrefix: string, attachPoint: Position, style: HighwayRampStyle): RoadFeature[] {
   const isOff = style === 'straight-off-ramp' || style === 'circular-off-ramp'
   const isCircular = style === 'circular-off-ramp' || style === 'circular-on-ramp'
   const [ax, ay] = attachPoint
-  const relative: Position[] = isCircular
-    ? [pt(0, 0), pt(4, -50), pt(20, -110), pt(46, -170), pt(73, -215), pt(84, -255), pt(94, -285)]
-    : [pt(0, 0), pt(10, -40), pt(85, -235)]
+  let relative: Position[]
+  if (isCircular) {
+    const radius = 130
+    const sweepRadians = (120 * Math.PI) / 180
+    const segments = 20
+    relative = Array.from({ length: segments + 1 }, (_, index) => {
+      const phi = Math.PI + (index / segments) * sweepRadians
+      return pt(radius + radius * Math.cos(phi), radius * Math.sin(phi))
+    })
+  } else {
+    relative = [pt(0, 0), pt(10, -40), pt(85, -235)]
+  }
   const oriented = isOff ? relative : relative.map(([dx, dy]): Position => pt(dx, -dy))
   const coordinates: Position[] = oriented.map(([dx, dy]) => pt(ax + dx, ay + dy))
   const properties = { name: isOff ? 'Exit ramp' : 'Entrance ramp', highway: 'motorway_link', lanes: 1, direction: 'forward' as const }
+  const { leftSide, rightSide } = sideAwareOffsets(coordinates, laneWidth / 2)
   return [
     { id: `${idPrefix}-ramp-casing`, kind: 'road-casing', layer: 1, geometry: { type: 'LineString', coordinates }, properties: { ...properties, renderWidthFeet: laneWidth + 8 } },
     { id: `${idPrefix}-ramp-surface`, kind: 'road-surface', layer: 1, geometry: { type: 'LineString', coordinates }, properties: { ...properties, renderWidthFeet: laneWidth } },
+    { id: `${idPrefix}-ramp-left-fog`, kind: 'left-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: leftSide }, properties: { direction: 'forward', renderWidthFeet: edgeLineWidth } },
+    { id: `${idPrefix}-ramp-right-fog`, kind: 'right-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: rightSide }, properties: { direction: 'forward', renderWidthFeet: edgeLineWidth } },
   ]
 }
 
@@ -209,7 +246,12 @@ export function generateHighwayScene(options: HighwayGeneratorOptions): RoadScen
   }
   features.push(...rampFeatures('primary', attachPoint, options.ramp))
 
-  const { maxX } = boundsOf(features)
+  const bounds = boundsOf(features)
+  const shiftX = bounds.minX < 4 ? 4 - bounds.minX : 0
+  const shiftY = bounds.minY < 4 ? 4 - bounds.minY : 0
+  const finalFeatures = shiftX || shiftY ? features.map((feature) => shiftFeature(feature, shiftX, shiftY)) : features
+  const width = bounds.maxX + shiftX + 16
+  const height = Math.max(HEIGHT, bounds.maxY + shiftY + 16)
   const rampLabel = HIGHWAY_RAMP_OPTIONS.find((option) => option.value === options.ramp)?.label ?? options.ramp
   const directionLabel = options.direction === 'both-directions' ? 'divided' : 'one-way'
 
@@ -222,8 +264,8 @@ export function generateHighwayScene(options: HighwayGeneratorOptions): RoadScen
       attribution: 'Magnus generic highway generator; geometry is not map-derived.',
     },
     coordinateSystem: { worldCrs: 'EPSG:2283', displayUnits: 'feet', origin: 'top-left', trafficFlow: 'bottom-to-top' },
-    viewport: { width: maxX + 16, height: HEIGHT },
-    features,
+    viewport: { width, height },
+    features: finalFeatures,
   }
 }
 

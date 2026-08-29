@@ -203,8 +203,8 @@ const EXPORT_STYLE = `
 .road-feature-road-surface { fill: #3c4547; stroke: none; }
 .road-feature-road-casing[data-geometry-type='LineString'] { fill: none; }
 .road-feature-road-surface[data-geometry-type='LineString'] { fill: none; stroke: #3c4547; stroke-linejoin: round; }
-.road-feature-left-fog-line { fill: none; stroke: #f0f1eb; }
-.road-feature-right-fog-line { fill: none; stroke: #e2c943; }
+.road-feature-left-fog-line { fill: none; stroke: #e2c943; }
+.road-feature-right-fog-line { fill: none; stroke: #f0f1eb; }
 .road-feature-skip-line { fill: none; stroke: #edf0e8; stroke-dasharray: 10 30; }
 .road-feature-auxiliary-lane-line { fill: none; stroke: #edf0e8; stroke-dasharray: 3 9; }
 .road-feature-shoulder-edge { fill: none; stroke: #d8ddd9; }

@@ -64,6 +64,8 @@ export interface RoadFeature {
     direction?: 'forward' | 'backward'
     renderWidthFeet?: number
     markingType?: string
+    /** Editable centerline + per-point half-widths for hand-painted pavement (Location Template Creator paint/erase brush). */
+    paintProfile?: { centerline: Position[]; leftWidths: number[]; rightWidths: number[] }
   }
 }
 
