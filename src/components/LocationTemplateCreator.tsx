@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   Anchor,
   ChevronDown,
@@ -222,6 +222,9 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
   const [history, setHistory] = useState<{ scene: RoadScene; stamps: PlacedStamp[] }[]>([])
 
   const svgRef = useRef<SVGSVGElement>(null)
+  const canvasWrapRef = useRef<HTMLDivElement>(null)
+  const zoomCenterRef = useRef<{ x: number; y: number } | null>(null)
+  const pendingCenterRef = useRef(true)
   const paintStrokeIdRef = useRef<string | null>(null)
   const paintCenterlineRef = useRef<Position[]>([])
   const isErasingRef = useRef(false)
@@ -268,13 +271,49 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
     if (next !== 'select') setMultiSelectedFeatureIds(new Set())
   }
 
+  function captureZoomCenter() {
+    const wrap = canvasWrapRef.current
+    if (!wrap) return
+    zoomCenterRef.current = {
+      x: (wrap.scrollLeft + wrap.clientWidth / 2) / (PIXELS_PER_FOOT * zoom),
+      y: (wrap.scrollTop + wrap.clientHeight / 2) / (PIXELS_PER_FOOT * zoom),
+    }
+  }
+
   function zoomIn() {
+    captureZoomCenter()
     setZoom((current) => Math.min(6, Math.round((current + 0.25) * 100) / 100))
   }
 
   function zoomOut() {
+    captureZoomCenter()
     setZoom((current) => Math.max(0.25, Math.round((current - 0.25) * 100) / 100))
   }
+
+  function resetZoom() {
+    captureZoomCenter()
+    setZoom(1)
+  }
+
+  // After zoom changes, restore scroll so the same world point stays under the viewport center.
+  useLayoutEffect(() => {
+    const wrap = canvasWrapRef.current
+    const center = zoomCenterRef.current
+    if (!wrap || !center) return
+    wrap.scrollLeft = center.x * PIXELS_PER_FOOT * zoom - wrap.clientWidth / 2
+    wrap.scrollTop = center.y * PIXELS_PER_FOOT * zoom - wrap.clientHeight / 2
+  }, [zoom])
+
+  // Center the view on the scene whenever a fresh scene is loaded/generated/cleared.
+  useLayoutEffect(() => {
+    if (!pendingCenterRef.current) return
+    pendingCenterRef.current = false
+    const wrap = canvasWrapRef.current
+    if (!wrap) return
+    wrap.scrollLeft = (scene.viewport.width * PIXELS_PER_FOOT * zoom) / 2 - wrap.clientWidth / 2
+    wrap.scrollTop = (scene.viewport.height * PIXELS_PER_FOOT * zoom) / 2 - wrap.clientHeight / 2
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene])
 
   function pushHistory() {
     setHistory((current) => [...current, { scene, stamps }].slice(-30))
@@ -397,6 +436,7 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
     setHistory([])
     setPavementUnlocked(false)
     setAnchors({})
+    pendingCenterRef.current = true
   }
 
   function generateHighway() {
@@ -410,6 +450,7 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
     setHistory([])
     setPavementUnlocked(false)
     setAnchors({})
+    pendingCenterRef.current = true
   }
 
   function loadExistingTemplate(entry: LocationTemplateEntry) {
@@ -426,9 +467,34 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
       setHistory([])
       setPavementUnlocked(false)
       setAnchors({})
+      pendingCenterRef.current = true
     } catch (error) {
       window.alert(error instanceof Error ? `Could not load template: ${error.message}` : 'Could not load template.')
     }
+  }
+
+  function clearAll() {
+    pushHistory()
+    setScene((current) => ({
+      ...current,
+      source: {
+        type: 'reference-layout',
+        dataset: 'Blank canvas',
+        generatedAt: new Date().toISOString(),
+        attribution: 'Magnus location template creator; blank working canvas.',
+      },
+      features: [],
+    }))
+    setStamps([])
+    setResolvedLocation(null)
+    setSelectedFeatureId(null)
+    setSelectedStampId(null)
+    setMultiSelectedFeatureIds(new Set())
+    setSelectedPoints([])
+    setAnchors({})
+    setPavementUnlocked(false)
+    setSceneNameHint('Untitled corridor')
+    pendingCenterRef.current = true
   }
 
   function updateFeatures(updater: (features: RoadFeature[]) => RoadFeature[]) {
@@ -908,9 +974,12 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
         </div>
         <div className="loc-creator-zoom-controls">
           <button type="button" onClick={zoomOut} title="Zoom out"><ZoomOut size={15} /></button>
-          <button type="button" className="loc-creator-zoom-value" onClick={() => setZoom(1)} title="Reset zoom">{Math.round(zoom * 100)}%</button>
+          <button type="button" className="loc-creator-zoom-value" onClick={resetZoom} title="Reset zoom">{Math.round(zoom * 100)}%</button>
           <button type="button" onClick={zoomIn} title="Zoom in"><ZoomIn size={15} /></button>
         </div>
+        <button className="loc-creator-clear-all" type="button" onClick={clearAll} title="Clear the canvas back to a bare, empty scene">
+          <Trash2 size={15} /> Clear all
+        </button>
         <button type="button" disabled={history.length === 0} onClick={undo} title="Undo last operation (Ctrl+Z)">
           <Undo2 size={15} /> Undo{history.length > 0 ? ` (${history.length})` : ''}
         </button>
@@ -1401,7 +1470,7 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
           </div>
         </nav>
 
-        <div className="loc-creator-canvas-wrap">
+        <div className="loc-creator-canvas-wrap" ref={canvasWrapRef}>
           <svg
             ref={svgRef}
             className={`loc-creator-canvas${pavementUnlocked ? '' : ' pavement-locked'}`}
@@ -1424,6 +1493,8 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
                   <path
                     className={`road-feature road-feature-${feature.kind}${isSelected || isMultiSelected ? ' loc-creator-selected' : ''}`}
                     d={featurePathD(feature)}
+                    data-geometry-type={feature.geometry.type}
+                    data-layer={feature.layer}
                     strokeWidth={width}
                     style={{ strokeWidth: width }}
                     strokeDasharray={feature.kind === 'skip-line' ? '10 30' : feature.kind === 'auxiliary-lane-line' ? '3 9' : undefined}

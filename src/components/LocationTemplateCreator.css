@@ -6,6 +6,8 @@
 .loc-creator-saved-note { color: #8fe0b2; font-size: 13px; font-weight: 600; }
 .loc-creator-header button { height: 36px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; color: #dce3df; background: transparent; border: 1px solid #4c5854; border-radius: 2px; font-size: 12px; font-weight: 600; cursor: pointer; }
 .loc-creator-header button.loc-creator-render { color: #17201f; background: #e8bd28; border-color: #e8bd28; }
+.loc-creator-header button.loc-creator-clear-all { color: #241203; background: #f2842f; border-color: #f2842f; }
+.loc-creator-header button.loc-creator-clear-all:hover { background: #ff9a44; border-color: #ff9a44; }
 .loc-creator-header button.loc-creator-close { width: 36px; justify-content: center; padding: 0; margin-left: auto; }
 
 .loc-creator-zoom-controls { display: flex; align-items: center; border: 1px solid #4c5854; border-radius: 2px; overflow: hidden; }
