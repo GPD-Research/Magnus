@@ -178,7 +178,7 @@ async fn resolve_road_scene(
     let cache_key = scene_cache_key(&overpass_query);
     let topology_worker = env::var("MAGNUS_TOPOLOGY_WORKER").ok();
     let scene_cache_key = if topology_worker.is_some() {
-        format!("topology-v7-{cache_key}")
+        format!("topology-v8-{cache_key}")
     } else {
         cache_key.clone()
     };

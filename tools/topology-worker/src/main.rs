@@ -87,12 +87,13 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
                 &serialized["roads"],
                 serialized_intersections,
             );
+            let geometric_lane_side = auxiliary_lane_side(start_break, end_break);
+            let tagged_lane_side = auxiliary_lane_side_from_tags(&road["osm_ids"], osm_tags);
             let merge_lane_zone = merge_lane_zone(
                 highway,
                 &center_line,
                 has_extra_driving_lane,
-                start_break,
-                end_break,
+                tagged_lane_side.or(geometric_lane_side),
             );
             fog_line_markings.extend(fog_line_markings_for_road(
                 &road["osm_ids"],
@@ -695,26 +696,62 @@ fn merge_lane_zone(
     highway: &str,
     center_line: &[[f64; 2]],
     has_extra_driving_lane: bool,
-    start_break: Option<FogLineSide>,
-    end_break: Option<FogLineSide>,
+    side: Option<&'static str>,
 ) -> Option<MergeLaneZone> {
-    if is_ramp_highway(highway)
-        || center_line.len() < 2
-        || !has_extra_driving_lane
-        || start_break != end_break
-    {
+    if is_ramp_highway(highway) || center_line.len() < 2 || !has_extra_driving_lane {
         return None;
     }
-    let side = match start_break {
-        Some(FogLineSide::Left) => "left",
-        Some(FogLineSide::Right) => "right",
-        None => return None,
-    };
+    let side = side?;
     Some(MergeLaneZone {
         side,
         start_arc_feet: 0.0,
         end_arc_feet: polyline_length_feet(center_line),
     })
+}
+
+fn auxiliary_lane_side(
+    start_break: Option<FogLineSide>,
+    end_break: Option<FogLineSide>,
+) -> Option<&'static str> {
+    if start_break != end_break {
+        return None;
+    }
+    match start_break {
+        Some(FogLineSide::Left) => Some("left"),
+        Some(FogLineSide::Right) => Some("right"),
+        None => None,
+    }
+}
+
+fn auxiliary_lane_side_from_tags(
+    source_way_ids: &Value,
+    osm_tags: &BTreeMap<WayID, Tags>,
+) -> Option<&'static str> {
+    source_way_ids
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_i64)
+        .filter_map(|way_id| osm_tags.get(&WayID(way_id)))
+        .filter_map(|tags| {
+            tags.get("turn:lanes")
+                .or_else(|| tags.get("turn:lanes:forward"))
+        })
+        .find_map(|turn_lanes| lane_side_from_turn_lanes(turn_lanes))
+}
+
+fn lane_side_from_turn_lanes(turn_lanes: &str) -> Option<&'static str> {
+    let lanes = turn_lanes.split('|').collect::<Vec<_>>();
+    let leftmost = lanes.first()?.to_ascii_lowercase();
+    let rightmost = lanes.last()?.to_ascii_lowercase();
+    if !rightmost.is_empty() && (rightmost.contains("right") || rightmost.contains("merge_to_left"))
+    {
+        return Some("right");
+    }
+    if !leftmost.is_empty() && (leftmost.contains("left") || leftmost.contains("merge_to_right")) {
+        return Some("left");
+    }
+    None
 }
 
 fn has_narrower_mainline_neighbor(road: &Value, roads: &Value, intersections: &Value) -> bool {
@@ -1114,13 +1151,7 @@ mod tests {
     fn identifies_a_same_side_mainline_ramp_pair_as_an_auxiliary_lane() {
         let curved_mainline = [[0.0, 0.0], [30.0, 40.0], [30.0, 80.0]];
         assert_eq!(
-            merge_lane_zone(
-                "motorway",
-                &curved_mainline,
-                true,
-                Some(FogLineSide::Right),
-                Some(FogLineSide::Right)
-            ),
+            merge_lane_zone("motorway", &curved_mainline, true, Some("right")),
             Some(MergeLaneZone {
                 side: "right",
                 start_arc_feet: 0.0,
@@ -1128,35 +1159,28 @@ mod tests {
             })
         );
         assert_eq!(
-            merge_lane_zone(
-                "motorway_link",
-                &curved_mainline,
-                true,
-                Some(FogLineSide::Right),
-                Some(FogLineSide::Right)
-            ),
+            merge_lane_zone("motorway_link", &curved_mainline, true, Some("right")),
             None
         );
         assert_eq!(
-            merge_lane_zone(
-                "motorway",
-                &curved_mainline,
-                true,
-                Some(FogLineSide::Left),
-                Some(FogLineSide::Right)
-            ),
+            merge_lane_zone("motorway", &curved_mainline, true, None),
             None
         );
         assert_eq!(
-            merge_lane_zone(
-                "motorway",
-                &curved_mainline,
-                false,
-                Some(FogLineSide::Right),
-                Some(FogLineSide::Right)
-            ),
+            merge_lane_zone("motorway", &curved_mainline, false, Some("right")),
             None
         );
+    }
+
+    #[test]
+    fn uses_the_outer_tagged_lane_position_for_an_auxiliary_lane_side() {
+        assert_eq!(lane_side_from_turn_lanes("|||right"), Some("right"));
+        assert_eq!(
+            lane_side_from_turn_lanes("|||merge_to_left;slight_right"),
+            Some("right")
+        );
+        assert_eq!(lane_side_from_turn_lanes("left|||"), Some("left"));
+        assert_eq!(lane_side_from_turn_lanes("through|through|through"), None);
     }
 
     #[test]
