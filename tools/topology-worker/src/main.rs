@@ -764,7 +764,9 @@ fn merge_lane_sides(
             let Some(sibling) = road_by_id.get(&sibling_id).copied() else {
                 continue;
             };
-            if compatible_widened_mainline_fragments(road, sibling) {
+            if compatible_widened_mainline_fragments(road, sibling)
+                && auxiliary_lane_side_from_tags(&sibling["osm_ids"], osm_tags).is_none()
+            {
                 sides.insert(sibling_id, lane_sides);
                 pending.push_back(sibling_id);
             }

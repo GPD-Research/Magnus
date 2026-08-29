@@ -101,6 +101,12 @@ the topology processor carries it across contiguous same-layer, same-class
 mainline fragments with the same widened driving-lane count. This allows the
 anchored profile to remain continuous through the full acceleration or
 deceleration corridor without incorrectly classifying a narrower divergence.
+An explicitly tagged outer lane starts a new side-specific corridor and blocks
+propagation from a preceding corridor, so a right-side lane ends before a
+subsequent left-side split begins. A single road fragment with independently
+active merge lanes on both sides requires a future multi-zone road profile;
+the current projection deliberately does not invent a second lane where the
+source topology does not separate it into another fragment.
 
 Each lane record should retain semantic values rather than only a total lane
 count. Markings must include their semantic type and geometry, such as edge,
