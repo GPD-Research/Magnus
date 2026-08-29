@@ -1,0 +1,74 @@
+.loc-creator-shell { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; color: #1a2321; background: #e7ebe8; }
+.loc-creator-header { height: 62px; flex: 0 0 62px; display: flex; align-items: center; gap: 8px; padding: 0 14px; color: #e9eeeb; background: #192220; border-bottom: 2px solid #e8bd28; }
+.loc-creator-header > div:first-child { display: flex; flex-direction: column; min-width: 220px; }
+.loc-creator-header span { color: #91a09b; font-size: 8px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; }
+.loc-creator-header h2 { margin: 1px 0 0; color: #f1f4f2; font: 600 18px 'Barlow Condensed', sans-serif; }
+.loc-creator-header-status { flex: 1; display: flex; justify-content: flex-end; }
+.loc-creator-saved-note { color: #8fe0b2; font-size: 10px; font-weight: 600; }
+.loc-creator-header button { height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; color: #dce3df; background: transparent; border: 1px solid #4c5854; border-radius: 2px; font-size: 9px; font-weight: 600; cursor: pointer; }
+.loc-creator-header button.loc-creator-render { color: #17201f; background: #e8bd28; border-color: #e8bd28; }
+.loc-creator-header button.loc-creator-close { width: 32px; justify-content: center; padding: 0; }
+
+.loc-creator-save-panel { position: absolute; z-index: 30; top: 62px; right: 14px; width: 300px; display: grid; gap: 8px; padding: 14px; color: #1a2321; background: #fff; border: 1px solid #cbd3cf; box-shadow: 0 8px 20px rgba(0,0,0,.28); }
+.loc-creator-save-panel label { display: grid; gap: 5px; color: #4d5955; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+.loc-creator-save-panel input { height: 32px; padding: 0 8px; color: #26312e; background: #fff; border: 1px solid #c9d1ce; font-size: 11px; }
+.loc-creator-save-panel small { color: #67756f; font-size: 8px; line-height: 1.4; }
+.loc-creator-save-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.loc-creator-save-actions button { height: 30px; padding: 0 10px; color: #33423c; background: #eef2f0; border: 1px solid #c5cfcb; font-size: 9px; font-weight: 600; cursor: pointer; }
+.loc-creator-save-actions button.loc-creator-save-confirm { color: #17201f; background: #e8bd28; border-color: #e8bd28; }
+
+.loc-creator-body { min-height: 0; flex: 1; display: grid; grid-template-columns: 240px minmax(420px, 1fr) 220px; }
+.loc-creator-tools { padding: 0 0 16px; overflow-y: auto; background: #f6f7f4; border-right: 1px solid #cbd3cf; }
+.loc-creator-tools .spatial-service-status,
+.loc-creator-tools .location-tool { border-bottom: 1px solid #d8dedb; }
+.loc-creator-load-template-anchor { position: relative; padding: 10px 12px; border-bottom: 1px solid #d8dedb; }
+
+.loc-creator-category { border-bottom: 1px solid #d8dedb; }
+.loc-creator-category-toggle { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; color: #33423c; background: transparent; border: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; text-align: left; cursor: pointer; }
+.loc-creator-category-toggle:hover { background: #eef2f0; }
+.loc-creator-category-body { display: grid; gap: 8px; padding: 4px 14px 14px; }
+.loc-creator-category-body > button { min-height: 36px; display: grid; grid-template-columns: 14px 1fr; align-items: center; gap: 8px; padding: 6px 8px; color: #47544f; text-align: left; background: #fff; border: 1px solid #d3dad7; cursor: pointer; }
+.loc-creator-category-body > button small { grid-column: 2; display: block; color: #7a8581; font-size: 8px; font-weight: 400; text-transform: none; line-height: 1.3; }
+.loc-creator-category-body > button.active { color: #0f6546; background: #e7f1ec; border-color: #187853; }
+.loc-creator-category-body b { color: #4d5955; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+.loc-creator-inline-field { display: grid; gap: 4px; color: #66716e; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.loc-creator-inline-field input, .loc-creator-inline-field select { height: 30px; padding: 0 7px; color: #27322f; background: #fff; border: 1px solid #cbd3cf; font-size: 10px; }
+.loc-creator-offset-controls { display: grid; gap: 7px; padding: 8px; background: #eef2f0; border: 1px solid #d3dad7; }
+.loc-creator-offset-controls button { height: 32px; color: #17201f; background: #e8bd28; border: 1px solid #e8bd28; font-size: 9px; font-weight: 700; cursor: pointer; }
+.loc-creator-offset-controls button:disabled { opacity: .5; cursor: not-allowed; }
+.loc-creator-taper-actions { display: flex; align-items: center; gap: 8px; }
+.loc-creator-taper-actions span { color: #67756f; font-size: 8px; }
+.loc-creator-taper-actions button { height: 30px; padding: 0 9px; color: #17201f; background: #e8bd28; border: 1px solid #e8bd28; font-size: 9px; font-weight: 700; cursor: pointer; }
+.loc-creator-stamp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.loc-creator-stamp-grid button { display: grid; justify-items: center; gap: 4px; padding: 8px 4px; color: #47544f; background: #fff; border: 1px solid #d3dad7; cursor: pointer; }
+.loc-creator-stamp-grid button.active { color: #0f6546; background: #e7f1ec; border-color: #187853; }
+.loc-creator-stamp-grid svg { width: 26px; height: 26px; }
+.loc-creator-stamp-grid polyline, .loc-creator-stamp-grid polygon { fill: none; stroke: #47544f; stroke-width: 1; }
+.loc-creator-stamp-grid button.active polyline, .loc-creator-stamp-grid button.active polygon { stroke: #0f6546; }
+.loc-creator-stamp-grid small { color: #7a8581; font-size: 7px; text-align: center; line-height: 1.2; }
+
+.loc-creator-canvas-wrap { min-width: 0; min-height: 0; position: relative; display: grid; place-items: center; padding: 14px; overflow: auto; background: #dce2de; }
+.loc-creator-canvas { height: 100%; width: auto; max-width: 100%; background: #303837; border: 1px solid #131a19; box-shadow: 0 4px 16px rgba(20,30,27,.18); touch-action: none; cursor: crosshair; }
+.loc-creator-backdrop { fill: #56624d; }
+.loc-creator-hit-area { fill: none; stroke: transparent; stroke-width: 10; cursor: pointer; }
+.loc-creator-selected { filter: drop-shadow(0 0 3px rgba(244,203,52,.9)); }
+.loc-creator-vertex-handle { fill: #e8bd28; stroke: #131a19; stroke-width: .3; cursor: pointer; }
+.loc-creator-endpoint { fill: #4fc3f7; stroke: #0b2b36; stroke-width: .3; cursor: pointer; }
+.loc-creator-endpoint.pending { fill: #e8bd28; }
+.loc-creator-taper-preview { fill: rgba(232,189,40,.35); stroke: #e8bd28; stroke-width: .6; stroke-dasharray: 3 2; }
+.loc-creator-crop-box { fill: rgba(79,195,247,.15); stroke: #4fc3f7; stroke-width: .6; stroke-dasharray: 3 2; }
+.loc-creator-stamp polyline, .loc-creator-stamp polygon { fill: none; stroke: #f5f6ee; stroke-width: .9; cursor: pointer; }
+.loc-creator-stamp.selected polyline, .loc-creator-stamp.selected polygon { stroke: #e8bd28; }
+
+.loc-creator-inspector { padding: 14px; overflow-y: auto; background: #f6f7f4; border-left: 1px solid #cbd3cf; }
+.loc-creator-inspector .inspector-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 9px; border-bottom: 1px solid #d8dedb; color: #4d5955; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; }
+.loc-creator-inspector .inspector-heading b { color: #187853; font-size: 7px; }
+.loc-creator-inspector label { display: grid; gap: 5px; margin-bottom: 11px; color: #65706c; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+.loc-creator-inspector input, .loc-creator-inspector select { width: 100%; height: 32px; padding: 0 7px; color: #26312e; background: #fff; border: 1px solid #c9d1ce; font-size: 9px; }
+.loc-creator-inspector p { margin: 0 0 8px; color: #47544f; font-size: 10px; }
+.loc-creator-inspector .delete-object { width: 100%; height: 32px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #913b31; background: #fff; border: 1px solid #d5aaa4; font-size: 9px; cursor: pointer; }
+.loc-creator-inspector .scene-summary { color: #5d6965; font-size: 9px; line-height: 1.7; }
+
+@media (max-width: 900px) {
+  .loc-creator-body { grid-template-columns: 210px minmax(320px, 1fr) 190px; }
+}

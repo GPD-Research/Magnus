@@ -81,6 +81,24 @@
 .template-designer-launch button > span { display: grid; gap: 2px; }
 .template-designer-launch b { font-size: 10px; }
 .template-designer-launch small { color: #67756f; font-size: 8px; }
+.tools-menu-anchor, .location-template-anchor { position: relative; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.location-template-current { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; padding: 9px 10px; color: #17201f; background: #fff8dc; border: 1px solid #d8c26b; border-left: 3px solid #c99a1f; border-radius: 2px; }
+.location-template-current > div { min-width: 0; display: grid; gap: 2px; }
+.location-template-current span { color: #7a6a2e; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+.location-template-current b { overflow: hidden; color: #171b19; font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.tools-menu-toggle, .location-template-load-button { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 7px 9px; color: #244b3d; text-align: left; background: #e9f1ed; border: 1px solid #9bb9ac; border-radius: 2px; cursor: pointer; }
+.tools-menu-toggle > span, .location-template-load-button > span { flex: 1; display: grid; gap: 2px; }
+.tools-menu-toggle b, .location-template-load-button b { font-size: 10px; }
+.tools-menu-toggle small, .location-template-load-button small { color: #67756f; font-size: 8px; }
+.tools-menu, .location-template-menu { width: calc(100% - 24px); max-height: min(360px, calc(100vh - 120px)); position: absolute; z-index: 20; top: 100%; left: 12px; overflow-y: auto; margin-top: 2px; padding: 6px; color: #15201c; background: #fff; border: 1px solid #9bb9ac; box-shadow: 0 8px 20px rgba(0,0,0,.22); }
+.tools-menu button { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 7px 9px; color: #244b3d; text-align: left; background: transparent; border: 0; border-radius: 2px; cursor: pointer; }
+.tools-menu button:hover, .tools-menu button:focus-visible { background: #eef2f0; outline: none; }
+.tools-menu button > span { display: grid; gap: 2px; }
+.tools-menu b { font-size: 10px; }
+.tools-menu small { color: #67756f; font-size: 8px; }
+.location-template-menu > p { margin: 4px; padding: 10px 6px; color: #68736f; font-size: 10px; line-height: 1.4; }
+.location-template-menu .saved-scene-entry { border-top: 0; border-bottom: 1px solid #e2e7e4; }
+.location-template-menu .saved-scene-entry:first-child { border-top: 0; }
 .location-tool { padding: 14px 18px 16px; border-bottom: 1px solid var(--line); }
 .location-tool-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: #245a46; }
 .location-tool-heading > div { display: grid; gap: 2px; }

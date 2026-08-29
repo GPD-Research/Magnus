@@ -37,6 +37,7 @@ import {
   Undo2,
   Wifi,
   WifiOff,
+  Wrench,
   X,
 } from 'lucide-react'
 import { ArrowUp } from 'lucide-react'
@@ -100,12 +101,19 @@ import {
   type RoadLayerVisibility,
 } from './domain/roadScene'
 import {
-  resolveRoadLocation,
   travelDirections,
-  validateRoadLocation,
   type ResolvedRoadLocation,
   type RoadLocationRequest,
 } from './domain/roadLocation'
+import {
+  BUILT_IN_LOCATION_TEMPLATES,
+  isBuiltInLocationTemplate,
+  listLocationTemplates,
+  parseLocationTemplateDocument,
+  removeLocationTemplate,
+  type LocationTemplateEntry,
+} from './domain/locationTemplate'
+import { LocationTemplateCreator } from './components/LocationTemplateCreator'
 import {
   formatStorageSize,
   loadOfflineStatus,
@@ -190,7 +198,6 @@ const impactedLaneOptions = [
 ]
 const appReleaseVersion = releaseVersionLabel(__APP_VERSION__)
 
-type SpatialServiceStatus = 'checking' | 'connected' | 'unavailable'
 type SaveStatus = 'idle' | 'saved'
 type SceneImageFormat = 'png' | 'jpg' | 'svg'
 
@@ -355,17 +362,6 @@ async function rasterizeSvg(svg: Blob, format: Exclude<SceneImageFormat, 'svg'>)
 const DEFAULT_IMAGE_EXPORT_WIDTH = 1600
 const JPG_IMAGE_EXPORT_SCALE = 2
 
-async function probeSpatialService(): Promise<boolean> {
-  try {
-    const response = await fetch('/api/health')
-    if (!response.ok) return false
-    const health: unknown = await response.json()
-    return Boolean(health && typeof health === 'object' && 'status' in health && health.status === 'ok')
-  } catch {
-    return false
-  }
-}
-
 interface SignboardFrame {
   symbolPath?: string
   copy?: [string, string]
@@ -525,8 +521,6 @@ function App() {
   const [roadScene, setRoadScene] = useState<RoadScene>(() => savedScenario?.roadScene ?? createReferenceRoadScene())
   const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>(savedScenario?.locationRequest ?? DEFAULT_LOCATION_REQUEST)
   const [resolvedLocation, setResolvedLocation] = useState<ResolvedRoadLocation | null>(savedScenario?.resolvedLocation ?? null)
-  const [locationErrors, setLocationErrors] = useState<string[]>([])
-  const [locationLoading, setLocationLoading] = useState(true)
   const [sectionSelectionEnabled, setSectionSelectionEnabled] = useState(false)
   const [selectedRoadSectionId, setSelectedRoadSectionId] = useState<string | null>(null)
   const [scenario, setScenario] = useState<ScenarioType>(savedScenario?.scenario ?? 'right-lane')
@@ -559,7 +553,11 @@ function App() {
   const [sceneZoom, setSceneZoom] = useState(savedScenario?.sceneZoom ?? 1)
   const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
   const [designerOpen, setDesignerOpen] = useState(false)
-  const [spatialServiceStatus, setSpatialServiceStatus] = useState<SpatialServiceStatus>('checking')
+  const [templateCreatorOpen, setTemplateCreatorOpen] = useState(false)
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false)
+  const [locationTemplates, setLocationTemplates] = useState(() => listLocationTemplates(localStorage))
+  const [locationTemplatesOpen, setLocationTemplatesOpen] = useState(false)
+  const [loadedTemplateName, setLoadedTemplateName] = useState<string | null>(() => savedScenario ? null : '3 Lane Highway')
   const [drawingMenuOpen, setDrawingMenuOpen] = useState(false)
   const [drawingActive, setDrawingActive] = useState(false)
   const [drawingColor, setDrawingColor] = useState('#ffd21f')
@@ -574,8 +572,6 @@ function App() {
   const loadSceneInputRef = useRef<HTMLInputElement>(null)
   const leftPaneRestoreRef = useRef<HTMLButtonElement>(null)
   const rightPaneRestoreRef = useRef<HTMLButtonElement>(null)
-  const locationResolutionRef = useRef(0)
-  const initialLocationRequestRef = useRef(savedScenario?.locationRequest ?? DEFAULT_LOCATION_REQUEST)
   const panPointersRef = useRef(new Map<number, { x: number; y: number }>())
   const gestureFrameRef = useRef<number | null>(null)
   const drawingStrokeRef = useRef<DrawingStroke | null>(null)
@@ -683,6 +679,10 @@ function App() {
   }
   const selectedScenario = scenarioDefinition(scenario)
   const highwayLabelsAvailable = roadScene.source.type !== 'reference-layout'
+  const displayedLocationTemplates = [
+    ...BUILT_IN_LOCATION_TEMPLATES,
+    ...locationTemplates.filter((entry) => !isBuiltInLocationTemplate(entry.name)),
+  ]
   const sceneFocusX = roadAlignment?.x ?? sceneOrigin.x + sceneAnchorX
   const sceneFocusY = roadAlignment?.y ?? sceneOrigin.y + sceneAnchorY
   const sceneTransform = equipmentTransform ?? [
@@ -696,10 +696,10 @@ function App() {
   const hasUnsavedChanges = savedSnapshot !== null && savedSnapshot !== scenarioSnapshot
 
   useEffect(() => {
-    if (locationLoading || savedSnapshot !== null) return
+    if (savedSnapshot !== null) return
     const frame = requestAnimationFrame(() => setSavedSnapshot(scenarioSnapshot))
     return () => cancelAnimationFrame(frame)
-  }, [locationLoading, savedSnapshot, scenarioSnapshot])
+  }, [savedSnapshot, scenarioSnapshot])
 
   useEffect(() => {
     if (!hasUnsavedChanges) return
@@ -817,42 +817,6 @@ function App() {
     return () => cancelAnimationFrame(frame)
   }, [roadScene, sceneDisplaySize, sceneViewBox, sceneZoom])
 
-  useEffect(() => {
-    let active = true
-    void probeSpatialService().then((available) => {
-      if (active) setSpatialServiceStatus(available ? 'connected' : 'unavailable')
-    })
-    return () => { active = false }
-  }, [])
-
-  useEffect(() => {
-    // Always refresh the roadway from the live spatial service on startup, even
-    // when a saved scenario exists, so stale cached topology (from before a
-    // backend fix) never masquerades as current data. Only the initial scene
-    // placement is skipped when a saved scenario already positioned equipment.
-    let active = true
-    const resolution = ++locationResolutionRef.current
-    void resolveRoadLocation(initialLocationRequestRef.current, undefined, appSettings.connectivityMode).then((resolved) => {
-      if (!active || resolution !== locationResolutionRef.current) return
-      setRoadScene(resolved.scene)
-      if (!savedScenario) {
-        const initialScenario = 'right-lane'
-        const placement = laterallyAlignedPlacement(
-          centeredRoadPlacement(resolved.scene, resolved.request.highway),
-          initialScenario,
-        )
-        if (placement) {
-          setSceneOrigin({ x: placement.x - sceneAnchorX, y: placement.y - sceneAnchorY })
-          setSceneRotation(placement.rotation)
-        }
-      }
-      setResolvedLocation(resolved)
-      setLocationLoading(false)
-    })
-    return () => { active = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appSettings.connectivityMode, sceneAnchorX, sceneAnchorY])
-
   async function prepareRegion(region: OfflineRegionStatus['id']) {
     setOfflinePreparing(region)
     setOfflineStatusMessage('Preparing local map package...')
@@ -883,12 +847,6 @@ function App() {
         [id]: { ...current.customThemes[id], ...updates },
       },
     }))
-  }
-
-  async function retrySpatialService() {
-    setSpatialServiceStatus('checking')
-    const available = await probeSpatialService()
-    setSpatialServiceStatus(available ? 'connected' : 'unavailable')
   }
 
   async function presentOnExternalDisplay() {
@@ -1265,6 +1223,7 @@ function App() {
     setRoadScene(state.roadScene)
     setLocationRequest(state.locationRequest)
     setResolvedLocation(state.resolvedLocation)
+    setLoadedTemplateName(null)
     setRoadLayerVisibility(state.roadLayerVisibility)
     setSceneZoom(state.sceneZoom)
     setSaveStatus('saved')
@@ -1606,29 +1565,39 @@ function App() {
     event.currentTarget.scrollBy({ left: event.deltaX, top: event.deltaY })
   }
 
-  async function loadRoadLocation(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const errors = validateRoadLocation(locationRequest)
-    setLocationErrors(errors)
-    if (errors.length > 0) return
-
-    setLocationLoading(true)
-    const resolution = ++locationResolutionRef.current
-    const resolved = await resolveRoadLocation(locationRequest, undefined, appSettings.connectivityMode)
-    if (resolution !== locationResolutionRef.current) return
-    setRoadScene(resolved.scene)
-    const placement = laterallyAlignedPlacement(centeredRoadPlacement(resolved.scene, resolved.request.highway), scenario)
-    if (placement) {
-      setSceneOrigin({ x: placement.x - sceneAnchorX, y: placement.y - sceneAnchorY })
-      setSceneRotation(placement.rotation)
+  function loadLocationTemplateEntry(entry: LocationTemplateEntry) {
+    setLocationTemplatesOpen(false)
+    try {
+      const document = parseLocationTemplateDocument(entry.document)
+      setRoadScene(document.scene)
+      const placement = laterallyAlignedPlacement(
+        centeredRoadPlacement(document.scene, document.locationRequest.highway),
+        scenario,
+      )
+      if (placement) {
+        setSceneOrigin({ x: placement.x - sceneAnchorX, y: placement.y - sceneAnchorY })
+        setSceneRotation(placement.rotation)
+      }
+      setLocationRequest(document.locationRequest)
+      setResolvedLocation({
+        request: document.locationRequest,
+        scene: document.scene,
+        source: document.scene.source.type === 'reference-layout' ? 'reference-layout' : 'live-map',
+        message: `Loaded saved location template "${entry.name}".`,
+      })
+      setLoadedTemplateName(entry.name)
+      setDrawingStrokes([])
+      setTemporaryDrawingStrokes([])
+      cancelDrawingStroke()
+      setSelectedRoadSectionId(null)
+      setSectionSelectionEnabled(false)
+    } catch (error) {
+      window.alert(error instanceof Error ? `Could not load location template: ${error.message}` : 'Could not load location template.')
     }
-    setResolvedLocation(resolved)
-    setDrawingStrokes([])
-    setTemporaryDrawingStrokes([])
-    cancelDrawingStroke()
-    setSelectedRoadSectionId(null)
-    setSectionSelectionEnabled(false)
-    setLocationLoading(false)
+  }
+
+  function removeLocationTemplateEntry(entry: LocationTemplateEntry) {
+    setLocationTemplates(removeLocationTemplate(localStorage, entry.name))
   }
 
   function setRoadLayerVisibilityValue(
@@ -2264,145 +2233,100 @@ function App() {
               <ChevronLeft size={24} />
             </button>
           </div>
-          <div
-            className={`spatial-service-status ${spatialServiceStatus}`}
-            role="status"
-            aria-live="polite"
-          >
-            <span className="service-indicator" aria-hidden="true" />
-            <div>
-              <b>Spatial service</b>
-              <small>
-                {spatialServiceStatus === "connected"
-                  ? "Connected"
-                  : spatialServiceStatus === "checking"
-                    ? "Checking connection"
-                    : "Development preview available"}
-              </small>
-            </div>
-            {spatialServiceStatus === "unavailable" && (
-              <button
-                type="button"
-                title="Retry spatial service connection"
-                aria-label="Retry spatial service connection"
-                onClick={() => {
-                  void retrySpatialService();
-                }}
-              >
-                <RefreshCw size={14} />
-              </button>
+          <div className="tools-menu-anchor">
+            <button
+              className="tools-menu-toggle"
+              type="button"
+              aria-expanded={toolsMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setToolsMenuOpen((open) => !open)}
+            >
+              <Wrench size={16} />
+              <span>
+                <b>Tools</b>
+                <small>Editors &amp; template authoring</small>
+              </span>
+              {toolsMenuOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            {toolsMenuOpen && (
+              <div className="tools-menu" role="menu" aria-label="Tools">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setDesignerOpen(true);
+                    setToolsMenuOpen(false);
+                  }}
+                >
+                  <PencilRuler size={16} />
+                  <span>
+                    <b>Scene design tool</b>
+                    <small>Author vector SOP templates</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setTemplateCreatorOpen(true);
+                    setToolsMenuOpen(false);
+                  }}
+                >
+                  <MapPinned size={16} />
+                  <span>
+                    <b>Location Template Creator</b>
+                    <small>Build polished exit &amp; interchange templates</small>
+                  </span>
+                </button>
+              </div>
             )}
           </div>
-          <div className="template-designer-launch">
-            <button type="button" onClick={() => setDesignerOpen(true)}>
-              <PencilRuler size={16} />
-              <span>
-                <b>Scene design tool</b>
-                <small>Author vector SOP templates</small>
-              </span>
-            </button>
-          </div>
-          <form
-            className="location-tool"
-            aria-label="Roadway location"
-            onSubmit={(event) => {
-              void loadRoadLocation(event);
-            }}
-          >
-            <div className="location-tool-heading">
+          <div className="location-template-anchor">
+            <div className="location-template-current" role="status">
               <MapPinned size={16} />
               <div>
-                <label htmlFor="highway">Roadway location</label>
-                <span>Load scaled corridor geometry</span>
+                <span>Location template</span>
+                <b>{loadedTemplateName ?? 'Untitled / manual scene'}</b>
               </div>
             </div>
-            <div className="location-fields">
-              <label className="location-highway" htmlFor="highway">
-                Highway
-                <input
-                  id="highway"
-                  placeholder="I-95 or Route 28"
-                  value={locationRequest.highway}
-                  onChange={(event) => {
-                    setLocationRequest((current) => ({
-                      ...current,
-                      highway: event.target.value,
-                      reference:
-                        current.highway === event.target.value
-                          ? current.reference
-                          : "",
-                    }));
-                    setResolvedLocation(null);
-                  }}
-                />
-              </label>
-              <label htmlFor="reference-type">
-                Reference
-                <select
-                  id="reference-type"
-                  value={locationRequest.referenceType}
-                  onChange={(event) =>
-                    setLocationRequest((current) => ({
-                      ...current,
-                      referenceType: event.target
-                        .value as RoadLocationRequest["referenceType"],
-                      reference: "",
-                    }))
-                  }
-                >
-                  <option value="mile-marker">Mile marker</option>
-                  <option value="exit">Exit number</option>
-                </select>
-              </label>
-              <label htmlFor="reference">
-                {locationRequest.referenceType === "exit"
-                  ? "Exit"
-                  : "Mile marker"}
-                <input
-                  id="reference"
-                  inputMode="decimal"
-                  placeholder={
-                    locationRequest.referenceType === "exit" ? "166" : "168.0"
-                  }
-                  value={locationRequest.reference}
-                  onChange={(event) =>
-                    setLocationRequest((current) => ({
-                      ...current,
-                      reference: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-            </div>
-            {locationErrors.map((error) => (
-              <p className="location-error" role="alert" key={error}>
-                {error}
-              </p>
-            ))}
             <button
-              className="location-load"
-              type="submit"
-              disabled={locationLoading}
+              className="location-template-load-button"
+              type="button"
+              aria-expanded={locationTemplatesOpen}
+              aria-haspopup="menu"
+              onClick={() => setLocationTemplatesOpen((open) => !open)}
             >
-              {locationLoading ? (
-                <LoaderCircle className="location-spinner" size={15} />
-              ) : (
-                <MapPinned size={15} />
-              )}
+              <FolderOpen size={16} />
               <span>
-                {locationLoading ? "Resolving location" : "Render location"}
+                <b>Load location template</b>
+                <small>{displayedLocationTemplates.length} available</small>
               </span>
+              {locationTemplatesOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
-            {resolvedLocation && (
-              <div
-                className={`location-result ${resolvedLocation.source}`}
-                role="status"
-              >
-                <strong>{resolvedLocation.request.highway}</strong>
-                <span>{resolvedLocation.message}</span>
+            {locationTemplatesOpen && (
+              <div className="location-template-menu" role="menu" aria-label="Saved location templates">
+                {displayedLocationTemplates.map((entry) => (
+                  <div className="saved-scene-entry" key={entry.name}>
+                    <button type="button" role="menuitem" onClick={() => loadLocationTemplateEntry(entry)}>
+                      <b>{entry.name}</b>
+                      <small>{isBuiltInLocationTemplate(entry.name) ? 'Built-in template' : new Date(entry.savedAt).toLocaleString()}</small>
+                    </button>
+                    {!isBuiltInLocationTemplate(entry.name) && (
+                      <button
+                        className="saved-scene-icon"
+                        type="button"
+                        title={`Remove ${entry.name}`}
+                        aria-label={`Remove ${entry.name}`}
+                        onClick={() => removeLocationTemplateEntry(entry)}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
-          </form>
+          </div>
           <div className="control-group scene-type-control">
             <button
               className="scene-type-toggle"
@@ -4269,6 +4193,14 @@ function App() {
         <SceneDesigner
           onClose={() => setDesignerOpen(false)}
           onSave={saveTemplate}
+        />
+      )}
+      {templateCreatorOpen && (
+        <LocationTemplateCreator
+          onClose={() => {
+            setTemplateCreatorOpen(false);
+            setLocationTemplates(listLocationTemplates(localStorage));
+          }}
         />
       )}
     </main>

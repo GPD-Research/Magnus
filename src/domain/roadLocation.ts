@@ -9,6 +9,17 @@ import type { ConnectivityMode } from './appSettings'
 export type TravelDirection = 'northbound' | 'southbound' | 'eastbound' | 'westbound' | 'all'
 export type RoadReferenceType = 'mile-marker' | 'exit'
 
+export async function probeSpatialService(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/health')
+    if (!response.ok) return false
+    const health: unknown = await response.json()
+    return Boolean(health && typeof health === 'object' && 'status' in health && health.status === 'ok')
+  } catch {
+    return false
+  }
+}
+
 export interface RoadLocationRequest {
   highway: string
   direction: TravelDirection
