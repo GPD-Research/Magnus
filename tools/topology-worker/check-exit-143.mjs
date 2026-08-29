@@ -14,6 +14,7 @@ const diagnostics = artifact.diagnostics ?? []
 const junctions = intersections.filter((intersection) => intersection.connectedRoadIds?.length >= 2)
 const ramps = roads.filter((road) => road.highway === 'motorway_link')
 const topologyRoadIds = new Set(roads.map((road) => road.topologyRoadId))
+const mergeLaneRoads = roads.filter((road) => road.mergeLaneZone != null)
 
 const assertions = [
   ['topology artifact uses feet', artifact.coordinateUnits === 'feet'],
@@ -22,6 +23,8 @@ const assertions = [
   ['normalized road IDs are exported', roads.every((road) => Number.isInteger(road.topologyRoadId))],
   ['real extract retains normalized intersections', intersections.length >= 1],
   ['Exit 143 retains motorway ramps', ramps.length >= 4],
+  ['merge-lane zones only appear on widened mainline fragments', mergeLaneRoads.every((road) =>
+    road.highway === 'motorway' && road.laneRecords?.filter((lane) => lane.laneType === 'driving').length >= 4)],
   ['multi-road junction relationships are complete', junctions.every((intersection) => {
     const roadCount = intersection.connectedRoadIds.length
     return intersection.relationships?.length === (roadCount * (roadCount - 1)) / 2
@@ -48,6 +51,7 @@ console.log(JSON.stringify({
   markings: markings.length,
   diagnostics: diagnostics.length,
   ramps: ramps.length,
+  mergeLaneRoads: mergeLaneRoads.length,
   junctions: junctions.length,
   bridgeRoads: roads.filter((road) => road.bridge === true).length,
   gradeSeparatedDiagnostics: diagnostics.filter((diagnostic) => diagnostic.kind === 'grade-separated').length,

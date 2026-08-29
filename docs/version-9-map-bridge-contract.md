@@ -92,6 +92,13 @@ divergence: it has no added acceleration/deceleration lane and must not emit
 an auxiliary-lane separator or widened merge-lane profile. This distinction
 also applies to complex splits within the Mixing Bowl.
 
+Long merge lanes may begin or end before the physical ramp centerline appears.
+After a side is established from a tagged lane role or directly connected ramp,
+the topology processor carries it across contiguous same-layer, same-class
+mainline fragments with the same widened driving-lane count. This allows the
+anchored profile to remain continuous through the full acceleration or
+deceleration corridor without incorrectly classifying a narrower divergence.
+
 Each lane record should retain semantic values rather than only a total lane
 count. Markings must include their semantic type and geometry, such as edge,
 lane separator, continuity, or merge boundary.
