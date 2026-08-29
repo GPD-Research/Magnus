@@ -164,6 +164,14 @@ fn merge_lane_profile_offset(lane_records: &[LaneRecord], side: Option<&str>) ->
     }
 }
 
+fn active_merge_lane_side(road: &TopologyRoad) -> Option<&str> {
+    road.merge_lane_zone
+        .as_ref()
+        .filter(|zone| zone.end_arc_feet > zone.start_arc_feet)
+        .map(|zone| zone.side.as_str())
+        .or(road.auxiliary_lane_side.as_deref())
+}
+
 fn offset_polyline(points: &[[f64; 2]], offset_feet: f64) -> Vec<[f64; 2]> {
     points
         .iter()
@@ -209,6 +217,20 @@ pub fn compile_topology_scene(
     }
     let diagnostics = topology.diagnostics;
     let normalized_topology = topology.normalized_topology;
+    let profile_offsets_by_way = topology
+        .roads
+        .iter()
+        .flat_map(|road| {
+            let offset_feet = merge_lane_profile_offset(
+                &road.lane_records,
+                active_merge_lane_side(road),
+            );
+            road.source_way_ids
+                .iter()
+                .copied()
+                .map(move |way_id| (way_id, offset_feet))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
 
     let mut features = Vec::new();
     for (index, road) in topology.roads.into_iter().enumerate() {
@@ -218,12 +240,7 @@ pub fn compile_topology_scene(
         let osm_id = road.source_way_ids.first().copied();
         let (left_shoulder_width_feet, right_shoulder_width_feet) =
             shoulder_widths_from_lane_records(&road.lane_records);
-        let merge_lane_side = road
-            .merge_lane_zone
-            .as_ref()
-            .filter(|zone| zone.end_arc_feet > zone.start_arc_feet)
-            .map(|zone| zone.side.as_str())
-            .or(road.auxiliary_lane_side.as_deref());
+        let merge_lane_side = active_merge_lane_side(&road);
         let lane_boundaries = driving_lane_boundaries(&road.lane_records, merge_lane_side);
         let rendered_center_line = offset_polyline(
             &road.center_line,
@@ -311,8 +328,6 @@ pub fn compile_topology_scene(
             },
         });
     }
-    let mut marking_groups =
-        std::collections::BTreeMap::<i16, (Vec<Vec<[f64; 2]>>, Vec<i64>)>::new();
     for (index, marking) in topology.markings.into_iter().enumerate() {
         if marking.geometry.len() < 2 {
             continue;
@@ -325,11 +340,21 @@ pub fn compile_topology_scene(
             _ => None,
         };
         if let Some(kind) = fog_line_kind {
+            let profile_offset_feet = marking
+                .source_way_ids
+                .iter()
+                .filter_map(|way_id| profile_offsets_by_way.get(way_id))
+                .copied()
+                .find(|offset_feet| offset_feet.abs() > f64::EPSILON)
+                .unwrap_or(0.0);
             features.push(RoadFeature {
                 id: format!("topology-fog-line-{index}"),
                 kind,
                 layer,
-                geometry: Geometry::LineString(marking.geometry),
+                geometry: Geometry::LineString(offset_polyline(
+                    &marking.geometry,
+                    profile_offset_feet,
+                )),
                 properties: FeatureProperties {
                     source_way_ids: marking.source_way_ids,
                     marking_type: Some(marking.marking_type),
@@ -339,25 +364,6 @@ pub fn compile_topology_scene(
             });
             continue;
         }
-        let entry = marking_groups.entry(layer).or_default();
-        entry.0.push(marking.geometry);
-        entry.1.extend(marking.source_way_ids);
-    }
-    for (layer, (marking_rings, mut marking_source_way_ids)) in marking_groups {
-        marking_source_way_ids.sort_unstable();
-        marking_source_way_ids.dedup();
-        features.push(RoadFeature {
-            id: format!("topology-markings-{layer}"),
-            kind: RoadFeatureKind::SemanticMarking,
-            layer,
-            geometry: Geometry::Polygon(marking_rings),
-            properties: FeatureProperties {
-                source_way_ids: marking_source_way_ids,
-                marking_type: Some("normalized marking".into()),
-                render_width_feet: Some(0.0),
-                ..FeatureProperties::default()
-            },
-        });
     }
     normalize_to_viewport(&mut features);
     Ok(RoadScene {
@@ -681,12 +687,10 @@ mod tests {
                 && feature.properties.relationships.len() == 1
                 && feature.properties.relationships[0].road_ids == vec![0, 1]
         }));
-        assert!(scene.features.iter().any(|feature| {
-            feature.kind == RoadFeatureKind::SemanticMarking
-                && feature.properties.source_way_ids == vec![14301]
-                && feature.properties.marking_type.as_deref() == Some("normalized marking")
-                && matches!(&feature.geometry, Geometry::Polygon(rings) if rings.len() == 1)
-        }));
+        assert!(!scene
+            .features
+            .iter()
+            .any(|feature| feature.kind == RoadFeatureKind::SemanticMarking));
         assert!(!scene
             .features
             .iter()
