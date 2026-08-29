@@ -61,6 +61,8 @@ struct TopologyRoad {
 #[serde(rename_all = "camelCase")]
 struct TopologyMergeLaneZone {
     side: String,
+    #[serde(default)]
+    geometry_side: Option<String>,
     start_arc_feet: f64,
     end_arc_feet: f64,
 }
@@ -168,7 +170,7 @@ fn active_merge_lane_side(road: &TopologyRoad) -> Option<&str> {
     road.merge_lane_zone
         .as_ref()
         .filter(|zone| zone.end_arc_feet > zone.start_arc_feet)
-        .map(|zone| zone.side.as_str())
+        .map(|zone| zone.geometry_side.as_deref().unwrap_or(zone.side.as_str()))
         .or(road.auxiliary_lane_side.as_deref())
 }
 
@@ -221,10 +223,8 @@ pub fn compile_topology_scene(
         .roads
         .iter()
         .flat_map(|road| {
-            let offset_feet = merge_lane_profile_offset(
-                &road.lane_records,
-                active_merge_lane_side(road),
-            );
+            let offset_feet =
+                merge_lane_profile_offset(&road.lane_records, active_merge_lane_side(road));
             road.source_way_ids
                 .iter()
                 .copied()
@@ -591,7 +591,7 @@ mod tests {
                     "centerLine": [[0.0, 0.0], [120.0, 0.0]],
                     "surfacePolygon": [[0.0, -24.0], [120.0, -24.0], [120.0, 24.0], [0.0, 24.0], [0.0, -24.0]],
                     "widthFeet": 48.0,
-                    "mergeLaneZone": {"side": "right", "startArcFeet": 0.0, "endArcFeet": 120.0},
+                    "mergeLaneZone": {"side": "right", "geometrySide": "right", "startArcFeet": 0.0, "endArcFeet": 120.0},
                     "laneRecords": [
                         {"laneType": "shoulder", "direction": "forward", "widthFeet": 12.0},
                         {"laneType": "driving", "direction": "forward", "widthFeet": 12.0},

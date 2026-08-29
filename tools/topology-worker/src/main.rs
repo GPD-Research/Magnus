@@ -113,6 +113,7 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
                 "auxiliaryLaneSide": merge_lane_zone.as_ref().map(|zone| zone.side),
                 "mergeLaneZone": merge_lane_zone.map(|zone| json!({
                     "side": zone.side,
+                    "geometrySide": zone.geometry_side,
                     "startArcFeet": zone.start_arc_feet,
                     "endArcFeet": zone.end_arc_feet,
                 })),
@@ -685,21 +686,29 @@ fn is_ramp_highway(highway: &str) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct MergeLaneZone {
     side: &'static str,
+    geometry_side: &'static str,
     start_arc_feet: f64,
     end_arc_feet: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MergeLaneSides {
+    traffic_side: &'static str,
+    geometry_side: &'static str,
 }
 
 fn merge_lane_zone(
     highway: &str,
     center_line: &[[f64; 2]],
-    side: Option<&'static str>,
+    sides: Option<MergeLaneSides>,
 ) -> Option<MergeLaneZone> {
     if is_ramp_highway(highway) || center_line.len() < 2 {
         return None;
     }
-    let side = side?;
+    let sides = sides?;
     Some(MergeLaneZone {
-        side,
+        side: sides.traffic_side,
+        geometry_side: sides.geometry_side,
         start_arc_feet: 0.0,
         end_arc_feet: polyline_length_feet(center_line),
     })
@@ -710,7 +719,7 @@ fn merge_lane_sides(
     intersections: &Value,
     gore_breaks: &HashMap<i64, (Option<FogLineSide>, Option<FogLineSide>)>,
     osm_tags: &BTreeMap<WayID, Tags>,
-) -> HashMap<i64, &'static str> {
+) -> HashMap<i64, MergeLaneSides> {
     let road_by_id = roads
         .as_array()
         .into_iter()
@@ -725,16 +734,24 @@ fn merge_lane_sides(
             continue;
         }
         let (start_break, end_break) = gore_breaks.get(&road_id).copied().unwrap_or((None, None));
-        let side = auxiliary_lane_side_from_tags(&road["osm_ids"], osm_tags)
-            .or_else(|| auxiliary_lane_side(start_break, end_break));
-        if let Some(side) = side {
-            sides.insert(road_id, side);
+        let geometry_side = auxiliary_lane_side(start_break, end_break);
+        let traffic_side =
+            auxiliary_lane_side_from_tags(&road["osm_ids"], osm_tags).or(geometry_side);
+        let geometry_side = geometry_side.or_else(|| traffic_side.map(opposite_lane_side));
+        if let (Some(traffic_side), Some(geometry_side)) = (traffic_side, geometry_side) {
+            sides.insert(
+                road_id,
+                MergeLaneSides {
+                    traffic_side,
+                    geometry_side,
+                },
+            );
             pending.push_back(road_id);
         }
     }
 
     while let Some(road_id) = pending.pop_front() {
-        let Some(&side) = sides.get(&road_id) else {
+        let Some(&lane_sides) = sides.get(&road_id) else {
             continue;
         };
         let Some(road) = road_by_id.get(&road_id).copied() else {
@@ -748,7 +765,7 @@ fn merge_lane_sides(
                 continue;
             };
             if compatible_widened_mainline_fragments(road, sibling) {
-                sides.insert(sibling_id, side);
+                sides.insert(sibling_id, lane_sides);
                 pending.push_back(sibling_id);
             }
         }
@@ -796,6 +813,13 @@ fn auxiliary_lane_side(
         Some(FogLineSide::Left) => Some("left"),
         Some(FogLineSide::Right) => Some("right"),
         None => None,
+    }
+}
+
+fn opposite_lane_side(side: &str) -> &'static str {
+    match side {
+        "left" => "right",
+        _ => "left",
     }
 }
 
@@ -1227,15 +1251,30 @@ mod tests {
     fn identifies_a_same_side_mainline_ramp_pair_as_an_auxiliary_lane() {
         let curved_mainline = [[0.0, 0.0], [30.0, 40.0], [30.0, 80.0]];
         assert_eq!(
-            merge_lane_zone("motorway", &curved_mainline, Some("right")),
+            merge_lane_zone(
+                "motorway",
+                &curved_mainline,
+                Some(MergeLaneSides {
+                    traffic_side: "right",
+                    geometry_side: "right",
+                })
+            ),
             Some(MergeLaneZone {
                 side: "right",
+                geometry_side: "right",
                 start_arc_feet: 0.0,
                 end_arc_feet: 90.0,
             })
         );
         assert_eq!(
-            merge_lane_zone("motorway_link", &curved_mainline, Some("right")),
+            merge_lane_zone(
+                "motorway_link",
+                &curved_mainline,
+                Some(MergeLaneSides {
+                    traffic_side: "right",
+                    geometry_side: "right",
+                })
+            ),
             None
         );
         assert_eq!(merge_lane_zone("motorway", &curved_mainline, None), None);
@@ -1250,6 +1289,8 @@ mod tests {
         );
         assert_eq!(lane_side_from_turn_lanes("left|||"), Some("left"));
         assert_eq!(lane_side_from_turn_lanes("through|through|through"), None);
+        assert_eq!(opposite_lane_side("right"), "left");
+        assert_eq!(opposite_lane_side("left"), "right");
     }
 
     #[test]

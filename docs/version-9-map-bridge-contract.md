@@ -58,6 +58,9 @@ includes `mergeLaneZone` with a traffic-relative `side` and the
 `startArcFeet`/`endArcFeet` limits measured along its curved centerline. The
 rendering adapter uses this structured zone, not a width guess, to select the
 dense auxiliary-lane separator and to align future fog-line and gore geometry.
+`side` is traffic-relative; `geometrySide` is the corresponding side of the
+serialized centerline and is the only field used to offset pavement and paint.
+They may differ when a source way's coordinate order is opposite traffic flow.
 
 The merge lane is an added outer driving lane on the traffic-relative ramp
 side. A normal three-lane profile is:
