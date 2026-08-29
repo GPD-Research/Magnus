@@ -1049,7 +1049,15 @@ function App() {
       bounds,
     )
     const placement = laterallyAlignedPlacement(nearestRoadPlacement(roadScene, point), scenario)
-    const anchor = placement ?? { ...point, rotation: 0 }
+    // When no road centerline is found to snap to, place the scene so the truck (not the
+    // template's internal "road center" reference point) lands exactly where the user tapped.
+    // The template's truck sits at local x = RIGHT_LANE_STANDARD.truck.x, offset per scenario by
+    // truckOffsetX, while sceneOrigin aligns local roadCenterX to the anchor - correct for that
+    // fixed bias so every scenario (lane or shoulder) drops the truck under the tap.
+    const truckLateralBias = RIGHT_LANE_STANDARD.truck.x
+      - RIGHT_LANE_STANDARD.roadCenterX
+      + scenarioDefinition(scenario).truckOffsetX
+    const anchor = placement ?? { x: point.x - truckLateralBias, y: point.y, rotation: 0 }
     setPoints(createScene(scenario))
     setTrucks(createScenarioTrucks(scenario))
     setDeployedEquipment((current) => current.filter(
@@ -2348,7 +2356,7 @@ function App() {
                   {SCENARIO_CATALOG.map((item) => (
                     <button
                       className={
-                        scenario === item.id
+                        (sceneVisible || scenePlacementActive) && scenario === item.id
                           ? "scenario-card active"
                           : "scenario-card"
                       }
@@ -2366,7 +2374,7 @@ function App() {
                         {item.label}
                         <small>{item.mutcdApplication}</small>
                       </span>
-                      <i>{scenario === item.id && <Check size={13} />}</i>
+                      <i>{(sceneVisible || scenePlacementActive) && scenario === item.id && <Check size={13} />}</i>
                     </button>
                   ))}
                 </div>
