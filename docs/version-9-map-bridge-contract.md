@@ -45,13 +45,19 @@ The bridge should expose a versioned document equivalent to:
 
 Each normalized road must include:
 
-- stable local road ID
+- stable `topologyRoadId` matching intersection `connectedRoadIds`
 - source OSM way IDs and endpoint node IDs
 - trimmed centerline
 - one or more lane records with type, direction, width, and source evidence
 - pavement polygon geometry
 - bridge, tunnel, layer, and z-order metadata
 - logical endpoint references
+
+When paired same-side ramps define a merge-lane corridor, the road also
+includes `mergeLaneZone` with a traffic-relative `side` and the
+`startArcFeet`/`endArcFeet` limits measured along its curved centerline. The
+rendering adapter uses this structured zone, not a width guess, to select the
+dense auxiliary-lane separator and to align future fog-line and gore geometry.
 
 Each lane record should retain semantic values rather than only a total lane
 count. Markings must include their semantic type and geometry, such as edge,

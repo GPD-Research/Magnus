@@ -81,6 +81,19 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
                 .and_then(|id| gore_breaks.get(&id))
                 .copied()
                 .unwrap_or((None, None));
+            let highway = road["highway_type"].as_str().unwrap_or_default();
+            let has_extra_driving_lane = has_narrower_mainline_neighbor(
+                road,
+                &serialized["roads"],
+                serialized_intersections,
+            );
+            let merge_lane_zone = merge_lane_zone(
+                highway,
+                &center_line,
+                has_extra_driving_lane,
+                start_break,
+                end_break,
+            );
             fog_line_markings.extend(fog_line_markings_for_road(
                 &road["osm_ids"],
                 road["layer"].as_i64().unwrap_or(0) as i16,
@@ -92,12 +105,19 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
                 end_break,
             ));
             json!({
+                "topologyRoadId": road["id"],
                 "sourceWayIds": road["osm_ids"],
                 "endpointNodeIds": source_endpoint_node_ids(road, serialized_intersections),
                 "layer": road["layer"],
-                "highway": road["highway_type"],
+                "highway": highway,
                 "laneCount": road["lane_specs_ltr"].as_array().map_or(1, Vec::len),
                 "laneRecords": lane_records(&road["lane_specs_ltr"]),
+                "auxiliaryLaneSide": merge_lane_zone.as_ref().map(|zone| zone.side),
+                "mergeLaneZone": merge_lane_zone.map(|zone| json!({
+                    "side": zone.side,
+                    "startArcFeet": zone.start_arc_feet,
+                    "endArcFeet": zone.end_arc_feet,
+                })),
                 "bridge": bridge,
                 "tunnel": tunnel,
                 "centerLine": center_line,
@@ -142,16 +162,17 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
     }))
 }
 
-fn intersection_layer(
-    intersection: &Value,
-    road_structures: &HashMap<i64, RoadStructure>,
-) -> i16 {
+fn intersection_layer(intersection: &Value, road_structures: &HashMap<i64, RoadStructure>) -> i16 {
     intersection["roads"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_i64)
-        .filter_map(|road_id| road_structures.get(&road_id).map(|structure| structure.layer))
+        .filter_map(|road_id| {
+            road_structures
+                .get(&road_id)
+                .map(|structure| structure.layer)
+        })
         .min()
         .map_or(-1, |layer| layer.saturating_sub(1))
 }
@@ -491,7 +512,9 @@ fn semantic_markings(markings: &str, bounds: &GPSBounds, roads: &Value) -> Resul
                             .collect::<Vec<_>>();
                         let source_way_ids = road_id
                             .and_then(|id| source_ids.get(&id).cloned())
-                            .unwrap_or_else(|| source_way_ids_near_geometry(&local_geometry, roads));
+                            .unwrap_or_else(|| {
+                                source_way_ids_near_geometry(&local_geometry, roads)
+                            });
                         output.push(json!({
                             "type": kind,
                             "layer": feature.property("layer").and_then(Value::as_i64),
@@ -552,8 +575,7 @@ fn distance_to_segment(point: [f64; 2], start: [f64; 2], end: [f64; 2]) -> f64 {
     let ratio = if length_squared <= f64::EPSILON {
         0.0
     } else {
-        ((point[0] - start[0]) * vector[0] + (point[1] - start[1]) * vector[1])
-            / length_squared
+        ((point[0] - start[0]) * vector[0] + (point[1] - start[1]) * vector[1]) / length_squared
     }
     .clamp(0.0, 1.0);
     let closest = [start[0] + vector[0] * ratio, start[1] + vector[1] * ratio];
@@ -662,6 +684,90 @@ fn is_ramp_highway(highway: &str) -> bool {
     highway.ends_with("_link")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MergeLaneZone {
+    side: &'static str,
+    start_arc_feet: f64,
+    end_arc_feet: f64,
+}
+
+fn merge_lane_zone(
+    highway: &str,
+    center_line: &[[f64; 2]],
+    has_extra_driving_lane: bool,
+    start_break: Option<FogLineSide>,
+    end_break: Option<FogLineSide>,
+) -> Option<MergeLaneZone> {
+    if is_ramp_highway(highway)
+        || center_line.len() < 2
+        || !has_extra_driving_lane
+        || start_break != end_break
+    {
+        return None;
+    }
+    let side = match start_break {
+        Some(FogLineSide::Left) => "left",
+        Some(FogLineSide::Right) => "right",
+        None => return None,
+    };
+    Some(MergeLaneZone {
+        side,
+        start_arc_feet: 0.0,
+        end_arc_feet: polyline_length_feet(center_line),
+    })
+}
+
+fn has_narrower_mainline_neighbor(road: &Value, roads: &Value, intersections: &Value) -> bool {
+    let this_driving_lanes = driving_lane_count(road);
+    let this_highway = road["highway_type"].as_str().unwrap_or_default();
+    if this_driving_lanes == 0 || is_ramp_highway(this_highway) {
+        return false;
+    }
+    let road_by_id = roads
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| Some((entry.get(0)?.as_i64()?, entry.get(1)?)))
+        .collect::<HashMap<_, _>>();
+    ["src_i", "dst_i"].into_iter().any(|endpoint| {
+        let Some(intersection_id) = road[endpoint].as_i64() else {
+            return false;
+        };
+        intersections
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|entry| entry.get(0).and_then(Value::as_i64) == Some(intersection_id))
+            .and_then(|entry| entry.get(1))
+            .and_then(|intersection| intersection["roads"].as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_i64)
+            .filter_map(|sibling_id| road_by_id.get(&sibling_id).copied())
+            .any(|sibling| {
+                sibling["highway_type"].as_str() == Some(this_highway)
+                    && !is_ramp_highway(this_highway)
+                    && driving_lane_count(sibling) < this_driving_lanes
+            })
+    })
+}
+
+fn driving_lane_count(road: &Value) -> usize {
+    road["lane_specs_ltr"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|lane| lane["lt"] == "Driving")
+        .count()
+}
+
+fn polyline_length_feet(points: &[[f64; 2]]) -> f64 {
+    points
+        .windows(2)
+        .map(|segment| (segment[1][0] - segment[0][0]).hypot(segment[1][1] - segment[0][1]))
+        .sum()
+}
+
 /// For every road endpoint that shares a normalized intersection with a ramp
 /// (or is itself a ramp joining another road), determines which fog line
 /// side faces that connection so it can be broken there instead of drawn
@@ -680,7 +786,10 @@ fn gore_fog_line_breaks(
         let Some(road) = entry.get(1) else { continue };
         road_highway.insert(
             id,
-            road["highway_type"].as_str().unwrap_or_default().to_string(),
+            road["highway_type"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
         );
         road_center_line.insert(id, points(&road["center_line"]["pts"]));
         if let (Some(src), Some(dst)) = (road["src_i"].as_i64(), road["dst_i"].as_i64()) {
@@ -757,7 +866,10 @@ fn fog_line_break_side(
         tangent(this_line.first().copied()?, this_line.get(1).copied()?)
     } else {
         let last = this_line.len().checked_sub(1)?;
-        tangent(this_line.get(last.checked_sub(1)?).copied()?, this_line[last])
+        tangent(
+            this_line.get(last.checked_sub(1)?).copied()?,
+            this_line[last],
+        )
     };
     let shared_point = if is_start {
         this_line.first().copied()?
@@ -996,5 +1108,79 @@ mod tests {
             fog_line_break_side(&mainline, false, &ramp),
             Some(FogLineSide::Right)
         );
+    }
+
+    #[test]
+    fn identifies_a_same_side_mainline_ramp_pair_as_an_auxiliary_lane() {
+        let curved_mainline = [[0.0, 0.0], [30.0, 40.0], [30.0, 80.0]];
+        assert_eq!(
+            merge_lane_zone(
+                "motorway",
+                &curved_mainline,
+                true,
+                Some(FogLineSide::Right),
+                Some(FogLineSide::Right)
+            ),
+            Some(MergeLaneZone {
+                side: "right",
+                start_arc_feet: 0.0,
+                end_arc_feet: 90.0,
+            })
+        );
+        assert_eq!(
+            merge_lane_zone(
+                "motorway_link",
+                &curved_mainline,
+                true,
+                Some(FogLineSide::Right),
+                Some(FogLineSide::Right)
+            ),
+            None
+        );
+        assert_eq!(
+            merge_lane_zone(
+                "motorway",
+                &curved_mainline,
+                true,
+                Some(FogLineSide::Left),
+                Some(FogLineSide::Right)
+            ),
+            None
+        );
+        assert_eq!(
+            merge_lane_zone(
+                "motorway",
+                &curved_mainline,
+                false,
+                Some(FogLineSide::Right),
+                Some(FogLineSide::Right)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn recognizes_a_wider_mainline_fragment_next_to_a_narrower_neighbor() {
+        let roads = json!([
+            [1, {"highway_type": "motorway", "src_i": 10, "dst_i": 11,
+                "lane_specs_ltr": [{"lt": "Driving"}, {"lt": "Driving"}, {"lt": "Driving"}, {"lt": "Driving"}]}],
+            [2, {"highway_type": "motorway", "src_i": 10, "dst_i": 12,
+                "lane_specs_ltr": [{"lt": "Driving"}, {"lt": "Driving"}, {"lt": "Driving"}]}]
+        ]);
+        let intersections = json!([
+            [10, {"roads": [1, 2]}],
+            [11, {"roads": [1]}],
+            [12, {"roads": [2]}]
+        ]);
+        assert!(has_narrower_mainline_neighbor(
+            &roads[0][1],
+            &roads,
+            &intersections
+        ));
+        assert!(!has_narrower_mainline_neighbor(
+            &roads[1][1],
+            &roads,
+            &intersections
+        ));
     }
 }

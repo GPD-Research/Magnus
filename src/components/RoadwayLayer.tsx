@@ -194,7 +194,9 @@ export function RoadwayLayer({
               }}
               strokeDasharray={feature.kind === 'skip-line'
                 ? `${ROADWAY_DIMENSIONS_FEET.skipStripeLength} ${ROADWAY_DIMENSIONS_FEET.skipGapLength}`
-                : undefined}
+                : feature.kind === 'auxiliary-lane-line'
+                  ? `${ROADWAY_DIMENSIONS_FEET.auxiliaryStripeLength} ${ROADWAY_DIMENSIONS_FEET.auxiliaryGapLength}`
+                  : undefined}
             />
             {selectable && (
               <path

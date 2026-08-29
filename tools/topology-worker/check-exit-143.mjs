@@ -13,17 +13,21 @@ const markings = artifact.markings ?? []
 const diagnostics = artifact.diagnostics ?? []
 const junctions = intersections.filter((intersection) => intersection.connectedRoadIds?.length >= 2)
 const ramps = roads.filter((road) => road.highway === 'motorway_link')
+const topologyRoadIds = new Set(roads.map((road) => road.topologyRoadId))
 
 const assertions = [
   ['topology artifact uses feet', artifact.coordinateUnits === 'feet'],
   ['complete normalized topology is preserved', artifact.normalizedTopology?.roads != null],
   ['real extract retains normalized roads', roads.length >= 20],
+  ['normalized road IDs are exported', roads.every((road) => Number.isInteger(road.topologyRoadId))],
   ['real extract retains normalized intersections', intersections.length >= 1],
   ['Exit 143 retains motorway ramps', ramps.length >= 4],
   ['multi-road junction relationships are complete', junctions.every((intersection) => {
     const roadCount = intersection.connectedRoadIds.length
     return intersection.relationships?.length === (roadCount * (roadCount - 1)) / 2
   })],
+  ['junction road IDs refer to exported normalized roads', junctions.every((intersection) =>
+    intersection.connectedRoadIds.every((roadId) => topologyRoadIds.has(roadId)))],
   ['junction relationships carry source node evidence', junctions.every((intersection) =>
     intersection.relationships?.every((relationship) => relationship.sourceNodeIds?.length > 0))],
   ['bridge evidence survives normalization', roads.some((road) => road.bridge === true)],

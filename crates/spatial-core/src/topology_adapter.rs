@@ -47,10 +47,22 @@ struct TopologyRoad {
     endpoint_node_ids: Vec<i64>,
     #[serde(default, rename = "laneRecords")]
     lane_records: Vec<LaneRecord>,
+    #[serde(default, rename = "auxiliaryLaneSide")]
+    auxiliary_lane_side: Option<String>,
+    #[serde(default, rename = "mergeLaneZone")]
+    merge_lane_zone: Option<TopologyMergeLaneZone>,
     #[serde(default)]
     bridge: Option<bool>,
     #[serde(default)]
     tunnel: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TopologyMergeLaneZone {
+    side: String,
+    start_arc_feet: f64,
+    end_arc_feet: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,10 +110,13 @@ fn shoulder_widths_from_lane_records(lane_records: &[LaneRecord]) -> (Option<f64
 
 /// Returns each boundary shared by two travel lanes as an offset from the
 /// centerline. Lane records are ordered left-to-right by osm2streets.
-fn driving_lane_boundary_offsets(lane_records: &[LaneRecord]) -> Vec<(usize, f64)> {
+fn driving_lane_boundaries(
+    lane_records: &[LaneRecord],
+    auxiliary_lane_side: Option<&str>,
+) -> Vec<(usize, f64, RoadFeatureKind)> {
     let total_width_feet = lane_records.iter().map(|lane| lane.width_feet).sum::<f64>();
     let mut width_from_left_feet = 0.0;
-    let mut offsets = Vec::new();
+    let mut boundaries = Vec::new();
 
     for (index, lanes) in lane_records.windows(2).enumerate() {
         width_from_left_feet += lanes[0].width_feet;
@@ -109,10 +124,25 @@ fn driving_lane_boundary_offsets(lane_records: &[LaneRecord]) -> Vec<(usize, f64
             && lanes[1].lane_type == "driving"
             && lanes[0].direction == lanes[1].direction
         {
-            offsets.push((index, total_width_feet / 2.0 - width_from_left_feet));
+            boundaries.push((index, total_width_feet / 2.0 - width_from_left_feet));
         }
     }
-    offsets
+    let auxiliary_boundary_index = match auxiliary_lane_side {
+        Some("left") => boundaries.first().map(|(index, _)| *index),
+        Some("right") => boundaries.last().map(|(index, _)| *index),
+        _ => None,
+    };
+    boundaries
+        .into_iter()
+        .map(|(index, offset_feet)| {
+            let kind = if Some(index) == auxiliary_boundary_index {
+                RoadFeatureKind::AuxiliaryLaneLine
+            } else {
+                RoadFeatureKind::SkipLine
+            };
+            (index, offset_feet, kind)
+        })
+        .collect()
 }
 
 fn offset_polyline(points: &[[f64; 2]], offset_feet: f64) -> Vec<[f64; 2]> {
@@ -156,7 +186,13 @@ pub fn compile_topology_scene(
         let osm_id = road.source_way_ids.first().copied();
         let (left_shoulder_width_feet, right_shoulder_width_feet) =
             shoulder_widths_from_lane_records(&road.lane_records);
-        let lane_boundary_offsets = driving_lane_boundary_offsets(&road.lane_records);
+        let merge_lane_side = road
+            .merge_lane_zone
+            .as_ref()
+            .filter(|zone| zone.end_arc_feet > zone.start_arc_feet)
+            .map(|zone| zone.side.as_str())
+            .or(road.auxiliary_lane_side.as_deref());
+        let lane_boundaries = driving_lane_boundaries(&road.lane_records, merge_lane_side);
         let properties = FeatureProperties {
             osm_id,
             source_way_ids: road.source_way_ids.clone(),
@@ -193,16 +229,21 @@ pub fn compile_topology_scene(
                 ..properties
             },
         });
-        for (boundary_index, offset_feet) in lane_boundary_offsets {
+        for (boundary_index, offset_feet, kind) in lane_boundaries {
+            let marking_type = if kind == RoadFeatureKind::AuxiliaryLaneLine {
+                "auxiliary lane separator"
+            } else {
+                "lane separator"
+            };
             features.push(RoadFeature {
                 id: format!("{id}-skip-line-{boundary_index}"),
-                kind: RoadFeatureKind::SkipLine,
+                kind,
                 layer: road.layer + 1,
                 geometry: Geometry::LineString(offset_polyline(&road.center_line, offset_feet)),
                 properties: FeatureProperties {
                     osm_id,
                     source_way_ids: road.source_way_ids.clone(),
-                    marking_type: Some("lane separator".into()),
+                    marking_type: Some(marking_type.into()),
                     render_width_feet: Some(0.5),
                     ..FeatureProperties::default()
                 },
@@ -469,6 +510,7 @@ mod tests {
                     "centerLine": [[0.0, 0.0], [120.0, 0.0]],
                     "surfacePolygon": [[0.0, -24.0], [120.0, -24.0], [120.0, 24.0], [0.0, 24.0], [0.0, -24.0]],
                     "widthFeet": 48.0,
+                    "mergeLaneZone": {"side": "right", "startArcFeet": 0.0, "endArcFeet": 120.0},
                     "laneRecords": [
                         {"laneType": "shoulder", "direction": "forward", "widthFeet": 12.0},
                         {"laneType": "driving", "direction": "forward", "widthFeet": 12.0},
@@ -482,19 +524,30 @@ mod tests {
         )
         .expect("topology roadway should compile");
 
-        let skip_lines = scene
+        let lane_lines = scene
             .features
             .iter()
-            .filter(|feature| feature.kind == RoadFeatureKind::SkipLine)
+            .filter(|feature| {
+                matches!(
+                    feature.kind,
+                    RoadFeatureKind::SkipLine | RoadFeatureKind::AuxiliaryLaneLine
+                )
+            })
             .collect::<Vec<_>>();
-        assert_eq!(skip_lines.len(), 2);
-        assert_eq!(skip_lines[0].properties.render_width_feet, Some(0.5));
+        assert_eq!(lane_lines.len(), 2);
+        assert_eq!(lane_lines[0].kind, RoadFeatureKind::SkipLine);
+        assert_eq!(lane_lines[1].kind, RoadFeatureKind::AuxiliaryLaneLine);
+        assert_eq!(
+            lane_lines[1].properties.marking_type.as_deref(),
+            Some("auxiliary lane separator")
+        );
+        assert_eq!(lane_lines[0].properties.render_width_feet, Some(0.5));
         assert!(matches!(
-            &skip_lines[0].geometry,
+            &lane_lines[0].geometry,
             Geometry::LineString(points) if points == &vec![[30.0, 54.0], [150.0, 54.0]]
         ));
         assert!(matches!(
-            &skip_lines[1].geometry,
+            &lane_lines[1].geometry,
             Geometry::LineString(points) if points == &vec![[30.0, 42.0], [150.0, 42.0]]
         ));
     }

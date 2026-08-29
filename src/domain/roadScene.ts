@@ -96,6 +96,8 @@ export const ROADWAY_DIMENSIONS_FEET = {
   skipLineWidth: 0.5,
   skipStripeLength: 10,
   skipGapLength: 30,
+  auxiliaryStripeLength: 3,
+  auxiliaryGapLength: 9,
 } as const
 
 export type RoadLayer = 'roadGeometry' | 'barriers' | 'trafficFlow' | 'highwayLabels' | 'drawings'
