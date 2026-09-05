@@ -313,11 +313,22 @@ Known remaining problems:
   heuristic. Upstream leaves `Placement::Transition` unimplemented, so this has
   to be solved here.
 - The effect is **local, not a systematic drift across the scene**. On the Exit
-  143 acceptance case the northbound roadway through the exit — the off-ramp,
-  on-ramp and merge lane together, a three-lane widening — renders about 1.5
-  lanes left of where it belongs relative to the mainline segments before and
-  after the exit. The southbound ramps are clean, and segments away from a
-  lane-count change are correct.
+  143 acceptance case, northbound segments step laterally at fragment
+  boundaries: the upstream segment typically sits to the *left* of the segment
+  downstream of it in the direction of travel. The usual step is about half a
+  lane, rising to roughly 1.5 lanes wherever an access, acceleration or
+  deceleration lane is added — half of a one-lane and half of a three-lane
+  widening respectively, matching the displacement law above. Segments away from
+  a lane-count change are correct.
+- **Unexplained:** the southbound carriageway renders cleanly throughout despite
+  comparable ramp and lane-count complexity. Instrumented measurement of the
+  normalized output does *not* reproduce that asymmetry — it reports similar
+  residuals on both carriageways — so either the measurement is sampling the
+  wrong joints or something in the source tagging differs between the two
+  directions. Worth checking whether the southbound ways carry OSM `placement`
+  tags, which `osm2streets` honours through `reference_line_placement`, while
+  the northbound ways fall back to the default centred placement. That would
+  explain both the asymmetry and the fix.
 - Skip lines are not yet at DOT scale — see the dash cycle note below.
 - The coordinate reference system still needs to move to EPSG:2283/2284.
 
