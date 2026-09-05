@@ -320,15 +320,19 @@ Known remaining problems:
   deceleration lane is added — half of a one-lane and half of a three-lane
   widening respectively, matching the displacement law above. Segments away from
   a lane-count change are correct.
-- **Unexplained:** the southbound carriageway renders cleanly throughout despite
-  comparable ramp and lane-count complexity. Instrumented measurement of the
-  normalized output does *not* reproduce that asymmetry — it reports similar
-  residuals on both carriageways — so either the measurement is sampling the
-  wrong joints or something in the source tagging differs between the two
-  directions. Worth checking whether the southbound ways carry OSM `placement`
-  tags, which `osm2streets` honours through `reference_line_placement`, while
-  the northbound ways fall back to the default centred placement. That would
-  explain both the asymmetry and the fix.
+- **Not an x-axis effect.** The two carriageways occupy essentially the same
+  horizontal span — mean x differs by about 3 ft, with ranges of 4808–8090 ft
+  northbound and 4185–8239 ft southbound — so "further right" cannot separate
+  them and nothing in the pipeline scales or shifts with x. The difference is
+  the lane profile: northbound reaches a five-lane fragment while southbound
+  never exceeds four, so northbound steps up to 1.5 lanes where southbound steps
+  only half a lane. Southbound is very likely stepping too, just by 4.9 ft on a
+  narrower road rather than 14.8 ft. Roads that read as perfect are the surface
+  streets, which do not gain and drop lanes the way the interstate does.
+- Correcting this cannot disturb the parts that already render well. The needed
+  shift is half the width delta between adjoining fragments, so where the lane
+  count does not change the correction is exactly zero by construction rather
+  than by tuning.
 - Skip lines are not yet at DOT scale — see the dash cycle note below.
 - The coordinate reference system still needs to move to EPSG:2283/2284.
 
