@@ -180,9 +180,15 @@ export async function resolveRoadLocation(
     const response = await fetch(path)
     if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) {
       const body: unknown = await response.json().catch(() => null)
-      const message = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+      const reported = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
         ? body.error
-        : `Map service returned HTTP ${response.status}`
+        : null
+      // A gateway status with no structured body comes from the dev proxy, not
+      // the map provider: the local spatial service is not listening yet.
+      const message = reported
+        ?? (response.status >= 502 && response.status <= 504
+          ? 'The local Magnus spatial service is not reachable yet. It may still be starting up — retry in a moment.'
+          : `Map service returned HTTP ${response.status}`)
       throw new Error(message)
     }
     return response.json()

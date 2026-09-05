@@ -37,6 +37,10 @@ subsystem owns cones, vehicles, responders, hazards, annotations,
 communications, audits, and scene persistence. This separation allows the
 roadway renderer to be rewritten without replacing the working SSP GUI.
 
+The normalization engine is `osm2streets`/`osm2lanes`, used natively rather
+through Magnus-invented adapters. See
+[Topology engine decision](#topology-engine-decision).
+
 ## Version 9 roadway truth model
 
 The rewrite uses a 2.5D roadway model rather than full elevation. A 2D
@@ -268,4 +272,99 @@ The central vector pane opens at a centered 500-foot view with equal scroll trav
 
 Further Work needs to be done to smooth the complex interchanges as there are still overlapping lines, failures in gore rendering, etc. 
 
-How to Clean Topologies: I intend to use specialized libraries like Python's OSMnx or osm2streets / osm2lanes to resolve intersections, drop isolated sub-networks, and smooth pseudo-nodes where roads needlessly break into separate IDs. I may end branching the project to do a complete rebuild of the backend since this issue has defied correction despite many hours spent attempting to rectify such rendering issues. 
+### Roadway rendering status (2026-09-05)
+
+Roughly three quarters of the original misalignment is resolved. Straight
+highways and simple interchanges render acceptably; a complex multi-ramp
+interchange is workable but still imperfect. What changed:
+
+- All hand-rolled geometry was removed from the topology worker and the
+  `RoadScene` adapter in favour of the native `geom` primitives. The previous
+  per-point normal offset had no miter compensation, so every fog line and lane
+  separator drifted on curves; measured against a real interchange the corrected
+  offsets move individual lines by 10–35 ft.
+- Edge line colour is now traffic-relative rather than lane-order-relative.
+  Yellow marks a driver's left, white a driver's right, and an undivided two-way
+  road is white on **both** outer edges. This corrected 26 of 26 two-way roads
+  that were previously given a yellow outer edge.
+- The merge/auxiliary lane is placed from the connected ramp's actual position
+  rather than from OSM tags, which put it on the wrong side almost half the
+  time. Measured on Exit 143: 20 of 20 auxiliary lanes now sit on the same side
+  as their ramp.
+- Gore points are derived and rendered from topology rather than hand-built.
+- The bridge now carries a `navigationMap` snapshot in the same scene feet as
+  the rendered features, with stable `topologyRoadId` values joining roads,
+  intersections and markings. It replaces a raw upstream dump that was in an
+  untranslatable coordinate frame and had no consumer.
+
+Known remaining problems:
+
+- **Fragment alignment.** `osm2streets` centres every road fragment on its own
+  full width, so where lanes are added the whole cross-section shifts sideways
+  by **half the added width**, away from the side the new lanes appear on. This
+  is measurable and exact: a one-lane widening displaces the through lanes half
+  a lane, two lanes displaces them a full lane, four lanes displaces them two.
+  Four heuristics were tried and measured; all were worse than leaving the
+  geometry alone, because chaining corrections along a corridor accumulates into
+  multi-lane displacement. The geometry is currently left exactly as
+  `osm2streets` produces it. The real fix is to place the cross-section from
+  `reference_line` and `Placement`/`left_edge_offset_of` the way `osm2streets`
+  intends, anchoring the edge that does not change, rather than any pairwise
+  heuristic. Upstream leaves `Placement::Transition` unimplemented, so this has
+  to be solved here.
+- The effect is **local, not a systematic drift across the scene**. On the Exit
+  143 acceptance case the northbound roadway through the exit — the off-ramp,
+  on-ramp and merge lane together, a three-lane widening — renders about 1.5
+  lanes left of where it belongs relative to the mainline segments before and
+  after the exit. The southbound ramps are clean, and segments away from a
+  lane-count change are correct.
+- Skip lines are not yet at DOT scale — see the dash cycle note below.
+- The coordinate reference system still needs to move to EPSG:2283/2284.
+
+### Coordinate reference system
+
+Source data from Overpass is always EPSG:4326, so a reprojection is required
+regardless of target. Magnus is standardising on **EPSG:2283/2284 (Virginia
+State Plane, US survey feet)**: it is conformal, holds scale error to about
+1:10,000, and its native unit already matches the feet-based domain model.
+
+EPSG:3857 was considered and rejected for the measurement path. Web Mercator
+inflates scale by `1/cos(latitude)` — a factor of 1.2742 at 38.3°N — so a 12 ft
+lane would measure 15.29 ft. That is unacceptable for a tool that audits cone
+spacing in feet. If a tile basemap is ever required, the view layer should
+reproject to 3857 while the authoritative geometry stays in State Plane.
+
+Until that work lands, geometry passes through `geom`'s local equirectangular
+fit to the extract bounding box, which scales x by the width of the southern
+edge only. On the Exit 143 extract that is a 0.0965% shear — about 9.6 ft across
+the scene, or 0.38 ft per 1,000 ft of northing. It applies uniformly to every
+feature, so it does not pull connected roads apart.
+
+### Topology engine decision
+
+Topology cleaning — resolving intersections, dropping isolated sub-networks, and
+collapsing pseudo-nodes where a road needlessly breaks into separate IDs — is
+done with `osm2streets` and `osm2lanes`. Python's OSMnx is deliberately **not**
+used. OSMnx models a general routing graph rather than lane-level roadway
+geometry, so it over-generalizes exactly the lane specifications, widths,
+shoulder evidence, and marking semantics Magnus depends on. OSMnx must not be
+introduced anywhere it would conflict with or over-generalize what
+`osm2streets`/`osm2lanes` already provide.
+
+The corollary is that Magnus invents as few adapters as possible. Where the
+upstream libraries already answer a question, Magnus uses their native output
+instead of recomputing it:
+
+- geometry uses the native `geom` primitives — `PolyLine::shift_from_center`,
+  `shift_left`/`shift_right`, `make_polygons`, `exact_slice` — rather than
+  hand-rolled point offsets, which lose miter compensation on curves
+- roads, lanes, intersections, and markings come from `StreetNetwork` and its
+  `to_lane_polygons_geojson`, `to_lane_markings_geojson`, and
+  `to_intersection_markings_geojson` outputs
+- lane specifications come from `lane_specs_ltr`, the left-to-right lane list
+  `osm2lanes` infers from OSM tags
+
+Magnus synthesizes a value only when the gap is confirmed by reading upstream
+source. The pavement edge (fog line) is the current documented example:
+`osm2streets` has no fog-line concept in `to_lane_markings_geojson` at all, so
+the topology worker derives it from the imported shoulder widths.

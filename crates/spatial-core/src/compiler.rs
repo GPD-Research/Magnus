@@ -141,6 +141,7 @@ pub fn compile_pbf(
         let width = f64::from(way.lanes) * 12.0;
         let properties = FeatureProperties {
             osm_id: Some(way.id),
+            topology_road_id: None,
             source_way_ids: Vec::new(),
             endpoint_node_ids: Vec::new(),
             lane_records: Vec::new(),
@@ -199,7 +200,7 @@ pub fn compile_pbf(
         viewport,
         features,
         diagnostics: Vec::new(),
-        normalized_topology: None,
+        navigation_map: None,
     })
 }
 

@@ -89,5 +89,7 @@ the migration, not as the primary topology engine.
 
 `osm2streets` is the selected topology foundation for Version 8. `osm2lanes` is
 not a separate foundation because its repository is archived and its lane logic
-has moved into `osm2streets`. OSMnx may still be useful for offline analysis or
-validation, but it is not the primary geometry engine for Magnus.
+now ships as a crate inside the `osm2streets` workspace. OSMnx was left open
+here as a possible offline analysis or validation aid; Version 9 closed that
+question and excluded it outright. See the Topology engine decision in the
+README.

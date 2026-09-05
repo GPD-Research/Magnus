@@ -37,6 +37,79 @@ pub struct TopologyDiagnostic {
     pub crossing_point: Position,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeLaneZone {
+    pub side: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry_side: Option<String>,
+    pub start_arc_feet: f64,
+    pub end_arc_feet: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NavigationRoad {
+    pub topology_road_id: i64,
+    pub source_way_ids: Vec<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoint_node_ids: Vec<i64>,
+    pub layer: i16,
+    pub highway: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bridge: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tunnel: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lane_records: Vec<LaneRecord>,
+    pub center_line: Vec<Position>,
+    pub surface_polygon: Vec<Position>,
+    pub width_feet: f64,
+    pub trim_start_feet: f64,
+    pub trim_end_feet: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub merge_lane_zone: Option<MergeLaneZone>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NavigationIntersection {
+    pub source_node_ids: Vec<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connected_road_ids: Vec<i64>,
+    pub layer: i16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<RelationshipRecord>,
+    pub polygon: Vec<Position>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NavigationMarking {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topology_road_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_way_ids: Vec<i64>,
+    pub marking_type: String,
+    pub layer: i16,
+    pub geometry: Vec<Position>,
+}
+
+/// The normalized navigation-map snapshot described by the Version 9 bridge
+/// contract, expressed in the same scene feet as [`RoadScene::features`] so a
+/// renderer can consume it without re-deriving any transform.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NavigationMap {
+    pub version: u8,
+    pub provider: String,
+    pub roads: Vec<NavigationRoad>,
+    pub intersections: Vec<NavigationIntersection>,
+    pub markings: Vec<NavigationMarking>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoadFeatureKind {
@@ -61,6 +134,10 @@ pub enum RoadFeatureKind {
 pub struct FeatureProperties {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub osm_id: Option<i64>,
+    /// Joins the feature back to its [`NavigationRoad`] and to the
+    /// `connectedRoadIds` recorded on normalized intersections.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topology_road_id: Option<i64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub source_way_ids: Vec<i64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -156,7 +233,7 @@ pub struct RoadScene {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<TopologyDiagnostic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub normalized_topology: Option<Value>,
+    pub navigation_map: Option<NavigationMap>,
 }
 
 #[cfg(test)]

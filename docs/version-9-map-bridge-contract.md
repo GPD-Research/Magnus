@@ -15,8 +15,12 @@ labels, and map coordinate conversion. The overlay owns incident objects,
 training rules, communications, annotations, and portable scene state.
 
 Topology-backed artifacts preserve the complete normalized upstream document in
-`normalizedTopology`. The derived `roads`, `intersections`, and `markings`
-collections are render projections, not replacements for that document.
+the worker artifact's `normalizedTopology`. The scene document instead carries
+`navigationMap`, the same normalized roads, intersections, and markings
+expressed in scene feet, so a renderer can consume them without re-deriving the
+viewport transform or decoding upstream fixed-point coordinates. The derived
+`features` collection remains a render projection of that snapshot, not a
+replacement for it.
 
 ## Snapshot shape
 
@@ -111,6 +115,16 @@ source topology does not separate it into another fragment.
 Each lane record should retain semantic values rather than only a total lane
 count. Markings must include their semantic type and geometry, such as edge,
 lane separator, continuity, or merge boundary.
+
+Boundary markings cross the bridge as continuous LineStrings, not as
+pre-dashed geometry. `osm2streets` places the same separator positions
+internally but only emits them through `to_lane_markings_geojson` as dashed
+metric polygons (0.25 m thick, 1 m dash, 1.5 m gap), and has no pavement-edge
+concept at all. The topology worker therefore re-emits boundaries as
+LineStrings using the upstream `PolyLine::shift_from_center` offset, leaving
+the dash cycle to the renderer. Bringing those strokes to DOT scale — a 40 ft
+skip cycle of 10 ft stripe plus 30 ft gap, and 3 ft / 9 ft for a merge lane —
+is deferred until the native topology integration is complete.
 
 Intersections must include:
 

@@ -32,7 +32,7 @@ Exec=$LAUNCHER
 Icon=magnus
 Terminal=false
 Categories=Utility;Education;
-StartupNotify=true
+StartupNotify=false
 EOF
 
 chmod 0644 "$DESKTOP_FILE"

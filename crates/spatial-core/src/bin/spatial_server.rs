@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Arc,
+    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
@@ -48,6 +49,7 @@ struct AppState {
     scene_cache: Arc<RwLock<HashMap<String, RoadScene>>>,
     cache_directory: PathBuf,
     shutdown_sender: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    build_commit: String,
 }
 
 #[derive(Serialize)]
@@ -60,6 +62,8 @@ struct HealthResponse {
     status: &'static str,
     service: &'static str,
     version: &'static str,
+    // Lets launch-magnus.sh confirm it's talking to the freshly-started server, not a stale one.
+    commit: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -123,6 +127,7 @@ async fn main() -> Result<()> {
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("target/magnus-road-cache")),
         shutdown_sender: Arc::new(Mutex::new(Some(shutdown_sender))),
+        build_commit: env::var("MAGNUS_BUILD_COMMIT").unwrap_or_else(|_| "unknown".into()),
     };
     let web_directory = env::var("MAGNUS_WEB_DIR").unwrap_or_else(|_| "dist".into());
     let index_file = format!("{web_directory}/index.html");
@@ -146,11 +151,12 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn health() -> Json<HealthResponse> {
+async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         service: "magnus-spatial",
         version: env!("CARGO_PKG_VERSION"),
+        commit: state.build_commit,
     })
 }
 
@@ -178,7 +184,7 @@ async fn resolve_road_scene(
     let cache_key = scene_cache_key(&overpass_query);
     let topology_worker = env::var("MAGNUS_TOPOLOGY_WORKER").ok();
     let scene_cache_key = if topology_worker.is_some() {
-        format!("topology-v13-{cache_key}")
+        format!("topology-v23-{cache_key}")
     } else {
         cache_key.clone()
     };
@@ -221,11 +227,10 @@ async fn resolve_road_scene(
     let mut failures = Vec::new();
     let route_geometry_query = request.route_geometry_query();
     let prefer_route_geometry = request.prefers_route_geometry_query();
-    let provider_attempts = state
-        .overpass_urls
-        .iter()
-        .chain(state.overpass_urls.first());
-    for (index, overpass_url) in provider_attempts.enumerate() {
+    // One pass per provider. Re-running the first provider after the whole pool
+    // already failed only adds another 90 s timeout to a request that is
+    // already going to fall back to prepared data.
+    for (index, overpass_url) in state.overpass_urls.iter().enumerate() {
         let query_attempts = if prefer_route_geometry {
             [
                 route_geometry_query.as_deref(),
@@ -315,9 +320,15 @@ fn compile_with_topology_worker(
     worker: &str,
     request: &RoadLocationRequest,
 ) -> Result<RoadScene, String> {
-    let input_path = env::temp_dir().join(format!("magnus-topology-{}.osm", std::process::id()));
-    let output_path = env::temp_dir().join(format!("magnus-topology-{}.json", std::process::id()));
-    let clip_path = env::temp_dir().join(format!("magnus-topology-{}.geojson", std::process::id()));
+    // Concurrent resolves share this process, so the pid alone is not a
+    // unique name: overlapping runs would truncate each other's files midway
+    // and leave the reader with corrupt JSON.
+    static WORKER_RUN: AtomicU64 = AtomicU64::new(0);
+    let run = WORKER_RUN.fetch_add(1, Ordering::Relaxed);
+    let stem = format!("magnus-topology-{}-{run}", std::process::id());
+    let input_path = env::temp_dir().join(format!("{stem}.osm"));
+    let output_path = env::temp_dir().join(format!("{stem}.json"));
+    let clip_path = env::temp_dir().join(format!("{stem}.geojson"));
     let result = (|| {
         let response: Value =
             serde_json::from_str(overpass_json).map_err(|error| error.to_string())?;
@@ -817,7 +828,7 @@ mod tests {
                 },
             ],
             diagnostics: Vec::new(),
-            normalized_topology: None,
+            navigation_map: None,
         };
 
         upgrade_v3_fog_lines(&mut scene);

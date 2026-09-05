@@ -22,6 +22,56 @@ export interface TopologyDiagnostic {
   crossingPoint: Position
 }
 
+export interface MergeLaneZone {
+  side: string
+  geometrySide?: string
+  startArcFeet: number
+  endArcFeet: number
+}
+
+export interface NavigationRoad {
+  topologyRoadId: number
+  sourceWayIds: number[]
+  endpointNodeIds?: number[]
+  layer: number
+  highway: string
+  bridge?: boolean
+  tunnel?: boolean
+  laneRecords?: LaneRecord[]
+  centerLine: Position[]
+  surfacePolygon: Position[]
+  widthFeet: number
+  trimStartFeet: number
+  trimEndFeet: number
+  mergeLaneZone?: MergeLaneZone
+}
+
+export interface NavigationIntersection {
+  sourceNodeIds: number[]
+  connectedRoadIds?: number[]
+  layer: number
+  relationship?: string
+  relationships?: RelationshipRecord[]
+  polygon: Position[]
+}
+
+export interface NavigationMarking {
+  topologyRoadId?: number
+  sourceWayIds?: number[]
+  markingType: string
+  layer: number
+  geometry: Position[]
+}
+
+/** Normalized map snapshot in the same scene feet as `RoadScene.features`. */
+export interface NavigationMap {
+  version: 1
+  provider: string
+  roads: NavigationRoad[]
+  intersections: NavigationIntersection[]
+  markings: NavigationMarking[]
+}
+
 export type RoadFeatureKind =
   | 'road-casing'
   | 'road-surface'
@@ -45,6 +95,7 @@ export interface RoadFeature {
   geometry: LineGeometry | PolygonGeometry
   properties: {
     osmId?: number
+    topologyRoadId?: number
     sourceWayIds?: number[]
     endpointNodeIds?: number[]
     laneRecords?: LaneRecord[]
@@ -86,7 +137,7 @@ export interface RoadScene {
   viewport: { width: number; height: number }
   features: RoadFeature[]
   diagnostics?: TopologyDiagnostic[]
-  normalizedTopology?: unknown
+  navigationMap?: NavigationMap
 }
 
 export const ROADWAY_DIMENSIONS_FEET = {

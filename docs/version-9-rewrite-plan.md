@@ -146,6 +146,12 @@ local OSM preparation plus `streets_reader` and `osm2streets`, with a stable
 JSON boundary into Magnus. This keeps infrastructure small while replacing the
 fragile roadway geometry ownership model.
 
+Python's OSMnx is excluded for the same reason: it models a routing graph, not
+lane-level roadway geometry, and would over-generalize the lane, shoulder, and
+marking semantics `osm2streets`/`osm2lanes` already supply. Magnus uses the
+upstream geometry and rendering APIs natively and synthesizes a value only
+where a gap is confirmed by reading upstream source.
+
 The SSP diagram system is deliberately out of scope for the roadway rewrite
 except for its placement bridge. It should continue to receive a selected
 logical road, lane reference, point/tangent queries, source IDs, and a shared
