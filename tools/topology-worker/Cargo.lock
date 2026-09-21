@@ -1517,6 +1517,7 @@ dependencies = [
  "geojson",
  "geom",
  "magnus-spatial-core",
+ "osm2lanes",
  "osm2streets",
  "serde_json",
 ]

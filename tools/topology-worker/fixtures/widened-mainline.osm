@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="Magnus topology fixture">
+  <bounds minlat="38.8000" minlon="-77.2100" maxlat="38.8100" maxlon="-77.1900"/>
+  <node id="1" lat="38.8000" lon="-77.2000"/>
+  <node id="2" lat="38.8020" lon="-77.2000"/>
+  <node id="3" lat="38.8040" lon="-77.2000"/>
+  <node id="4" lat="38.8060" lon="-77.2000"/>
+  <node id="5" lat="38.8005" lon="-77.1980"/>
+  <node id="6" lat="38.8014" lon="-77.1994"/>
+  <node id="7" lat="38.8046" lon="-77.1994"/>
+  <node id="8" lat="38.8055" lon="-77.1980"/>
+  <way id="100">
+    <nd ref="1"/><nd ref="2"/>
+    <tag k="highway" v="motorway"/><tag k="ref" v="I 95"/><tag k="lanes" v="3"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="101">
+    <nd ref="2"/><nd ref="3"/>
+    <tag k="highway" v="motorway"/><tag k="ref" v="I 95"/><tag k="lanes" v="4"/><tag k="oneway" v="yes"/>
+    <tag k="turn:lanes" v="none|none|none|slight_right"/>
+  </way>
+  <way id="102">
+    <nd ref="3"/><nd ref="4"/>
+    <tag k="highway" v="motorway"/><tag k="ref" v="I 95"/><tag k="lanes" v="3"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="200">
+    <nd ref="5"/><nd ref="6"/><nd ref="2"/>
+    <tag k="highway" v="motorway_link"/><tag k="lanes" v="1"/><tag k="oneway" v="yes"/>
+  </way>
+  <way id="201">
+    <nd ref="3"/><nd ref="7"/><nd ref="8"/>
+    <tag k="highway" v="motorway_link"/><tag k="lanes" v="1"/><tag k="oneway" v="yes"/>
+  </way>
+</osm>
