@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     env,
     fs::File,
     io::BufWriter,
@@ -15,8 +15,10 @@ use geom::{Distance, GPSBounds, LonLat, PolyLine};
 use magnus_spatial_core::topology::{
     classify_road_relationship, CrossingCandidate, RoadRelationship, RoadStructure,
 };
+use osm2lanes::RoadPosition;
 use osm2streets::{
-    osm::WayID, Direction, Filter, LaneSpec, LaneType, StreetNetwork, Transformation,
+    intersection_polygon, osm::WayID, Direction, DrivingSide, Filter, InputRoad, IntersectionID,
+    LaneSpec, LaneType, Placement, Road, RoadID, StreetNetwork, Transformation,
 };
 use serde_json::{json, Value};
 
@@ -45,6 +47,7 @@ fn main() -> Result<()> {
         ],
         &mut timer,
     );
+    anchor_widened_fragments(&mut map.streets, &map.osm_tags);
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)?;
@@ -56,17 +59,170 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+type GoreBreaks = HashMap<i64, (Option<FogLineSide>, Option<FogLineSide>)>;
+
+fn auxiliary_lane_analysis(
+    serialized: &Value,
+    osm_tags: &BTreeMap<WayID, Tags>,
+) -> (GoreBreaks, HashMap<i64, MergeLaneSides>) {
+    let gore_breaks = gore_fog_line_breaks(&serialized["roads"], &serialized["intersections"]);
+    let merge_lane_sides = merge_lane_sides(
+        &serialized["roads"],
+        &serialized["intersections"],
+        &gore_breaks,
+        osm_tags,
+    );
+    (gore_breaks, merge_lane_sides)
+}
+
+/// osm2streets centres every road on its own full width, so a fragment that
+/// gains auxiliary lanes has its through lanes displaced by half the added
+/// width relative to the narrower fragments on either side of it, even though
+/// the OSM way runs continuously through the gore node. This is the
+/// `Placement::Transition` case osm2streets leaves unimplemented.
+///
+/// The through lanes are anchored back onto the reference line using the same
+/// `left_edge_offset_of` arithmetic `Road::get_untrimmed_center_line` uses for
+/// tagged placements, and every intersection touching a re-placed road is
+/// rebuilt with `intersection_polygon` so trims and polygons stay consistent.
+/// Roads carrying an explicit OSM `placement` are left to osm2streets.
+fn anchor_widened_fragments(streets: &mut StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) {
+    let serialized = serde_json::to_value(&*streets).expect("StreetNetwork should serialize");
+    let (_, merge_lane_sides) = auxiliary_lane_analysis(&serialized, osm_tags);
+    let driving_side = streets.config.driving_side;
+
+    let mut anchored: BTreeMap<RoadID, PolyLine> = BTreeMap::new();
+    let mut touched: BTreeSet<IntersectionID> = BTreeSet::new();
+    for (road_id, sides) in &merge_lane_sides {
+        let id = RoadID(*road_id as usize);
+        let Some(road) = streets.roads.get(&id) else {
+            continue;
+        };
+        if road.reference_line_placement != Placement::Consistent(RoadPosition::Center) {
+            continue;
+        }
+        let side = auxiliary_geometry_side(streets, road, sides);
+        let Some(shift) =
+            through_lane_anchor_shift(road, side, sides.auxiliary_lanes, driving_side)
+        else {
+            continue;
+        };
+        let Ok(line) = road.reference_line.shift_either_direction(shift) else {
+            continue;
+        };
+        anchored.insert(id, line);
+        touched.insert(road.src_i);
+        touched.insert(road.dst_i);
+    }
+
+    for intersection_id in touched {
+        rebuild_intersection(streets, intersection_id, &anchored);
+    }
+}
+
+/// Lateral shift from the reference line to the full-width centre of a road
+/// whose through lanes (everything except the auxiliary lanes on `side`)
+/// should stay centred on the reference line. Mirrors
+/// `Road::get_untrimmed_center_line`: `target_offset - ref_offset`.
+fn through_lane_anchor_shift(
+    road: &Road,
+    side: FogLineSide,
+    auxiliary_lanes: usize,
+    driving_side: DrivingSide,
+) -> Option<Distance> {
+    let driving = road
+        .lane_specs_ltr
+        .iter()
+        .filter(|lane| lane.lt == LaneType::Driving)
+        .collect::<Vec<_>>();
+    if auxiliary_lanes == 0 || driving.len() <= auxiliary_lanes {
+        return None;
+    }
+    let auxiliary = match side {
+        FogLineSide::Left => &driving[..auxiliary_lanes],
+        FogLineSide::Right => &driving[driving.len() - auxiliary_lanes..],
+    };
+    let auxiliary_width = auxiliary
+        .iter()
+        .fold(Distance::ZERO, |total, lane| total + lane.width);
+    let through_width = road.total_width() - auxiliary_width;
+    let ref_offset = match side {
+        FogLineSide::Left => auxiliary_width + through_width / 2.0,
+        FogLineSide::Right => through_width / 2.0,
+    };
+    let target_offset = road.left_edge_offset_of(RoadPosition::FullWidthCenter, driving_side);
+    Some(target_offset - ref_offset)
+}
+
+/// Recomputes one intersection's polygon and road trims the way
+/// `StreetNetwork::update_geometry` does, using the anchored untrimmed centre
+/// lines for re-placed roads and osm2streets' own for everything else.
+fn rebuild_intersection(
+    streets: &mut StreetNetwork,
+    intersection_id: IntersectionID,
+    anchored: &BTreeMap<RoadID, PolyLine>,
+) {
+    let driving_side = streets.config.driving_side;
+    let Some(intersection) = streets.intersections.get(&intersection_id) else {
+        return;
+    };
+    let untrimmed = |road: &Road| {
+        anchored
+            .get(&road.id)
+            .cloned()
+            .unwrap_or_else(|| road.get_untrimmed_center_line(driving_side))
+    };
+    let input_roads = intersection
+        .roads
+        .iter()
+        .filter_map(|id| streets.roads.get(id))
+        .map(|road| InputRoad {
+            id: road.id,
+            src_i: road.src_i,
+            dst_i: road.dst_i,
+            center_line: untrimmed(road),
+            total_width: road.total_width(),
+            highway_type: road.highway_type.clone(),
+        })
+        .collect::<Vec<_>>();
+    let Ok(results) = intersection_polygon(
+        intersection_id,
+        intersection.kind,
+        input_roads,
+        &intersection.trim_roads_for_merging,
+    ) else {
+        return;
+    };
+    let road_ids = intersection.roads.clone();
+    if let Some(intersection) = streets.intersections.get_mut(&intersection_id) {
+        intersection.polygon = results.intersection_polygon;
+    }
+    for (id, distance) in results.trim_starts {
+        if let Some(road) = streets.roads.get_mut(&id) {
+            road.trim_start = distance;
+        }
+    }
+    for (id, distance) in results.trim_ends {
+        if let Some(road) = streets.roads.get_mut(&id) {
+            road.trim_end = distance;
+        }
+    }
+    for id in road_ids {
+        let Some(road) = streets.roads.get_mut(&id) else {
+            continue;
+        };
+        let line = untrimmed(road);
+        road.center_line =
+            Road::trim_polyline_both_ends(line.clone(), road.trim_start, road.trim_end)
+                .unwrap_or(line);
+    }
+}
+
 fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> Result<Value> {
     let serialized = serde_json::to_value(streets).expect("StreetNetwork should serialize");
     let serialized_intersections = &serialized["intersections"];
     let road_structures = road_structures(&serialized["roads"], osm_tags);
-    let gore_breaks = gore_fog_line_breaks(&serialized["roads"], serialized_intersections);
-    let merge_lane_sides = merge_lane_sides(
-        &serialized["roads"],
-        serialized_intersections,
-        &gore_breaks,
-        osm_tags,
-    );
+    let (gore_breaks, merge_lane_sides) = auxiliary_lane_analysis(&serialized, osm_tags);
     let road_geometry = road_geometry(streets);
     let roads = serialized["roads"]
         .as_array()
@@ -76,7 +232,9 @@ fn topology_scene(streets: &StreetNetwork, osm_tags: &BTreeMap<WayID, Tags>) -> 
         .map(|road| {
             let geometry = road["id"].as_i64().and_then(|id| road_geometry.get(&id));
             let center_line = geometry.map(|g| g.center_line.clone()).unwrap_or_default();
-            let surface_polygon = geometry.map(|g| g.surface_polygon.clone()).unwrap_or_default();
+            let surface_polygon = geometry
+                .map(|g| g.surface_polygon.clone())
+                .unwrap_or_default();
             let width_feet = geometry.map_or(0.0, |g| g.width_feet);
             let (bridge, tunnel) = structural_tags(&road["osm_ids"], osm_tags);
             let highway = road["highway_type"].as_str().unwrap_or_default();
@@ -658,28 +816,24 @@ fn boundary_markings(
             .filter(|(_, pair)| is_lane_separator(&pair[0], &pair[1]))
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
-        // The merge lane is the outermost driving lane on the ramp side. Which
-        // side that is comes from where the ramp physically lies, since the
-        // tag- and gore-derived sides disagree with it often enough to put the
-        // lane on the wrong side of the road.
-        let auxiliary_separator = merge_lane_sides
+        // The auxiliary lanes are the outermost driving lanes on the ramp side,
+        // so every separator bounding that block is dotted.
+        let auxiliary_separators = merge_lane_sides
             .get(&road_id)
-            .and_then(|sides| {
-                ramp_side(streets, road).or_else(|| match sides.geometry_side {
-                    "left" => Some(FogLineSide::Left),
-                    _ => Some(FogLineSide::Right),
-                })
+            .map(|sides| {
+                let count = sides.auxiliary_lanes.min(separators.len());
+                match auxiliary_geometry_side(streets, road, sides) {
+                    FogLineSide::Left => separators[..count].to_vec(),
+                    FogLineSide::Right => separators[separators.len() - count..].to_vec(),
+                }
             })
-            .and_then(|side| match side {
-                FogLineSide::Left => separators.first().copied(),
-                FogLineSide::Right => separators.last().copied(),
-            });
+            .unwrap_or_default();
 
         let mut width_from_left = Distance::ZERO;
         for (index, pair) in lanes.windows(2).enumerate() {
             width_from_left += pair[0].width;
             let Some(marking_type) =
-                separator_marking(&pair[0], &pair[1], Some(index) == auxiliary_separator)
+                separator_marking(&pair[0], &pair[1], auxiliary_separators.contains(&index))
             else {
                 continue;
             };
@@ -745,13 +899,28 @@ fn is_lane_separator(left: &LaneSpec, right: &LaneSpec) -> bool {
     left.lt == LaneType::Driving && right.lt == LaneType::Driving && left.dir == right.dir
 }
 
+/// Which side, in the road's own left-to-right lane order, its auxiliary lanes
+/// are on. Where the ramp physically lies wins, since the tag- and
+/// gore-derived sides disagree with it often enough to put the lane on the
+/// wrong side of the road.
+fn auxiliary_geometry_side(
+    streets: &StreetNetwork,
+    road: &Road,
+    sides: &MergeLaneSides,
+) -> FogLineSide {
+    ramp_side(streets, road).unwrap_or(match sides.geometry_side {
+        "left" => FogLineSide::Left,
+        _ => FogLineSide::Right,
+    })
+}
+
 /// Which side of a road, in its own left-to-right lane order, the ramps
 /// connected to it actually lie on.
 ///
 /// The side is calibrated against `shift_from_center` itself rather than a
 /// hand-derived cross-product convention, so it cannot drift out of step with
 /// the offsets used to place the markings.
-fn ramp_side(streets: &StreetNetwork, road: &osm2streets::Road) -> Option<FogLineSide> {
+fn ramp_side(streets: &StreetNetwork, road: &Road) -> Option<FogLineSide> {
     let width = road.total_width();
     if width <= Distance::ZERO {
         return None;
@@ -779,7 +948,10 @@ fn ramp_side(streets: &StreetNetwork, road: &osm2streets::Road) -> Option<FogLin
             let point = ramp.center_line.middle();
             let offset = (point.x() - centre.x(), point.y() - centre.y());
             let projection = offset.0 * towards_left.0 + offset.1 * towards_left.1;
-            if best.as_ref().is_none_or(|(best, _)| projection.abs() > *best) {
+            if best
+                .as_ref()
+                .is_none_or(|(best, _)| projection.abs() > *best)
+            {
                 best = Some((
                     projection.abs(),
                     if projection > 0.0 {
@@ -892,6 +1064,8 @@ struct MergeLaneZone {
 struct MergeLaneSides {
     traffic_side: &'static str,
     geometry_side: &'static str,
+    /// Driving lanes this fragment has beyond its narrowest mainline neighbour.
+    auxiliary_lanes: usize,
 }
 
 fn merge_lane_zone(
@@ -927,9 +1101,9 @@ fn merge_lane_sides(
     let mut pending = VecDeque::new();
 
     for (&road_id, road) in &road_by_id {
-        if !has_narrower_mainline_neighbor(road, roads, intersections) {
+        let Some(auxiliary_lanes) = added_mainline_lanes(road, roads, intersections) else {
             continue;
-        }
+        };
         let (start_break, end_break) = gore_breaks.get(&road_id).copied().unwrap_or((None, None));
         let geometry_side = auxiliary_lane_side(start_break, end_break);
         let traffic_side =
@@ -949,6 +1123,7 @@ fn merge_lane_sides(
                 MergeLaneSides {
                     traffic_side,
                     geometry_side,
+                    auxiliary_lanes,
                 },
             );
             pending.push_back(road_id);
@@ -1073,11 +1248,13 @@ fn lane_side_from_turn_lanes(turn_lanes: &str) -> Option<&'static str> {
     None
 }
 
-fn has_narrower_mainline_neighbor(road: &Value, roads: &Value, intersections: &Value) -> bool {
+/// How many driving lanes a mainline fragment has beyond the narrowest
+/// same-type mainline sibling it meets at either end, if any is narrower.
+fn added_mainline_lanes(road: &Value, roads: &Value, intersections: &Value) -> Option<usize> {
     let this_driving_lanes = driving_lane_count(road);
     let this_highway = road["highway_type"].as_str().unwrap_or_default();
     if this_driving_lanes == 0 || is_ramp_highway(this_highway) {
-        return false;
+        return None;
     }
     let road_by_id = roads
         .as_array()
@@ -1085,27 +1262,28 @@ fn has_narrower_mainline_neighbor(road: &Value, roads: &Value, intersections: &V
         .flatten()
         .filter_map(|entry| Some((entry.get(0)?.as_i64()?, entry.get(1)?)))
         .collect::<HashMap<_, _>>();
-    ["src_i", "dst_i"].into_iter().any(|endpoint| {
-        let Some(intersection_id) = road[endpoint].as_i64() else {
-            return false;
-        };
-        intersections
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|entry| entry.get(0).and_then(Value::as_i64) == Some(intersection_id))
-            .and_then(|entry| entry.get(1))
-            .and_then(|intersection| intersection["roads"].as_array())
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_i64)
-            .filter_map(|sibling_id| road_by_id.get(&sibling_id).copied())
-            .any(|sibling| {
-                sibling["highway_type"].as_str() == Some(this_highway)
-                    && !is_ramp_highway(this_highway)
-                    && driving_lane_count(sibling) < this_driving_lanes
-            })
-    })
+    ["src_i", "dst_i"]
+        .into_iter()
+        .filter_map(|endpoint| road[endpoint].as_i64())
+        .flat_map(|intersection_id| {
+            intersections
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|entry| entry.get(0).and_then(Value::as_i64) == Some(intersection_id))
+                .and_then(|entry| entry.get(1))
+                .and_then(|intersection| intersection["roads"].as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_i64)
+                .collect::<Vec<_>>()
+        })
+        .filter_map(|sibling_id| road_by_id.get(&sibling_id).copied())
+        .filter(|sibling| sibling["highway_type"].as_str() == Some(this_highway))
+        .map(driving_lane_count)
+        .filter(|&sibling_lanes| sibling_lanes > 0 && sibling_lanes < this_driving_lanes)
+        .map(|sibling_lanes| this_driving_lanes - sibling_lanes)
+        .max()
 }
 
 fn driving_lane_count(road: &Value) -> usize {
@@ -1340,8 +1518,14 @@ mod tests {
         let backward = test_lane(LaneType::Driving, Direction::Backward);
 
         assert_eq!(separator_marking(&shoulder, &forward, false), None);
-        assert_eq!(separator_marking(&forward, &backward, false), Some("center line"));
-        assert_eq!(separator_marking(&forward, &forward, false), Some("lane separator"));
+        assert_eq!(
+            separator_marking(&forward, &backward, false),
+            Some("center line")
+        );
+        assert_eq!(
+            separator_marking(&forward, &forward, false),
+            Some("lane separator")
+        );
         assert_eq!(
             separator_marking(&forward, &forward, true),
             Some("auxiliary lane separator")
@@ -1386,7 +1570,10 @@ mod tests {
 
         // One-way digitised along traffic: lane order and travel agree.
         let oneway = [forward.clone(), forward.clone()];
-        assert_eq!(edge_marking_name(&oneway, FogLineSide::Left), "left fog line");
+        assert_eq!(
+            edge_marking_name(&oneway, FogLineSide::Left),
+            "left fog line"
+        );
         assert_eq!(
             edge_marking_name(&oneway, FogLineSide::Right),
             "right fog line"
@@ -1418,7 +1605,8 @@ mod tests {
 
     #[test]
     fn reads_the_geometry_sense_from_the_serialized_lane_directions() {
-        let forward = json!([{"lt": "Shoulder", "dir": "Forward"}, {"lt": "Driving", "dir": "Forward"}]);
+        let forward =
+            json!([{"lt": "Shoulder", "dir": "Forward"}, {"lt": "Driving", "dir": "Forward"}]);
         let backward = json!([{"lt": "Driving", "dir": "Backward"}]);
 
         assert!(geometry_runs_with_traffic(&forward));
@@ -1467,6 +1655,7 @@ mod tests {
                 Some(MergeLaneSides {
                     traffic_side: "right",
                     geometry_side: "right",
+                    auxiliary_lanes: 1,
                 })
             ),
             Some(MergeLaneZone {
@@ -1483,6 +1672,7 @@ mod tests {
                 Some(MergeLaneSides {
                     traffic_side: "right",
                     geometry_side: "right",
+                    auxiliary_lanes: 1,
                 })
             ),
             None
@@ -1516,15 +1706,138 @@ mod tests {
             [11, {"roads": [1]}],
             [12, {"roads": [2]}]
         ]);
-        assert!(has_narrower_mainline_neighbor(
-            &roads[0][1],
-            &roads,
-            &intersections
-        ));
-        assert!(!has_narrower_mainline_neighbor(
-            &roads[1][1],
-            &roads,
-            &intersections
-        ));
+        assert_eq!(
+            added_mainline_lanes(&roads[0][1], &roads, &intersections),
+            Some(1)
+        );
+        assert_eq!(
+            added_mainline_lanes(&roads[1][1], &roads, &intersections),
+            None
+        );
+    }
+
+    fn lane(width_feet: f64) -> LaneSpec {
+        LaneSpec {
+            lt: LaneType::Driving,
+            dir: Direction::Forward,
+            width: Distance::feet(width_feet),
+            allowed_turns: Default::default(),
+            lane: None,
+        }
+    }
+
+    fn straight_road(lanes: Vec<LaneSpec>) -> Road {
+        let mut road: Road = serde_json::from_value(json!({
+            "id": 1,
+            "osm_ids": [],
+            "src_i": 1,
+            "dst_i": 2,
+            "highway_type": "motorway",
+            "name": null,
+            "internal_junction_road": false,
+            "layer": 0,
+            "speed_limit": null,
+            "reference_line": {"length": 1000000, "pts": [{"x": 0, "y": 0}, {"x": 0, "y": 1000000}]},
+            "reference_line_placement": {"Consistent": "Center"},
+            "center_line": {"length": 1000000, "pts": [{"x": 0, "y": 0}, {"x": 0, "y": 1000000}]},
+            "trim_start": 0,
+            "trim_end": 0,
+            "turn_restrictions": [],
+            "complicated_turn_restrictions": [],
+            "lane_specs_ltr": [],
+            "stop_line_start": {"vehicle_distance": null, "bike_distance": null, "interruption": "Uninterrupted"},
+            "stop_line_end": {"vehicle_distance": null, "bike_distance": null, "interruption": "Uninterrupted"},
+        }))
+        .expect("road fixture should deserialize");
+        road.lane_specs_ltr = lanes;
+        road
+    }
+
+    #[test]
+    fn anchors_the_through_lanes_of_a_widened_fragment_on_the_reference_line() {
+        let road = straight_road(vec![lane(12.0), lane(12.0), lane(12.0), lane(12.0)]);
+        let right = through_lane_anchor_shift(&road, FogLineSide::Right, 1, DrivingSide::Right)
+            .expect("one added lane should anchor");
+        assert!((right.to_feet() - 6.0).abs() < 1e-6, "{right}");
+        let left = through_lane_anchor_shift(&road, FogLineSide::Left, 1, DrivingSide::Right)
+            .expect("one added lane should anchor");
+        assert!((left.to_feet() + 6.0).abs() < 1e-6, "{left}");
+        let two = through_lane_anchor_shift(&road, FogLineSide::Right, 2, DrivingSide::Right)
+            .expect("two added lanes should anchor");
+        assert!((two.to_feet() - 12.0).abs() < 1e-6, "{two}");
+        assert_eq!(
+            through_lane_anchor_shift(&road, FogLineSide::Right, 4, DrivingSide::Right),
+            None
+        );
+    }
+
+    /// A 3-lane motorway that widens to 4 lanes between an on-ramp and an
+    /// off-ramp must keep its through-lane boundaries and left edge line on a
+    /// single straight line through all three fragments.
+    #[test]
+    fn widened_mainline_fixture_keeps_through_lanes_collinear() {
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/widened-mainline.osm");
+        let mut timer = Timer::throwaway();
+        let mut map = convert(
+            fixture.to_string(),
+            MapName::new("us", "magnus", "test"),
+            None,
+            Options::default(),
+            &mut timer,
+        );
+        map.streets.apply_transformations(
+            vec![
+                Transformation::RemoveDisconnectedRoads,
+                Transformation::CollapseShortRoads,
+                Transformation::CollapseDegenerateIntersections,
+            ],
+            &mut timer,
+        );
+        anchor_widened_fragments(&mut map.streets, &map.osm_tags);
+        let scene = topology_scene(&map.streets, &map.osm_tags).expect("scene should build");
+
+        let mut xs_by_type: HashMap<&str, Vec<f64>> = HashMap::new();
+        for marking in scene["markings"].as_array().expect("markings") {
+            if marking["geometryType"] != "LineString" || marking["layer"] != 0 {
+                continue;
+            }
+            let ramp = marking["sourceWayIds"]
+                .as_array()
+                .expect("source ways")
+                .iter()
+                .any(|id| id.as_i64().is_some_and(|id| id >= 200));
+            if ramp {
+                continue;
+            }
+            let kind = marking["type"].as_str().expect("type");
+            for point in marking["geometry"].as_array().expect("points") {
+                xs_by_type
+                    .entry(kind)
+                    .or_default()
+                    .push(point[0].as_f64().expect("x"));
+            }
+        }
+
+        let spread = |xs: &[f64]| {
+            xs.iter().cloned().fold(f64::MIN, f64::max)
+                - xs.iter().cloned().fold(f64::MAX, f64::min)
+        };
+        let left = &xs_by_type["left fog line"];
+        assert!(spread(left) < 0.1, "left fog line jogs: {left:?}");
+
+        let mut separators = xs_by_type["lane separator"].clone();
+        separators.sort_by(f64::total_cmp);
+        separators.dedup_by(|a, b| (*a - *b).abs() < 0.1);
+        assert_eq!(
+            separators.len(),
+            2,
+            "through-lane separators jog: {separators:?}"
+        );
+        let auxiliary = &xs_by_type["auxiliary lane separator"];
+        assert_eq!(auxiliary.len(), 2, "one auxiliary boundary: {auxiliary:?}");
+        assert!(
+            auxiliary[0] > separators[1] + 9.0,
+            "auxiliary boundary should be outside the through lanes: {auxiliary:?}"
+        );
     }
 }
