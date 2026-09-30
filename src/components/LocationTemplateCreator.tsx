@@ -1,18 +1,21 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react'
 import {
   Anchor,
   ChevronDown,
-  ChevronUp,
   Crop as CropIcon,
   Download,
   Eraser,
+  FilePlus,
   FolderOpen,
   GitMerge,
   Layers,
   LoaderCircle,
+  Lock,
+  LockOpen,
   MapPinned,
   MousePointer2,
   Move,
+  MoveHorizontal,
   PaintBucket,
   Pencil,
   RefreshCw,
@@ -20,9 +23,9 @@ import {
   RotateCw,
   Save,
   Scissors,
-  Settings2,
   Spline,
   SquareDashedMousePointer,
+  Stamp as StampIcon,
   Trash2,
   Undo2,
   Unlink,
@@ -113,8 +116,58 @@ type EditorTool =
   | 'pavement'
   | 'erase-pavement'
   | 'area-select'
+  | 'offset'
 type SpatialServiceStatus = 'checking' | 'connected' | 'unavailable'
-type ToolCategory = 'select-line' | 'points' | 'clip-join' | 'micro-geometry' | 'drawing' | 'vector-graphics' | 'crop' | 'pavement'
+
+interface ToolDefinition {
+  id: EditorTool
+  label: string
+  shortcut: string
+  icon: ComponentType<{ size?: number }>
+}
+
+const TOOL_GROUPS: { label: string; tools: ToolDefinition[] }[] = [
+  {
+    label: 'Select',
+    tools: [
+      { id: 'select', label: 'Select', shortcut: 'V', icon: MousePointer2 },
+      { id: 'area-select', label: 'Area select', shortcut: 'A', icon: SquareDashedMousePointer },
+      { id: 'points', label: 'Points', shortcut: 'P', icon: Move },
+    ],
+  },
+  {
+    label: 'Draw',
+    tools: [
+      { id: 'line', label: 'Draw line', shortcut: 'L', icon: Waypoints },
+      { id: 'freehand', label: 'Freehand path', shortcut: 'F', icon: Pencil },
+      { id: 'taper', label: 'Taper / gore area', shortcut: 'T', icon: Layers },
+      { id: 'stamp', label: 'Stamps', shortcut: 'S', icon: StampIcon },
+    ],
+  },
+  {
+    label: 'Modify',
+    tools: [
+      { id: 'join', label: 'Join endpoints', shortcut: 'J', icon: GitMerge },
+      { id: 'split', label: 'Split line', shortcut: 'X', icon: Scissors },
+      { id: 'round-corner', label: 'Round corner', shortcut: 'R', icon: Spline },
+      { id: 'offset', label: 'Parallel offset', shortcut: 'O', icon: MoveHorizontal },
+    ],
+  },
+  {
+    label: 'Crop',
+    tools: [{ id: 'crop', label: 'Crop', shortcut: 'C', icon: CropIcon }],
+  },
+  {
+    label: 'Pavement',
+    tools: [
+      { id: 'pavement', label: 'Paint pavement', shortcut: 'B', icon: PaintBucket },
+      { id: 'erase-pavement', label: 'Erase pavement', shortcut: 'E', icon: Eraser },
+    ],
+  },
+]
+const TOOL_DEFINITIONS = TOOL_GROUPS.flatMap((group) => group.tools)
+const TOOL_BY_SHORTCUT = new Map(TOOL_DEFINITIONS.map((definition) => [definition.shortcut.toLowerCase(), definition.id]))
+const SELECTING_TOOLS: EditorTool[] = ['select', 'split', 'round-corner', 'offset']
 
 interface LocationTemplateCreatorProps {
   onClose: () => void
@@ -181,7 +234,8 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
   const [spatialServiceStatus, setSpatialServiceStatus] = useState<SpatialServiceStatus>('checking')
 
   const [tool, setTool] = useState<EditorTool>('select')
-  const [openCategories, setOpenCategories] = useState<Set<ToolCategory>>(new Set(['select-line']))
+  const [sourceOpen, setSourceOpen] = useState(false)
+  const [cursorFeet, setCursorFeet] = useState<Position | null>(null)
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null)
   const [multiSelectedFeatureIds, setMultiSelectedFeatureIds] = useState<Set<string>>(new Set())
   const [pendingJoin, setPendingJoin] = useState<EndpointRef | null>(null)
@@ -210,7 +264,6 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
   const [pavementFogLines, setPavementFogLines] = useState(false)
   const [pavementUnlocked, setPavementUnlocked] = useState(false)
   const [zoom, setZoom] = useState(1)
-  const [propertiesOpen, setPropertiesOpen] = useState(false)
   const [erasePreview, setErasePreview] = useState<Position | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
   const [templateName, setTemplateName] = useState('')
@@ -247,22 +300,15 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
   const endpoints = listEndpoints(editableFeatures)
   const allVertices = listAllVertices(editableFeatures)
 
-  function toggleCategory(category: ToolCategory) {
-    setOpenCategories((current) => {
-      const next = new Set(current)
-      if (next.has(category)) next.delete(category)
-      else next.add(category)
-      return next
-    })
-  }
-
   function selectTool(next: EditorTool) {
     setTool(next)
     setPendingJoin(null)
     setLineStart(null)
     setSelectedPoints([])
     setPointContextMenu(null)
+    if (next === 'pavement' || next === 'erase-pavement') setPavementUnlocked(true)
     if (next !== 'stamp') setArmedStamp(null)
+    else setArmedStamp((current) => current ?? STAMP_KINDS[0])
     if (next !== 'crop') { setCropBox(null); setCropDragStart(null) }
     if (next !== 'taper') setTaperPoints([])
     if (next !== 'freehand') setFreehandPoints([])
@@ -368,7 +414,11 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
       if (event.key === 'Enter' && (multiSelectedFeatureIds.size > 0 || selectedFeatureId)) {
         event.preventDefault()
         applyBezierToSelection()
+        return
       }
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      const shortcutTool = TOOL_BY_SHORTCUT.get(event.key.toLowerCase())
+      if (shortcutTool) selectTool(shortcutTool)
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -509,7 +559,7 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
   }
 
   function handleFeatureClick(event: React.MouseEvent<SVGPathElement>, feature: RoadFeature) {
-    if (tool !== 'select' && tool !== 'split') return
+    if (!SELECTING_TOOLS.includes(tool)) return
     if (!pavementUnlocked && isPavementFeature(feature)) return
     event.stopPropagation()
     const svg = svgRef.current
@@ -965,111 +1015,270 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
     URL.revokeObjectURL(link.href)
   }
 
+  const activeToolDefinition = TOOL_DEFINITIONS.find((definition) => definition.id === tool) ?? TOOL_DEFINITIONS[0]
+  const selectedLine = selectedFeature?.geometry.type === 'LineString' ? selectedFeature : null
+  const sceneTitle = sceneNameHint ?? (resolvedLocation ? normalizeHighway(resolvedLocation.request.highway) : 'Untitled corridor')
+
+  function toolHint(): string {
+    switch (tool) {
+      case 'select':
+        return selectedFeature
+          ? 'Drag the line to move it · Delete removes it · Ctrl+click adds more lines'
+          : 'Click a line to select it · Ctrl+click to multi-select · Enter smooths a multi-selection'
+      case 'area-select':
+        return 'Drag a box; every line inside it is selected · Enter smooths the selection'
+      case 'points':
+        return 'Drag a point to hinge the line · Ctrl locks to 45° · Right-click a point to anchor/detach'
+      case 'line':
+        return lineStart ? 'Click the end point' : 'Click the start point'
+      case 'freehand':
+        return 'Click to place each point of the path, then Finish'
+      case 'taper':
+        return 'Click points to enclose a taper, gore, or pocket area, then Finish shape'
+      case 'stamp':
+        return armedStamp ? `Click the canvas to place a ${STAMP_GLYPHS[armedStamp].label.toLowerCase()}` : 'Pick a stamp in the panel'
+      case 'join':
+        return pendingJoin ? 'Click the second endpoint to connect' : 'Click two open endpoints to connect them'
+      case 'split':
+        return 'Click a line where it should break — leaves a 10 ft gap'
+      case 'round-corner':
+        return selectedLine ? 'Click a highlighted vertex to round it' : 'Click a line to select it, then click a vertex'
+      case 'offset':
+        return selectedLine ? 'Set distance and side, then generate' : 'Click a line to offset'
+      case 'crop':
+        return cropBox ? 'Apply to discard everything outside the box' : 'Drag a rectangle around the area to keep'
+      case 'pavement':
+        return 'Drag a brush stroke; width follows the lane and shoulder settings'
+      case 'erase-pavement':
+        return '~5 ft circular brush — drag across pavement to narrow it'
+    }
+  }
+
+  function handleWrapPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    const svg = svgRef.current
+    if (!svg) return
+    setCursorFeet(toSvgPoint(svg, event.clientX, event.clientY))
+  }
+
+  function renderToolOptions() {
+    const finishActions = (count: number, minimum: number, finish: () => void, clear: () => void, finishLabel: string) => (
+      <div className="loc-editor-actions">
+        <span>{count} point{count === 1 ? '' : 's'} placed</span>
+        <button type="button" className="primary" disabled={count < minimum} onClick={finish}>{finishLabel}</button>
+        <button type="button" disabled={count === 0} onClick={clear}>Clear</button>
+      </div>
+    )
+    const patternField = (
+      <label className="loc-editor-field">
+        MUTCD line pattern
+        <select
+          value={linePattern.id}
+          onChange={(event) => setLinePattern(MUTCD_LINE_PATTERNS.find((option) => option.id === event.target.value) ?? MUTCD_LINE_PATTERNS[0])}
+        >
+          {MUTCD_LINE_PATTERNS.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
+        </select>
+      </label>
+    )
+    const smoothAction = multiSelectedFeatureIds.size > 0 && (
+      <button type="button" className="loc-editor-action primary" onClick={applyBezierToSelection}>
+        <Spline size={14} /> Smooth {multiSelectedFeatureIds.size} lines (Bezier)
+      </button>
+    )
+
+    switch (tool) {
+      case 'select':
+        return (
+          <>
+            <div className="loc-editor-subheading">Selected line</div>
+            <div className="loc-editor-button-row">
+              <button type="button" disabled={!selectedLine} onClick={() => rotateSelectedFeature(-45)}><RotateCcw size={14} /> Rotate −45°</button>
+              <button type="button" disabled={!selectedLine} onClick={() => rotateSelectedFeature(45)}><RotateCw size={14} /> Rotate +45°</button>
+            </div>
+            <p className="loc-editor-note">Rotation pivots on the anchored point if one is set, otherwise the line's center.</p>
+            {smoothAction}
+          </>
+        )
+      case 'area-select':
+        return smoothAction || <p className="loc-editor-note">Nothing selected yet.</p>
+      case 'points':
+        return (
+          <p className="loc-editor-note">
+            Ctrl+click two points on the same line, release Ctrl, then drag either one to move the whole line.
+            Anchoring a point lets you rotate the rest of the line around it.
+          </p>
+        )
+      case 'line':
+        return patternField
+      case 'freehand':
+        return (
+          <>
+            {patternField}
+            {finishActions(freehandPoints.length, 2, finishFreehand, () => setFreehandPoints([]), 'Finish line')}
+          </>
+        )
+      case 'taper':
+        return finishActions(taperPoints.length, 3, finishTaper, () => setTaperPoints([]), 'Finish shape')
+      case 'stamp':
+        return (
+          <div className="loc-editor-stamp-grid">
+            {STAMP_KINDS.map((kind) => (
+              <button
+                type="button"
+                key={kind}
+                className={armedStamp === kind ? 'active' : ''}
+                title={STAMP_GLYPHS[kind].label}
+                onClick={() => setArmedStamp(kind)}
+              >
+                <svg viewBox="-8 -8 16 16" aria-hidden="true">
+                  {STAMP_GLYPHS[kind].strokes.map((stroke, index) => (
+                    <polyline key={index} points={stroke.map(([x, y]) => `${x},${y}`).join(' ')} />
+                  ))}
+                </svg>
+                <small>{STAMP_GLYPHS[kind].label}</small>
+              </button>
+            ))}
+          </div>
+        )
+      case 'join':
+        return <p className="loc-editor-note">Open endpoints are highlighted in blue. {pendingJoin ? 'First endpoint chosen.' : ''}</p>
+      case 'split':
+        return <p className="loc-editor-note">Splitting leaves a 10 ft gap so the two halves can be edited independently.</p>
+      case 'round-corner':
+        return (
+          <label className="loc-editor-field">
+            Radius (ft)
+            <input type="number" min={1} max={200} value={roundRadius} onChange={(event) => setRoundRadius(Number(event.target.value))} />
+          </label>
+        )
+      case 'offset':
+        return (
+          <>
+            <label className="loc-editor-field">
+              Distance (ft)
+              <input type="number" min={1} max={100} value={offsetDistance} onChange={(event) => setOffsetDistance(Number(event.target.value))} />
+            </label>
+            <label className="loc-editor-field">
+              Side
+              <select value={offsetSide} onChange={(event) => setOffsetSide(event.target.value as 'left' | 'right')}>
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
+            </label>
+            <label className="loc-editor-field">
+              New line type
+              <select value={offsetPatternId} onChange={(event) => setOffsetPatternId(event.target.value)}>
+                {LINE_PATTERNS_FOR_OFFSET.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
+              </select>
+            </label>
+            <button type="button" className="loc-editor-action primary" disabled={!selectedLine} onClick={generateOffset}>
+              <MoveHorizontal size={14} /> Generate parallel offset
+            </button>
+          </>
+        )
+      case 'crop':
+        return cropBox ? (
+          <div className="loc-editor-actions">
+            <button type="button" className="primary" onClick={applyCrop}>Apply crop</button>
+            <button type="button" onClick={() => setCropBox(null)}>Cancel</button>
+          </div>
+        ) : <p className="loc-editor-note">Everything outside the box is discarded when you apply.</p>
+      case 'pavement':
+        return (
+          <>
+            <label className="loc-editor-field">
+              Lanes
+              <select value={pavementLanes} onChange={(event) => setPavementLanes(Number(event.target.value) as 1 | 2 | 3)}>
+                <option value={1}>1 lane</option>
+                <option value={2}>2 lanes</option>
+                <option value={3}>3 lanes</option>
+              </select>
+            </label>
+            <label className="loc-editor-field">
+              Shoulders
+              <select value={pavementShoulders} onChange={(event) => setPavementShoulders(event.target.value as typeof pavementShoulders)}>
+                <option value="none">None</option>
+                <option value="left">Left shoulder</option>
+                <option value="right">Right shoulder</option>
+                <option value="both">Both shoulders</option>
+              </select>
+            </label>
+            <label className="loc-editor-check">
+              <input type="checkbox" checked={pavementFogLines} onChange={(event) => setPavementFogLines(event.target.checked)} />
+              Add fog lines
+            </label>
+            {pavementPoints.length > 0 && <p className="loc-editor-note">Painting… {pavementPoints.length} point{pavementPoints.length === 1 ? '' : 's'}</p>}
+          </>
+        )
+      case 'erase-pavement':
+        return <p className="loc-editor-note">Use short strokes along the pavement edge to sculpt tapers.</p>
+    }
+  }
+
   return (
-    <section className="loc-creator-shell" aria-label="Location template creator">
-      <header className="loc-creator-header">
-        <div>
-          <span>Location template authoring</span>
-          <h2>{sceneNameHint ?? (resolvedLocation ? normalizeHighway(resolvedLocation.request.highway) : 'Untitled corridor')}</h2>
+    <section className="loc-editor" aria-label="Location template creator">
+      <header className="loc-editor-topbar">
+        <div className="loc-editor-title">
+          <span>Location template</span>
+          <h2>{sceneTitle}</h2>
         </div>
-        <div className="loc-creator-zoom-controls">
+
+        <div className="loc-editor-toolbar-group" role="group" aria-label="File">
+          <button type="button" onClick={clearAll} title="Clear the canvas back to an empty scene"><FilePlus size={15} /> New</button>
+          <div className="loc-editor-menu-anchor">
+            <button type="button" aria-expanded={loadTemplatesOpen} aria-haspopup="menu" onClick={() => { setLoadTemplatesOpen((open) => !open); setSourceOpen(false) }}>
+              <FolderOpen size={15} /> Load <ChevronDown size={13} />
+            </button>
+            {loadTemplatesOpen && (
+              <div className="loc-editor-menu" role="menu" aria-label="Existing location templates">
+                {availableTemplates.map((entry) => (
+                  <button type="button" role="menuitem" key={entry.name} onClick={() => loadExistingTemplate(entry)}>
+                    <b>{entry.name}</b>
+                    <small>{isBuiltInLocationTemplate(entry.name) ? 'Built-in template' : new Date(entry.savedAt).toLocaleString()}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button type="button" className="accent" onClick={openSavePanel} title="Save to your local template library"><Save size={15} /> Save</button>
+          <button type="button" onClick={downloadSvgPreview} title="Download current SVG preview"><Download size={15} /> Export SVG</button>
+        </div>
+
+        <div className="loc-editor-toolbar-group" role="group" aria-label="Edit">
+          <button type="button" disabled={history.length === 0} onClick={undo} title="Undo last operation (Ctrl+Z)">
+            <Undo2 size={15} /> Undo{history.length > 0 ? ` (${history.length})` : ''}
+          </button>
+        </div>
+
+        <div className="loc-editor-toolbar-group loc-editor-zoom" role="group" aria-label="Zoom">
           <button type="button" onClick={zoomOut} title="Zoom out"><ZoomOut size={15} /></button>
-          <button type="button" className="loc-creator-zoom-value" onClick={resetZoom} title="Reset zoom">{Math.round(zoom * 100)}%</button>
+          <button type="button" className="loc-editor-zoom-value" onClick={resetZoom} title="Reset zoom">{Math.round(zoom * 100)}%</button>
           <button type="button" onClick={zoomIn} title="Zoom in"><ZoomIn size={15} /></button>
         </div>
-        <button className="loc-creator-clear-all" type="button" onClick={clearAll} title="Clear the canvas back to a bare, empty scene">
-          <Trash2 size={15} /> Clear all
-        </button>
-        <button type="button" disabled={history.length === 0} onClick={undo} title="Undo last operation (Ctrl+Z)">
-          <Undo2 size={15} /> Undo{history.length > 0 ? ` (${history.length})` : ''}
-        </button>
-        <div className="loc-creator-properties-anchor">
+
+        <div className="loc-editor-menu-anchor loc-editor-source-anchor">
           <button
-            className="loc-creator-properties-toggle"
             type="button"
-            aria-expanded={propertiesOpen}
-            aria-haspopup="menu"
-            onClick={() => setPropertiesOpen((open) => !open)}
+            className={sourceOpen ? 'active' : ''}
+            aria-expanded={sourceOpen}
+            aria-haspopup="dialog"
+            onClick={() => { setSourceOpen((open) => !open); setLoadTemplatesOpen(false) }}
+            title="Roadway lookup and highway generator"
           >
-            <Settings2 size={15} /> Properties
+            <MapPinned size={15} /> Source
+            <span className={`loc-editor-service-dot ${spatialServiceStatus}`} aria-hidden="true" />
           </button>
-          {propertiesOpen && (
-            <div className="loc-creator-properties-panel" role="dialog" aria-label="Properties">
-              <div className="inspector-heading"><span>Properties</span><b>{selectedStamp ? 'STAMP' : selectedFeature ? 'FEATURE' : 'SCENE'}</b></div>
-              {selectedStamp ? (
-                <>
-                  <p>{STAMP_GLYPHS[selectedStamp.kind].label}</p>
-                  <label>Rotation (deg)<input type="number" value={selectedStamp.rotation} onChange={(event) => updateStamp(selectedStamp.id, { rotation: Number(event.target.value) })} /></label>
-                  <label>Scale<input type="number" step="0.1" min="0.2" max="4" value={selectedStamp.scale} onChange={(event) => updateStamp(selectedStamp.id, { scale: Number(event.target.value) })} /></label>
-                  <button className="delete-object" type="button" onClick={() => deleteStamp(selectedStamp.id)}><Trash2 size={13} /> Delete stamp</button>
-                </>
-              ) : selectedFeature ? (
-                <>
-                  <p><b>{selectedFeature.kind.replaceAll('-', ' ')}</b></p>
-                  <p>Layer {selectedFeature.layer}</p>
-                  {selectedFeature.geometry.type === 'LineString' && (
-                    <p>{polylineLengthFeet(selectedFeature.geometry.coordinates).toFixed(1)} ft long</p>
-                  )}
-                  {(anchors[selectedFeature.id]?.size ?? 0) > 0 && <p>Anchored at point {[...(anchors[selectedFeature.id] ?? [])].join(', ')}</p>}
-                  <button className="delete-object" type="button" onClick={deleteSelectedFeature}><Trash2 size={13} /> Delete feature</button>
-                </>
-              ) : (
-                <div className="scene-summary">
-                  <p>{scene.features.length} roadway features</p>
-                  <p>{stamps.length} vector stamps</p>
-                  <p>Source: {scene.source.dataset}</p>
-                  <p>Active tool: <b>{tool.replaceAll('-', ' ')}</b></p>
-                  {multiSelectedFeatureIds.size > 0 && <p>{multiSelectedFeatureIds.size} lines multi-selected (press Enter to smooth)</p>}
-                </div>
-              )}
-            </div>
-          )}
         </div>
-        {saveStatus === 'saved' && <span className="loc-creator-saved-note">Template saved</span>}
-        <button type="button" onClick={downloadSvgPreview} title="Download current SVG preview">
-          <Download size={15} /> Export SVG
-        </button>
-        <button className="loc-creator-render" type="button" onClick={openSavePanel}>
-          <Save size={15} /> Render location template
-        </button>
-        <button className="loc-creator-close" type="button" title="Close location template creator" onClick={onClose}>
+
+        {saveStatus === 'saved' && <span className="loc-editor-saved-note">Template saved</span>}
+        <button className="loc-editor-close" type="button" title="Close location template creator" onClick={onClose}>
           <X size={18} />
         </button>
       </header>
 
-      {saveOpen && (
-        <div className="loc-creator-save-panel" role="dialog" aria-label="Render location template">
-          <label>
-            Template file name
-            <input
-              autoFocus
-              value={templateName}
-              onChange={(event) => setTemplateName(event.target.value)}
-            />
-          </label>
-          <small>Saved to your local template library as a JSON/SVG state file, e.g. "I-95 Exit 143".</small>
-          <div className="loc-creator-save-actions">
-            <button type="button" onClick={() => setSaveOpen(false)}>Cancel</button>
-            <button type="button" className="loc-creator-save-confirm" onClick={renderLocationTemplate}>Save template</button>
-          </div>
-        </div>
-      )}
-
-      {pointContextMenu && (
-        <>
-          <div className="loc-creator-context-backdrop" onClick={() => setPointContextMenu(null)} />
-          <div className="loc-creator-context-menu" style={{ left: pointContextMenu.x, top: pointContextMenu.y }} role="menu">
-            <button type="button" role="menuitem" onClick={anchorContextPoint}><Anchor size={13} /> Anchor point</button>
-            <button type="button" role="menuitem" onClick={detachContextPoint}><Unlink size={13} /> Detach point</button>
-            <button type="button" role="menuitem" onClick={detachAllLinePoints}><Unlink size={13} /> Detach all line points</button>
-          </div>
-        </>
-      )}
-
-      <div className="loc-creator-body">
-        <nav className="loc-creator-tools" aria-label="Location editing tools">
-          <div className={`spatial-service-status ${spatialServiceStatus}`} role="status" aria-live="polite">
-            <span className="service-indicator" aria-hidden="true" />
+      {sourceOpen && (
+        <div className="loc-editor-source" role="dialog" aria-label="Scene source">
+          <div className={`loc-editor-service ${spatialServiceStatus}`} role="status" aria-live="polite">
+            <span className="loc-editor-service-dot" aria-hidden="true" />
             <div>
               <b>Spatial service</b>
               <small>
@@ -1083,45 +1292,16 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
             )}
           </div>
 
-          <div className="loc-creator-load-template-anchor">
-            <button
-              className="location-template-load-button"
-              type="button"
-              aria-expanded={loadTemplatesOpen}
-              aria-haspopup="menu"
-              onClick={() => setLoadTemplatesOpen((open) => !open)}
-            >
-              <FolderOpen size={16} />
-              <span>
-                <b>Load existing template</b>
-                <small>{availableTemplates.length} available for further edits</small>
-              </span>
-              {loadTemplatesOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </button>
-            {loadTemplatesOpen && (
-              <div className="location-template-menu" role="menu" aria-label="Existing location templates">
-                {availableTemplates.map((entry) => (
-                  <div className="saved-scene-entry" key={entry.name}>
-                    <button type="button" role="menuitem" onClick={() => loadExistingTemplate(entry)}>
-                      <b>{entry.name}</b>
-                      <small>{isBuiltInLocationTemplate(entry.name) ? 'Built-in template' : new Date(entry.savedAt).toLocaleString()}</small>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <form className="location-tool" aria-label="Roadway location" onSubmit={(event) => { void loadRoadLocation(event) }}>
-            <div className="location-tool-heading">
+          <form className="loc-editor-source-section" aria-label="Roadway location" onSubmit={(event) => { void loadRoadLocation(event) }}>
+            <div className="loc-editor-source-heading">
               <MapPinned size={16} />
               <div>
                 <label htmlFor="loc-creator-highway">Roadway location</label>
                 <span>Look up scaled corridor geometry</span>
               </div>
             </div>
-            <div className="location-fields">
-              <label className="location-highway" htmlFor="loc-creator-highway">
+            <div className="loc-editor-fields">
+              <label className="span-2" htmlFor="loc-creator-highway">
                 Highway
                 <input
                   id="loc-creator-highway"
@@ -1157,29 +1337,29 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
               </label>
             </div>
             {locationErrors.map((error) => (
-              <p className="location-error" role="alert" key={error}>{error}</p>
+              <p className="loc-editor-error" role="alert" key={error}>{error}</p>
             ))}
-            <button className="location-load" type="submit" disabled={locationLoading}>
-              {locationLoading ? <LoaderCircle className="location-spinner" size={15} /> : <MapPinned size={15} />}
+            <button className="loc-editor-source-submit" type="submit" disabled={locationLoading}>
+              {locationLoading ? <LoaderCircle className="loc-editor-spinner" size={15} /> : <MapPinned size={15} />}
               <span>{locationLoading ? 'Resolving location' : 'Render location'}</span>
             </button>
             {resolvedLocation && (
-              <div className={`location-result ${resolvedLocation.source}`} role="status">
+              <div className={`loc-editor-result ${resolvedLocation.source}`} role="status">
                 <strong>{resolvedLocation.request.highway}</strong>
                 <span>{resolvedLocation.message}</span>
               </div>
             )}
           </form>
 
-          <div className="location-tool highway-generator">
-            <div className="location-tool-heading">
+          <div className="loc-editor-source-section">
+            <div className="loc-editor-source-heading">
               <Wand2 size={16} />
               <div>
                 <label htmlFor="loc-creator-generator-lanes">Generic highway generator</label>
-                <span>Build a scale reference from scratch, additively</span>
+                <span>Build a scale reference from scratch</span>
               </div>
             </div>
-            <div className="location-fields">
+            <div className="loc-editor-fields">
               <label htmlFor="loc-creator-generator-lanes">
                 Lanes
                 <select
@@ -1221,256 +1401,69 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
                 </select>
               </label>
             </div>
-            <button className="location-load" type="button" onClick={generateHighway}>
+            <button className="loc-editor-source-submit" type="button" onClick={() => { generateHighway(); setSourceOpen(false) }}>
               <Wand2 size={15} />
               <span>Generate highway</span>
             </button>
           </div>
+        </div>
+      )}
 
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('select-line')} onClick={() => toggleCategory('select-line')}>
-              <MousePointer2 size={14} /> <span>Select line</span>
-            </button>
-            {openCategories.has('select-line') && (
-              <div className="loc-creator-category-body">
-                <button type="button" className={tool === 'select' ? 'active' : ''} onClick={() => selectTool('select')}>
-                  <MousePointer2 size={14} /> Select<small>Click a line to highlight it; Delete removes it. Ctrl+click more lines to multi-select for Bezier smoothing. Click and drag an already-selected line to move it.</small>
-                </button>
-                <button type="button" className={tool === 'split' ? 'active' : ''} onClick={() => selectTool('split')}>
-                  <Scissors size={14} /> Split selected line<small>Click on the line where it should break — leaves a 10 ft gap</small>
-                </button>
-                <div className="loc-creator-rotate-controls">
-                  <b>Rotate selected line</b>
-                  <div className="loc-creator-rotate-buttons">
-                    <button type="button" disabled={!selectedFeature} onClick={() => rotateSelectedFeature(-45)}><RotateCcw size={14} /> -45°</button>
-                    <button type="button" disabled={!selectedFeature} onClick={() => rotateSelectedFeature(45)}><RotateCw size={14} /> +45°</button>
-                  </div>
-                  <small>Rotates around the anchored point if one is set, otherwise the line's own center.</small>
-                </div>
-                {multiSelectedFeatureIds.size > 0 && (
-                  <button type="button" onClick={applyBezierToSelection}>
-                    <Spline size={14} /> Smooth {multiSelectedFeatureIds.size} selected lines (Bezier)<small>Or just press Enter</small>
-                  </button>
-                )}
-              </div>
-            )}
+      {saveOpen && (
+        <div className="loc-editor-save-panel" role="dialog" aria-label="Save location template">
+          <label>
+            Template file name
+            <input
+              autoFocus
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+            />
+          </label>
+          <small>Saved to your local template library as a JSON/SVG state file, e.g. "I-95 Exit 143".</small>
+          <div className="loc-editor-save-actions">
+            <button type="button" onClick={() => setSaveOpen(false)}>Cancel</button>
+            <button type="button" className="primary" onClick={renderLocationTemplate}>Save template</button>
           </div>
+        </div>
+      )}
 
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('points')} onClick={() => toggleCategory('points')}>
-              <Move size={14} /> <span>Points</span>
-            </button>
-            {openCategories.has('points') && (
-              <div className="loc-creator-category-body">
-                <button type="button" className={tool === 'points' ? 'active' : ''} onClick={() => selectTool('points')}>
-                  <Move size={14} /> Points<small>Highlights every point. Drag one to hinge the line; hold Ctrl to lock the angle to 45° steps.</small>
-                </button>
-                <p className="loc-creator-hint">Ctrl+click two points on the same line, release Ctrl, then drag either one to move the whole line. Right-click any point to anchor/detach it — anchoring lets you rotate the rest of the line (even curves) around that fixed point.</p>
-              </div>
-            )}
+      {pointContextMenu && (
+        <>
+          <div className="loc-creator-context-backdrop" onClick={() => setPointContextMenu(null)} />
+          <div className="loc-creator-context-menu" style={{ left: pointContextMenu.x, top: pointContextMenu.y }} role="menu">
+            <button type="button" role="menuitem" onClick={anchorContextPoint}><Anchor size={13} /> Anchor point</button>
+            <button type="button" role="menuitem" onClick={detachContextPoint}><Unlink size={13} /> Detach point</button>
+            <button type="button" role="menuitem" onClick={detachAllLinePoints}><Unlink size={13} /> Detach all line points</button>
           </div>
+        </>
+      )}
 
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('clip-join')} onClick={() => toggleCategory('clip-join')}>
-              <Waypoints size={14} /> <span>Clip &amp; join tools</span>
-            </button>
-            {openCategories.has('clip-join') && (
-              <div className="loc-creator-category-body">
-                <button type="button" className={tool === 'join' ? 'active' : ''} onClick={() => selectTool('join')}>
-                  <GitMerge size={14} /> Join nodes<small>Click two open endpoints to connect them</small>
-                </button>
-                <button type="button" className={tool === 'round-corner' ? 'active' : ''} onClick={() => selectTool('round-corner')}>
-                  <Spline size={14} /> Bezier corner rounding<small>Select a path, click a vertex to round it</small>
-                </button>
-                <label className="loc-creator-inline-field">
-                  Radius (ft)
-                  <input type="number" min={1} max={200} value={roundRadius} onChange={(event) => setRoundRadius(Number(event.target.value))} />
-                </label>
-                <div className="loc-creator-offset-controls">
-                  <b>Path offset generator</b>
-                  <label className="loc-creator-inline-field">
-                    Distance (ft)
-                    <input type="number" min={1} max={100} value={offsetDistance} onChange={(event) => setOffsetDistance(Number(event.target.value))} />
-                  </label>
-                  <label className="loc-creator-inline-field">
-                    Side
-                    <select value={offsetSide} onChange={(event) => setOffsetSide(event.target.value as 'left' | 'right')}>
-                      <option value="left">Left</option>
-                      <option value="right">Right</option>
-                    </select>
-                  </label>
-                  <label className="loc-creator-inline-field">
-                    New line type
-                    <select value={offsetPatternId} onChange={(event) => setOffsetPatternId(event.target.value)}>
-                      {LINE_PATTERNS_FOR_OFFSET.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
-                    </select>
-                  </label>
-                  <button type="button" disabled={selectedFeature?.geometry.type !== 'LineString'} onClick={generateOffset}>
-                    Generate parallel offset from selected path
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('micro-geometry')} onClick={() => toggleCategory('micro-geometry')}>
-              <Layers size={14} /> <span>Micro geometry additions</span>
-            </button>
-            {openCategories.has('micro-geometry') && (
-              <div className="loc-creator-category-body">
-                <button type="button" className={tool === 'taper' ? 'active' : ''} onClick={() => selectTool('taper')}>
-                  <Layers size={14} /> Taper / gore area<small>Click points to enclose a taper, ramp gore, or pocket area</small>
-                </button>
-                {tool === 'taper' && (
-                  <div className="loc-creator-taper-actions">
-                    <span>{taperPoints.length} point{taperPoints.length === 1 ? '' : 's'} placed</span>
-                    <button type="button" disabled={taperPoints.length < 3} onClick={finishTaper}>Finish shape</button>
-                    <button type="button" onClick={() => setTaperPoints([])}>Clear</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('drawing')} onClick={() => toggleCategory('drawing')}>
-              <Pencil size={14} /> <span>Freehand &amp; area tools</span>
-            </button>
-            {openCategories.has('drawing') && (
-              <div className="loc-creator-category-body">
-                <button type="button" className={tool === 'freehand' ? 'active' : ''} onClick={() => selectTool('freehand')}>
-                  <Pencil size={14} /> Freehand draw<small>Click to place each point of a hand-drawn vector path</small>
-                </button>
-                {tool === 'freehand' && (
-                  <div className="loc-creator-taper-actions">
-                    <span>{freehandPoints.length} point{freehandPoints.length === 1 ? '' : 's'} placed</span>
-                    <button type="button" disabled={freehandPoints.length < 2} onClick={finishFreehand}>Finish line</button>
-                    <button type="button" onClick={() => setFreehandPoints([])}>Clear</button>
-                  </div>
-                )}
-                <button type="button" className={tool === 'area-select' ? 'active' : ''} onClick={() => selectTool('area-select')}>
-                  <SquareDashedMousePointer size={14} /> Select area<small>Drag a box; everything it encompasses gets selected</small>
-                </button>
-                {multiSelectedFeatureIds.size > 0 && (
-                  <button type="button" onClick={applyBezierToSelection}>
-                    <Spline size={14} /> Smooth selection (Bezier)<small>{multiSelectedFeatureIds.size} lines selected — or press Enter</small>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('vector-graphics')} onClick={() => toggleCategory('vector-graphics')}>
-              <MousePointer2 size={14} /> <span>Roadway vector graphics</span>
-            </button>
-            {openCategories.has('vector-graphics') && (
-              <div className="loc-creator-category-body">
-                <b>MUTCD line patterns</b>
-                <label className="loc-creator-inline-field">
-                  Pattern
-                  <select
-                    value={linePattern.id}
-                    onChange={(event) => setLinePattern(MUTCD_LINE_PATTERNS.find((option) => option.id === event.target.value) ?? MUTCD_LINE_PATTERNS[0])}
+      <div className="loc-editor-body">
+        <nav className="loc-editor-rail" aria-label="Location editing tools">
+          {TOOL_GROUPS.map((group) => (
+            <div className="loc-editor-rail-group" role="group" aria-label={group.label} key={group.label}>
+              {group.tools.map((definition) => {
+                const Icon = definition.icon
+                return (
+                  <button
+                    type="button"
+                    key={definition.id}
+                    className={tool === definition.id ? 'active' : ''}
+                    aria-pressed={tool === definition.id}
+                    aria-label={definition.label}
+                    title={`${definition.label} (${definition.shortcut})`}
+                    onClick={() => selectTool(definition.id)}
                   >
-                    {MUTCD_LINE_PATTERNS.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
-                  </select>
-                </label>
-                <button type="button" className={tool === 'line' ? 'active' : ''} onClick={() => selectTool('line')}>
-                  <Waypoints size={14} /> Draw line<small>{lineStart ? 'Click the end point' : 'Click the start point'}</small>
-                </button>
-                <b>Stamps</b>
-                <div className="loc-creator-stamp-grid">
-                  {STAMP_KINDS.map((kind) => (
-                    <button
-                      type="button"
-                      key={kind}
-                      className={tool === 'stamp' && armedStamp === kind ? 'active' : ''}
-                      title={STAMP_GLYPHS[kind].label}
-                      onClick={() => { selectTool('stamp'); setArmedStamp(kind) }}
-                    >
-                      <svg viewBox="-8 -8 16 16" aria-hidden="true">
-                        {STAMP_GLYPHS[kind].strokes.map((stroke, index) => (
-                          <polyline key={index} points={stroke.map(([x, y]) => `${x},${y}`).join(' ')} />
-                        ))}
-                      </svg>
-                      <small>{STAMP_GLYPHS[kind].label}</small>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('crop')} onClick={() => toggleCategory('crop')}>
-              <CropIcon size={14} /> <span>Bounding box crop</span>
-            </button>
-            {openCategories.has('crop') && (
-              <div className="loc-creator-category-body">
-                <button type="button" className={tool === 'crop' ? 'active' : ''} onClick={() => selectTool('crop')}>
-                  <CropIcon size={14} /> Draw crop box<small>Drag a rectangle, then apply to discard geometry outside it</small>
-                </button>
-                {cropBox && (
-                  <div className="loc-creator-taper-actions">
-                    <button type="button" onClick={applyCrop}>Apply crop</button>
-                    <button type="button" onClick={() => setCropBox(null)}>Cancel</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="loc-creator-category">
-            <button type="button" className="loc-creator-category-toggle" aria-expanded={openCategories.has('pavement')} onClick={() => toggleCategory('pavement')}>
-              <PaintBucket size={14} /> <span>Draw pavement</span>
-            </button>
-            {openCategories.has('pavement') && (
-              <div className="loc-creator-category-body">
-                <b>Pavement layer</b>
-                <div className="loc-creator-radio-group" role="radiogroup" aria-label="Pavement layer lock">
-                  <label><input type="radio" name="pavement-lock" checked={!pavementUnlocked} onChange={() => setPavementUnlocked(false)} /> Locked</label>
-                  <label><input type="radio" name="pavement-lock" checked={pavementUnlocked} onChange={() => setPavementUnlocked(true)} /> Unlocked</label>
-                </div>
-                <p className="loc-creator-hint">Locked pavement can&apos;t be selected, split, or deleted by the other line tools — unlock it to select, edit, or draw/erase pavement.</p>
-                <label className="loc-creator-inline-field">
-                  Lanes
-                  <select value={pavementLanes} onChange={(event) => setPavementLanes(Number(event.target.value) as 1 | 2 | 3)}>
-                    <option value={1}>1 lane</option>
-                    <option value={2}>2 lanes</option>
-                    <option value={3}>3 lanes</option>
-                  </select>
-                </label>
-                <b>Shoulders</b>
-                <div className="loc-creator-radio-group" role="radiogroup" aria-label="Add shoulders">
-                  <label><input type="radio" name="pavement-shoulders" checked={pavementShoulders === 'none'} onChange={() => setPavementShoulders('none')} /> None</label>
-                  <label><input type="radio" name="pavement-shoulders" checked={pavementShoulders === 'left'} onChange={() => setPavementShoulders('left')} /> Add left shoulder</label>
-                  <label><input type="radio" name="pavement-shoulders" checked={pavementShoulders === 'right'} onChange={() => setPavementShoulders('right')} /> Add right shoulder</label>
-                  <label><input type="radio" name="pavement-shoulders" checked={pavementShoulders === 'both'} onChange={() => setPavementShoulders('both')} /> Add both shoulders</label>
-                </div>
-                <b>Fog lines</b>
-                <div className="loc-creator-radio-group" role="radiogroup" aria-label="Add fog lines">
-                  <label><input type="radio" name="pavement-fog" checked={!pavementFogLines} onChange={() => setPavementFogLines(false)} /> No fog lines</label>
-                  <label><input type="radio" name="pavement-fog" checked={pavementFogLines} onChange={() => setPavementFogLines(true)} /> Add fog lines</label>
-                </div>
-                <button type="button" className={tool === 'pavement' ? 'active' : ''} disabled={!pavementUnlocked} onClick={() => selectTool('pavement')}>
-                  <PaintBucket size={14} /> Draw pavement<small>Paint-brush stroke; width follows the lane/shoulder settings above</small>
-                </button>
-                <button type="button" className={tool === 'erase-pavement' ? 'active' : ''} disabled={!pavementUnlocked} onClick={() => selectTool('erase-pavement')}>
-                  <Eraser size={14} /> Erase pavement<small>~5 ft circular brush; narrows the paved area to sculpt tapers</small>
-                </button>
-                {tool === 'pavement' && pavementPoints.length > 0 && (
-                  <div className="loc-creator-taper-actions">
-                    <span>Painting… {pavementPoints.length} point{pavementPoints.length === 1 ? '' : 's'}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                    <Icon size={18} />
+                    <kbd>{definition.shortcut}</kbd>
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </nav>
 
-        <div className="loc-creator-canvas-wrap" ref={canvasWrapRef}>
+        <div className="loc-creator-canvas-wrap" ref={canvasWrapRef} onPointerMove={handleWrapPointerMove} onPointerLeave={() => setCursorFeet(null)}>
           <svg
             ref={svgRef}
             className={`loc-creator-canvas${pavementUnlocked ? '' : ' pavement-locked'}`}
@@ -1631,7 +1624,71 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
             )}
           </svg>
         </div>
+
+        <aside className="loc-editor-panel" aria-label="Tool options and properties">
+          <section className="loc-editor-panel-section">
+            <div className="loc-editor-panel-heading">
+              <activeToolDefinition.icon size={15} />
+              <span>{activeToolDefinition.label}</span>
+              <kbd>{activeToolDefinition.shortcut}</kbd>
+            </div>
+            <p className="loc-editor-hint">{toolHint()}</p>
+            {renderToolOptions()}
+          </section>
+
+          <section className="loc-editor-panel-section">
+            <div className="loc-editor-panel-heading">
+              <span>Properties</span>
+              <b>{selectedStamp ? 'Stamp' : selectedFeature ? 'Feature' : 'Scene'}</b>
+            </div>
+            {selectedStamp ? (
+              <>
+                <p className="loc-editor-note"><b>{STAMP_GLYPHS[selectedStamp.kind].label}</b></p>
+                <label className="loc-editor-field">Rotation (deg)<input type="number" value={selectedStamp.rotation} onChange={(event) => updateStamp(selectedStamp.id, { rotation: Number(event.target.value) })} /></label>
+                <label className="loc-editor-field">Scale<input type="number" step="0.1" min="0.2" max="4" value={selectedStamp.scale} onChange={(event) => updateStamp(selectedStamp.id, { scale: Number(event.target.value) })} /></label>
+                <button className="loc-editor-action danger" type="button" onClick={() => deleteStamp(selectedStamp.id)}><Trash2 size={13} /> Delete stamp</button>
+              </>
+            ) : selectedFeature ? (
+              <>
+                <dl className="loc-editor-props">
+                  <dt>Kind</dt><dd>{selectedFeature.kind.replaceAll('-', ' ')}</dd>
+                  <dt>Layer</dt><dd>{selectedFeature.layer}</dd>
+                  {selectedFeature.geometry.type === 'LineString' && (
+                    <><dt>Length</dt><dd>{polylineLengthFeet(selectedFeature.geometry.coordinates).toFixed(1)} ft</dd></>
+                  )}
+                  {(anchors[selectedFeature.id]?.size ?? 0) > 0 && (
+                    <><dt>Anchored</dt><dd>point {[...(anchors[selectedFeature.id] ?? [])].join(', ')}</dd></>
+                  )}
+                </dl>
+                <button className="loc-editor-action danger" type="button" onClick={deleteSelectedFeature}><Trash2 size={13} /> Delete feature</button>
+              </>
+            ) : (
+              <dl className="loc-editor-props">
+                <dt>Features</dt><dd>{scene.features.length}</dd>
+                <dt>Stamps</dt><dd>{stamps.length}</dd>
+                <dt>Source</dt><dd>{scene.source.dataset}</dd>
+                {multiSelectedFeatureIds.size > 0 && <><dt>Selected</dt><dd>{multiSelectedFeatureIds.size} lines</dd></>}
+              </dl>
+            )}
+          </section>
+        </aside>
       </div>
+
+      <footer className="loc-editor-statusbar">
+        <span className="loc-editor-status-tool"><activeToolDefinition.icon size={13} /> {activeToolDefinition.label}</span>
+        <span className="loc-editor-status-hint">{toolHint()}</span>
+        <span>{scene.features.length} features · {stamps.length} stamps</span>
+        <button
+          type="button"
+          className={`loc-editor-lock${pavementUnlocked ? ' unlocked' : ''}`}
+          aria-pressed={pavementUnlocked}
+          title={pavementUnlocked ? 'Pavement unlocked — click to lock so line tools ignore it' : 'Pavement locked — click to unlock for selecting, painting, or erasing'}
+          onClick={() => setPavementUnlocked((current) => !current)}
+        >
+          {pavementUnlocked ? <LockOpen size={13} /> : <Lock size={13} />} Pavement {pavementUnlocked ? 'unlocked' : 'locked'}
+        </button>
+        <span className="loc-editor-status-coords">{cursorFeet ? `${cursorFeet[0].toFixed(1)}, ${cursorFeet[1].toFixed(1)} ft` : '—'}</span>
+      </footer>
     </section>
   )
 }

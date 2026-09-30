@@ -114,6 +114,7 @@ import {
   type LocationTemplateEntry,
 } from './domain/locationTemplate'
 import { LocationTemplateCreator } from './components/LocationTemplateCreator'
+import { openTemplateEditorWindow } from './domain/templateEditorWindow'
 import {
   formatStorageSize,
   loadOfflineStatus,
@@ -722,6 +723,16 @@ function App() {
     }, Math.max(0, nextExpiration - Date.now()))
     return () => window.clearTimeout(timeout)
   }, [temporaryDrawingStrokes])
+
+  useEffect(() => {
+    const refreshLocationTemplates = () => setLocationTemplates(listLocationTemplates(localStorage))
+    window.addEventListener('storage', refreshLocationTemplates)
+    window.addEventListener('focus', refreshLocationTemplates)
+    return () => {
+      window.removeEventListener('storage', refreshLocationTemplates)
+      window.removeEventListener('focus', refreshLocationTemplates)
+    }
+  }, [])
 
   useEffect(() => {
     saveAppSettings(localStorage, appSettings)
@@ -2276,8 +2287,8 @@ function App() {
                   type="button"
                   role="menuitem"
                   onClick={() => {
-                    setTemplateCreatorOpen(true);
                     setToolsMenuOpen(false);
+                    if (!openTemplateEditorWindow()) setTemplateCreatorOpen(true);
                   }}
                 >
                   <MapPinned size={16} />
