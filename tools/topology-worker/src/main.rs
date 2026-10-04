@@ -41,7 +41,6 @@ fn main() -> Result<()> {
     );
     map.streets.apply_transformations(
         vec![
-            Transformation::RemoveDisconnectedRoads,
             Transformation::CollapseShortRoads,
             Transformation::CollapseDegenerateIntersections,
         ],

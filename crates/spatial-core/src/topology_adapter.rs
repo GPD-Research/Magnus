@@ -132,7 +132,7 @@ pub fn compile_topology_scene(
     }
     let diagnostics = topology.diagnostics;
 
-    let mut features = Vec::new();
+    let mut road_features = Vec::new();
     let mut navigation_roads = Vec::new();
     for (index, road) in topology.roads.iter().enumerate() {
         if road.center_line.len() < 2 || road.width_feet <= 0.0 {
@@ -178,7 +178,7 @@ pub fn compile_topology_scene(
             ..FeatureProperties::default()
         };
         let id = format!("topology-road-{topology_road_id}");
-        features.push(RoadFeature {
+        road_features.push(RoadFeature {
             id: format!("{id}-casing"),
             kind: RoadFeatureKind::RoadCasing,
             layer: road.layer,
@@ -188,17 +188,21 @@ pub fn compile_topology_scene(
                 ..properties.clone()
             },
         });
-        features.push(RoadFeature {
+        let surface_properties = FeatureProperties {
+            render_width_feet: Some(road.width_feet.max(12.0)),
+            ..properties
+        };
+        road_features.push(RoadFeature {
             id: format!("{id}-surface"),
             kind: RoadFeatureKind::RoadSurface,
             layer: road.layer,
             geometry: Geometry::LineString(road.center_line.clone()),
-            properties: FeatureProperties {
-                render_width_feet: Some(road.width_feet.max(12.0)),
-                ..properties
-            },
+            properties: surface_properties,
         });
     }
+    // Junction pavement goes under the roads so the surfaces, extended back
+    // over their trims, overlap it instead of pinching at every shared node.
+    let mut features = Vec::new();
     let mut navigation_intersections = Vec::new();
     for (index, intersection) in topology.intersections.iter().enumerate() {
         if intersection.polygon.len() < 4 {
@@ -228,6 +232,7 @@ pub fn compile_topology_scene(
             },
         });
     }
+    features.extend(road_features);
     let mut navigation_markings = Vec::new();
     for (index, marking) in topology.markings.iter().enumerate() {
         if marking.geometry.len() < 2 {
@@ -271,6 +276,12 @@ pub fn compile_topology_scene(
         offset_x,
         offset_y,
     );
+    // Added after normalization so the cosmetic overlap never widens the
+    // viewport: osm2streets trims every road back from its junctions, and
+    // without the pavement reaching back over that trim each shared node
+    // reads as a pinch between segments. Markings are left untouched.
+    let viewport = viewport_for_features(&features);
+    features.extend(surface_overlap_features(&navigation_roads, &features));
     Ok(RoadScene {
         version: 1,
         source: SceneSource {
@@ -286,7 +297,7 @@ pub fn compile_topology_scene(
             origin: "top-left".into(),
             traffic_flow: "bottom-to-top".into(),
         },
-        viewport: viewport_for_features(&features),
+        viewport,
         features,
         diagnostics,
         navigation_map: Some(NavigationMap {
@@ -377,9 +388,131 @@ fn bounds(features: &[RoadFeature]) -> Option<[f64; 4]> {
         })
 }
 
+fn surface_overlap_features(
+    roads: &[NavigationRoad],
+    features: &[RoadFeature],
+) -> Vec<RoadFeature> {
+    roads
+        .iter()
+        .filter_map(|road| {
+            let overlap_start = road.trim_start_feet.clamp(0.0, road.width_feet);
+            let overlap_end = road.trim_end_feet.clamp(0.0, road.width_feet);
+            if overlap_start <= 0.0 && overlap_end <= 0.0 {
+                return None;
+            }
+            let id = format!("topology-road-{}-surface", road.topology_road_id);
+            let surface = features.iter().find(|feature| feature.id == id)?;
+            Some(RoadFeature {
+                id: format!("{id}-overlap"),
+                kind: RoadFeatureKind::RoadSurface,
+                layer: surface.layer,
+                geometry: Geometry::LineString(extend_line_ends(
+                    &road.center_line,
+                    overlap_start,
+                    overlap_end,
+                )),
+                properties: surface.properties.clone(),
+            })
+        })
+        .collect()
+}
+
+/// Pushes each end of `line` outward along its end tangent so the rendered
+/// pavement reaches back into the junction it was trimmed away from.
+fn extend_line_ends(line: &[[f64; 2]], start_feet: f64, end_feet: f64) -> Vec<[f64; 2]> {
+    let mut extended = line.to_vec();
+    if let [first, second, ..] = line
+        && let Some(point) = project_point(*second, *first, start_feet)
+    {
+        extended[0] = point;
+    }
+    if let [.., second_last, last] = line
+        && let Some(point) = project_point(*second_last, *last, end_feet)
+    {
+        let index = extended.len() - 1;
+        extended[index] = point;
+    }
+    extended
+}
+
+fn project_point(from: [f64; 2], to: [f64; 2], distance: f64) -> Option<[f64; 2]> {
+    let delta_x = to[0] - from[0];
+    let delta_y = to[1] - from[1];
+    let length = delta_x.hypot(delta_y);
+    if length == 0.0 || distance <= 0.0 {
+        return None;
+    }
+    Some([
+        to[0] + delta_x / length * distance,
+        to[1] + delta_y / length * distance,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlaps_pavement_back_over_junction_trims_without_moving_markings() {
+        let scene = compile_topology_scene(
+            r#"{
+                "version": 1,
+                "coordinateUnits": "feet",
+                "roads": [{
+                    "topologyRoadId": 3,
+                    "sourceWayIds": [1],
+                    "layer": 0,
+                    "highway": "motorway",
+                    "laneCount": 2,
+                    "centerLine": [[100.0, 0.0], [200.0, 0.0]],
+                    "surfacePolygon": [[100.0, -12.0], [200.0, -12.0], [200.0, 12.0], [100.0, 12.0], [100.0, -12.0]],
+                    "widthFeet": 24.0,
+                    "trimStartFeet": 40.0,
+                    "trimEndFeet": 6.0
+                }],
+                "intersections": [],
+                "markings": [{
+                    "topologyRoadId": 3,
+                    "sourceWayIds": [1],
+                    "type": "right fog line",
+                    "geometry": [[100.0, 11.0], [200.0, 11.0]]
+                }]
+            }"#,
+            "overlap fixture",
+        )
+        .expect("topology scene should parse");
+
+        let line_of = |id: &str| -> Vec<[f64; 2]> {
+            let feature = scene
+                .features
+                .iter()
+                .find(|feature| feature.id == id)
+                .unwrap_or_else(|| panic!("{id} should be present"));
+            let Geometry::LineString(line) = &feature.geometry else {
+                panic!("{id} is a polyline");
+            };
+            line.clone()
+        };
+        let surface_line = line_of("topology-road-3-surface");
+        let overlap_line = line_of("topology-road-3-surface-overlap");
+        let overlap = scene
+            .features
+            .iter()
+            .find(|feature| feature.id == "topology-road-3-surface-overlap")
+            .expect("overlap");
+        assert_eq!(overlap.kind, RoadFeatureKind::RoadSurface);
+        assert_eq!(overlap.properties.render_width_feet, Some(24.0));
+        // Start trim is capped at one road width; end trim is used as-is.
+        assert_eq!(overlap_line[0][0], surface_line[0][0] - 24.0);
+        assert_eq!(overlap_line[1][0], surface_line[1][0] + 6.0);
+        assert_eq!(overlap_line[0][1], surface_line[0][1]);
+        // Added after normalization: the frame and the markings are unchanged.
+        let navigation_map = scene.navigation_map.as_ref().expect("snapshot");
+        assert_eq!(navigation_map.roads[0].center_line, surface_line);
+        let fog_line = line_of("topology-marking-0");
+        assert_eq!(fog_line[0][0], surface_line[0][0]);
+        assert_eq!(fog_line[1][0], surface_line[1][0]);
+    }
 
     #[test]
     fn converts_trimmed_roads_and_shared_intersections_to_scene_features() {
@@ -409,7 +542,7 @@ mod tests {
         .expect("topology scene should parse");
 
         assert_eq!(scene.source.source_type, SceneSourceType::OsmPbf);
-        assert_eq!(scene.features.len(), 3);
+        assert_eq!(scene.features.len(), 4);
         assert!(scene.features.iter().any(|feature| {
             feature.kind == RoadFeatureKind::RoadSurface
                 && feature.properties.osm_id == Some(95)
@@ -611,10 +744,12 @@ mod tests {
 
         let navigation_map = scene.navigation_map.expect("snapshot should be present");
         assert_eq!(navigation_map.markings.len(), 4);
-        assert!(!navigation_map
-            .markings
-            .iter()
-            .any(|marking| marking.marking_type == "lane arrow"));
+        assert!(
+            !navigation_map
+                .markings
+                .iter()
+                .any(|marking| marking.marking_type == "lane arrow")
+        );
     }
 
     #[test]
@@ -671,13 +806,17 @@ mod tests {
                 && feature.properties.relationships.len() == 1
                 && feature.properties.relationships[0].road_ids == vec![0, 1]
         }));
-        assert!(!scene
-            .features
-            .iter()
-            .any(|feature| feature.kind == RoadFeatureKind::SemanticMarking));
-        assert!(!scene
-            .features
-            .iter()
-            .any(|feature| feature.properties.osm_id == Some(14999)));
+        assert!(
+            !scene
+                .features
+                .iter()
+                .any(|feature| feature.kind == RoadFeatureKind::SemanticMarking)
+        );
+        assert!(
+            !scene
+                .features
+                .iter()
+                .any(|feature| feature.properties.osm_id == Some(14999))
+        );
     }
 }
