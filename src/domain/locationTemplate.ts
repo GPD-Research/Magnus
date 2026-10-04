@@ -89,11 +89,11 @@ export interface LinePatternOption {
 
 export const MUTCD_LINE_PATTERNS: LinePatternOption[] = [
   { id: 'skip-line', label: 'Skip line (broken lane line)', kind: 'skip-line' },
-  { id: 'left-fog-line', label: 'Solid white edge/fog line', kind: 'left-fog-line' },
-  { id: 'right-fog-line', label: 'Solid yellow edge line', kind: 'right-fog-line' },
+  { id: 'left-fog-line', label: 'Solid yellow edge line (left of traffic)', kind: 'left-fog-line' },
+  { id: 'right-fog-line', label: 'Solid white edge/fog line (right of traffic)', kind: 'right-fog-line' },
   { id: 'shoulder-edge', label: 'Shoulder edge line', kind: 'shoulder-edge' },
   { id: 'auxiliary-lane-line', label: 'Lane extension / merge dashes', kind: 'auxiliary-lane-line' },
-  { id: 'double-solid-white', label: 'Double solid white (no passing)', kind: 'left-fog-line', double: true },
+  { id: 'double-solid-white', label: 'Double solid white (no passing)', kind: 'right-fog-line', double: true },
 ]
 
 /** Builds the RoadFeature(s) for a drawn line using a MUTCD pattern preset. */

@@ -738,10 +738,9 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
       features.push({ id: `pavement-${idSeed}-right-shoulder`, kind: 'shoulder-edge', layer: 1, geometry: { type: 'LineString', coordinates: offsetPolyline(centerline, rightWidths, 'right') }, properties: { direction: 'forward', renderWidthFeet: 1 } })
     }
     if (pavementFogLines) {
-      // kind names are color-coded, not side-coded: 'right-fog-line' renders yellow, 'left-fog-line' renders white.
       features.push(
-        { id: `pavement-${idSeed}-left-fog`, kind: 'right-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: offsetPolyline(centerline, laneHalfWidth, 'left') }, properties: { direction: 'forward', renderWidthFeet: 0.6 } },
-        { id: `pavement-${idSeed}-right-fog`, kind: 'left-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: offsetPolyline(centerline, laneHalfWidth, 'right') }, properties: { direction: 'forward', renderWidthFeet: 0.6 } },
+        { id: `pavement-${idSeed}-left-fog`, kind: 'left-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: offsetPolyline(centerline, laneHalfWidth, 'left') }, properties: { direction: 'forward', renderWidthFeet: 0.6 } },
+        { id: `pavement-${idSeed}-right-fog`, kind: 'right-fog-line', layer: 2, geometry: { type: 'LineString', coordinates: offsetPolyline(centerline, laneHalfWidth, 'right') }, properties: { direction: 'forward', renderWidthFeet: 0.6 } },
       )
     }
     return features
