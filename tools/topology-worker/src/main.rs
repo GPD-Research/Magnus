@@ -11,7 +11,7 @@ use abstutil::{Tags, Timer};
 use anyhow::{bail, Context, Result};
 use convert_osm::{convert, Options};
 use geojson::{GeoJson, Value as GeoJsonValue};
-use geom::{Distance, GPSBounds, LonLat, PolyLine};
+use geom::{Distance, GPSBounds, LonLat, PolyLine, Polygon, Pt2D};
 use magnus_spatial_core::topology::{
     classify_road_relationship, CrossingCandidate, RoadRelationship, RoadStructure,
 };
@@ -47,6 +47,7 @@ fn main() -> Result<()> {
         &mut timer,
     );
     anchor_widened_fragments(&mut map.streets, &map.osm_tags);
+    flatten_freeway_junctions(&mut map.streets);
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)?;
@@ -1047,6 +1048,78 @@ enum FogLineSide {
     Right,
 }
 
+/// Caps how far a road may be trimmed back where only freeway carriageways and
+/// ramps meet. `intersection_polygon` treats these shallow-angle merges and
+/// diverges like a street crossing and can trim roads hundreds of feet, which
+/// leaves a long unmarked slab and lets neighbouring fragments drift. A gore
+/// is really just overlapping pavement, so each road is held to at most half
+/// its own width of trim and the junction polygon shrinks to the hull of the
+/// resulting road ends.
+fn flatten_freeway_junctions(streets: &mut StreetNetwork) {
+    let junctions = streets
+        .intersections
+        .values()
+        .filter(|intersection| {
+            intersection.roads.len() <= 3
+                && intersection.roads.iter().all(|id| {
+                    streets
+                        .roads
+                        .get(id)
+                        .is_some_and(|road| is_freeway_highway(&road.highway_type))
+                })
+        })
+        .map(|intersection| (intersection.id, intersection.roads.clone()))
+        .collect::<Vec<_>>();
+
+    for (intersection_id, road_ids) in junctions {
+        let mut end_caps = Vec::new();
+        for road_id in &road_ids {
+            let Some(road) = streets.roads.get_mut(road_id) else {
+                continue;
+            };
+            let cap = road.total_width() / 2.0;
+            let mut line = road.center_line.clone();
+            if road.src_i == intersection_id && road.trim_start > cap {
+                let length = line.length() + road.trim_start - cap;
+                line = line.reversed().extend_to_length(length).reversed();
+                road.trim_start = cap;
+            }
+            if road.dst_i == intersection_id && road.trim_end > cap {
+                let length = line.length() + road.trim_end - cap;
+                line = line.extend_to_length(length);
+                road.trim_end = cap;
+            }
+            let (end, angle) = if road.src_i == intersection_id {
+                (line.first_pt(), line.first_line().angle())
+            } else {
+                (line.last_pt(), line.last_line().angle())
+            };
+            let half = road.total_width() / 2.0;
+            for pt in [
+                end.project_away(half, angle.rotate_degs(90.0)),
+                end.project_away(half, angle.rotate_degs(-90.0)),
+            ] {
+                end_caps.push(end_cap_marker(pt));
+            }
+            road.center_line = line;
+        }
+        if let (Some(intersection), Ok(polygon)) = (
+            streets.intersections.get_mut(&intersection_id),
+            Polygon::convex_hull(end_caps),
+        ) {
+            intersection.polygon = polygon;
+        }
+    }
+}
+
+fn end_cap_marker(pt: Pt2D) -> Polygon {
+    Polygon::rectangle_centered(pt, Distance::feet(0.5), Distance::feet(0.5))
+}
+
+fn is_freeway_highway(highway: &str) -> bool {
+    matches!(highway, "motorway" | "trunk") || is_ramp_highway(highway)
+}
+
 fn is_ramp_highway(highway: &str) -> bool {
     highway.ends_with("_link")
 }
@@ -1105,8 +1178,13 @@ fn merge_lane_sides(
         };
         let (start_break, end_break) = gore_breaks.get(&road_id).copied().unwrap_or((None, None));
         let geometry_side = auxiliary_lane_side(start_break, end_break);
-        let traffic_side =
-            auxiliary_lane_side_from_tags(&road["osm_ids"], osm_tags).or(geometry_side);
+        // Without a tag or gore to say otherwise, extra mainline lanes are
+        // on the driver's right: lanes are added and dropped on the right in
+        // right-hand traffic, and a left-side ramp is caught by `ramp_side`
+        // when the fragment is anchored.
+        let traffic_side = auxiliary_lane_side_from_tags(&road["osm_ids"], osm_tags)
+            .or(geometry_side)
+            .or(Some("right"));
         let geometry_side = geometry_side.or_else(|| {
             traffic_side.map(|side| {
                 if geometry_runs_with_traffic(&road["lane_specs_ltr"]) {
@@ -1772,6 +1850,68 @@ mod tests {
 
     /// A 3-lane motorway that widens to 4 lanes between an on-ramp and an
     /// off-ramp must keep its through-lane boundaries and left edge line on a
+    /// Where only carriageways and ramps meet, no road is trimmed back more
+    /// than half its own width, so the pavement overlaps through the gore
+    /// instead of leaving a long unmarked junction slab.
+    #[test]
+    fn freeway_junctions_keep_road_trims_within_half_a_width() {
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mixing-bowl.osm");
+        let mut timer = Timer::throwaway();
+        let mut map = convert(
+            fixture.to_string(),
+            MapName::new("us", "magnus", "test"),
+            None,
+            Options::default(),
+            &mut timer,
+        );
+        map.streets.apply_transformations(
+            vec![
+                Transformation::CollapseShortRoads,
+                Transformation::CollapseDegenerateIntersections,
+            ],
+            &mut timer,
+        );
+        anchor_widened_fragments(&mut map.streets, &map.osm_tags);
+        flatten_freeway_junctions(&mut map.streets);
+
+        let mut checked = 0;
+        for intersection in map.streets.intersections.values() {
+            let roads = intersection
+                .roads
+                .iter()
+                .filter_map(|id| map.streets.roads.get(id))
+                .collect::<Vec<_>>();
+            if roads.len() > 3
+                || !roads
+                    .iter()
+                    .all(|road| is_freeway_highway(&road.highway_type))
+            {
+                continue;
+            }
+            for road in roads {
+                let cap = road.total_width() / 2.0 + Distance::meters(0.01);
+                if road.src_i == intersection.id {
+                    assert!(
+                        road.trim_start <= cap,
+                        "{} trim_start {}",
+                        road.id,
+                        road.trim_start
+                    );
+                }
+                if road.dst_i == intersection.id {
+                    assert!(
+                        road.trim_end <= cap,
+                        "{} trim_end {}",
+                        road.id,
+                        road.trim_end
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "fixture should contain freeway junctions");
+    }
+
     /// single straight line through all three fragments.
     #[test]
     fn widened_mainline_fixture_keeps_through_lanes_collinear() {
@@ -1793,6 +1933,7 @@ mod tests {
             &mut timer,
         );
         anchor_widened_fragments(&mut map.streets, &map.osm_tags);
+        flatten_freeway_junctions(&mut map.streets);
         let scene = topology_scene(&map.streets, &map.osm_tags).expect("scene should build");
 
         let mut xs_by_type: HashMap<&str, Vec<f64>> = HashMap::new();
