@@ -55,7 +55,7 @@ impl RoadLocationRequest {
         };
 
         format!(
-            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\nway(area.searchArea)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\n{anchor_filter}->.candidateAnchors;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:850)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n{output_set};\nout body;"
+            "[out:json][timeout:25];\narea[\"ISO3166-2\"=\"US-VA\"][\"admin_level\"=\"4\"]->.searchArea;\nway(area.searchArea)[\"highway\"][\"ref\"~\"{route_pattern}\",i]->.routeWays;\n{anchor_filter}->.candidateAnchors;\nnode.candidateAnchors(around.routeWays:100)->.anchors;\nway(around.anchors:640)[\"highway\"~\"^(motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link)$\"]->.nearbyWays;\n{output_set};\nout body;"
         )
     }
 
@@ -155,7 +155,7 @@ mod tests {
         assert!(query.contains("way(area.searchArea)"));
         assert!(query.contains("node(around.routeWays:100)"));
         assert!(query.contains("node.candidateAnchors(around.routeWays:100)->.anchors"));
-        assert!(query.contains("way(around.anchors:850)"));
+        assert!(query.contains("way(around.anchors:640)"));
     }
 
     #[test]
