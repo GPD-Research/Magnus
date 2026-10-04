@@ -22,6 +22,8 @@ const MAX_JOIN_GAP_FEET: f64 = 60.0;
 /// Fragments shorter than this that osm2streets trimmed away entirely are
 /// junction stubs, not roadway; they are dropped rather than smoothed.
 const MIN_FRAGMENT_FEET: f64 = 30.0;
+/// Edge-line slivers shorter than this left over after clipping are noise.
+const MIN_EDGE_PIECE_FEET: f64 = 5.0;
 /// Standard driving lane width used when widening a corridor.
 const LANE_WIDTH_FEET: f64 = 12.0;
 /// How far each open corridor end is extended so merging pavement overlaps
@@ -498,6 +500,106 @@ fn any_flag(flags: impl Iterator<Item = Option<bool>>) -> Option<bool> {
     })
 }
 
+/// Cuts `line` where it enters any of `polygons` (closed rings) and returns
+/// the pieces lying outside them, each ending exactly on the ring it meets.
+/// Edge lines of overlapping corridors therefore stop at the other road's
+/// edge instead of crossing it; a line entirely inside yields no pieces.
+pub fn clip_outside_polygons(line: &[Position], polygons: &[Vec<Position>]) -> Vec<Vec<Position>> {
+    if line.len() < 2 {
+        return Vec::new();
+    }
+    if polygons.is_empty() {
+        return vec![line.to_vec()];
+    }
+    let inside = |p: Position| polygons.iter().any(|ring| point_in_ring(p, ring));
+    let mut pieces: Vec<Vec<Position>> = Vec::new();
+    let mut current: Vec<Position> = Vec::new();
+    let mut outside = !inside(line[0]);
+    if outside {
+        current.push(line[0]);
+    }
+    for pair in line.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let mut crossings: Vec<(f64, Position)> = polygons
+            .iter()
+            .flat_map(|ring| {
+                ring.windows(2)
+                    .filter_map(move |edge| segment_intersection(a, b, edge[0], edge[1]))
+            })
+            .collect();
+        crossings.sort_by(|x, y| x.0.total_cmp(&y.0));
+        // A crossing exactly at a ring vertex is reported by both adjacent
+        // ring edges; count it once.
+        crossings.dedup_by(|later, earlier| (later.0 - earlier.0).abs() < 1e-9);
+        for (_, point) in crossings {
+            current.push(point);
+            if outside {
+                pieces.push(std::mem::take(&mut current));
+            }
+            outside = !outside;
+        }
+        let b_outside = !inside(b);
+        if b_outside != outside {
+            // Crossing parity disagreed with containment (grazed a vertex);
+            // trust containment.
+            if outside {
+                pieces.push(std::mem::take(&mut current));
+            } else {
+                current.clear();
+            }
+            outside = b_outside;
+        }
+        if outside {
+            current.push(b);
+        }
+    }
+    if outside {
+        pieces.push(current);
+    }
+    pieces
+        .into_iter()
+        .filter(|piece| polyline_length(piece) >= MIN_EDGE_PIECE_FEET)
+        .collect()
+}
+
+fn point_in_ring(p: Position, ring: &[Position]) -> bool {
+    let mut inside = false;
+    for edge in ring.windows(2) {
+        let (a, b) = (edge[0], edge[1]);
+        if (a[1] > p[1]) != (b[1] > p[1]) {
+            let x = a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0]);
+            if p[0] < x {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+/// Intersection of segments a->b and c->d as (t along a->b, point), excluding
+/// the a endpoint so chained segments do not double-count a shared vertex.
+fn segment_intersection(
+    a: Position,
+    b: Position,
+    c: Position,
+    d: Position,
+) -> Option<(f64, Position)> {
+    let r = [b[0] - a[0], b[1] - a[1]];
+    let s = [d[0] - c[0], d[1] - c[1]];
+    let denom = r[0] * s[1] - r[1] * s[0];
+    if denom.abs() < 1e-12 {
+        return None;
+    }
+    let qp = [c[0] - a[0], c[1] - a[1]];
+    let t = (qp[0] * s[1] - qp[1] * s[0]) / denom;
+    let u = (qp[0] * r[1] - qp[1] * r[0]) / denom;
+    if t > 1e-9 && t <= 1.0 && (0.0..=1.0).contains(&u) {
+        Some((t, [a[0] + t * r[0], a[1] + t * r[1]]))
+    } else {
+        None
+    }
+}
+
 /// Offsets a polyline to its right (positive) or left (negative) by
 /// averaging the normals of the segments meeting at each vertex.
 pub fn offset_polyline(line: &[Position], distance_feet: f64) -> Vec<Position> {
@@ -752,6 +854,34 @@ mod tests {
         assert_eq!(corridors.len(), 1);
         assert_eq!(corridors[0].travel, Travel::TwoWay);
         assert_eq!(corridors[0].center_line.len(), 201 + 2 - 2 + 0, "resampled");
+    }
+
+    #[test]
+    fn edge_lines_stop_where_they_enter_another_roads_pavement() {
+        // Mainline occupies x in [-12, 12]; a ramp edge comes in from the
+        // right and runs along inside the pavement.
+        let mainline = fragment(1, 2, vec![[0.0, 0.0], [0.0, 2000.0]]);
+        let corridors = build_corridors(&[mainline], &[]);
+        let pavement = vec![corridors[0].surface_polygon(0.0)];
+        let ramp_edge = vec![[200.0, 0.0], [62.0, 400.0], [6.0, 600.0], [6.0, 1200.0]];
+        let pieces = clip_outside_polygons(&ramp_edge, &pavement);
+        assert_eq!(pieces.len(), 1);
+        let piece = &pieces[0];
+        assert_eq!(piece[0], [200.0, 0.0]);
+        let end = piece[piece.len() - 1];
+        assert!(
+            (end[0] - 12.0).abs() < 1e-6,
+            "ends on the mainline edge: {end:?}"
+        );
+        assert!(end[1] > 400.0 && end[1] < 600.0);
+        // A line passing through comes out as two pieces that stop on each edge.
+        let through = vec![[-100.0, 1000.0], [100.0, 1000.0]];
+        let pieces = clip_outside_polygons(&through, &pavement);
+        assert_eq!(pieces.len(), 2);
+        assert!(distance(pieces[0][1], [-12.0, 1000.0]) < 1e-6);
+        assert!(distance(pieces[1][0], [12.0, 1000.0]) < 1e-6);
+        // A line fully inside the pavement disappears.
+        assert!(clip_outside_polygons(&[[0.0, 100.0], [0.0, 200.0]], &pavement).is_empty());
     }
 
     #[test]

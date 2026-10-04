@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::corridor::{Fragment, Junction, Travel, build_corridors};
+use crate::corridor::{Fragment, Junction, Travel, build_corridors, clip_outside_polygons};
 use crate::{
     CoordinateSystem, FeatureProperties, Geometry, LaneRecord, NavigationIntersection,
     NavigationMap, NavigationMarking, NavigationRoad, RelationshipRecord, RoadFeature,
@@ -245,18 +245,31 @@ pub fn compile_topology_scene(
                 corridor.right_edge(),
             ),
         ] {
-            features.push(RoadFeature {
-                id: format!("{id}-{suffix}"),
-                kind,
-                layer: corridor.layer + 1,
-                geometry: Geometry::LineString(line),
-                properties: FeatureProperties {
-                    topology_road_id: Some(corridor.id),
-                    source_way_ids: corridor.source_way_ids.clone(),
-                    render_width_feet: Some(0.5),
-                    ..FeatureProperties::default()
-                },
-            });
+            // Edge lines stop where they enter another road's pavement, so
+            // ramp and mainline edges meet at the pavement corner instead of
+            // crossing; the merge zone itself is left for the template author.
+            let other_pavement = corridors
+                .iter()
+                .filter(|other| other.id != corridor.id && other.layer == corridor.layer)
+                .map(|other| other.surface_polygon(0.0))
+                .collect::<Vec<_>>();
+            for (index, piece) in clip_outside_polygons(&line, &other_pavement)
+                .into_iter()
+                .enumerate()
+            {
+                features.push(RoadFeature {
+                    id: format!("{id}-{suffix}-{index}"),
+                    kind: kind.clone(),
+                    layer: corridor.layer + 1,
+                    geometry: Geometry::LineString(piece),
+                    properties: FeatureProperties {
+                        topology_road_id: Some(corridor.id),
+                        source_way_ids: corridor.source_way_ids.clone(),
+                        render_width_feet: Some(0.5),
+                        ..FeatureProperties::default()
+                    },
+                });
+            }
         }
     }
 
@@ -487,12 +500,12 @@ mod tests {
 
         // Driver's left edge (northbound: -x) stays put through the lane
         // gain, which the right edge absorbs.
-        let left = line_of(&scene, "topology-road-3-left-edge");
+        let left = line_of(&scene, "topology-road-3-left-edge-0");
         let xs = left.iter().map(|p| p[0]).collect::<Vec<_>>();
         let spread =
             xs.iter().fold(f64::MIN, |a, &b| a.max(b)) - xs.iter().fold(f64::MAX, |a, &b| a.min(b));
         assert!(spread < 0.5, "left edge spread {spread}");
-        let right = line_of(&scene, "topology-road-3-right-edge");
+        let right = line_of(&scene, "topology-road-3-right-edge-0");
         assert!((right[0][0] - left[0][0] - 36.0).abs() < 0.5);
         // The trimmed gap at the shared node is closed.
         let center = line_of(&scene, "topology-road-3-surface");
@@ -586,15 +599,15 @@ mod tests {
                 .clone()
         };
         assert_eq!(
-            kind_of("topology-road-1-left-edge"),
+            kind_of("topology-road-1-left-edge-0"),
             RoadFeatureKind::RightFogLine
         );
         assert_eq!(
-            kind_of("topology-road-1-right-edge"),
+            kind_of("topology-road-1-right-edge-0"),
             RoadFeatureKind::RightFogLine
         );
         assert_eq!(
-            kind_of("topology-road-2-left-edge"),
+            kind_of("topology-road-2-left-edge-0"),
             RoadFeatureKind::LeftFogLine
         );
         assert!(
