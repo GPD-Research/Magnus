@@ -229,7 +229,7 @@ export function renderLocationTemplateSvg(scene: RoadScene, stamps: PlacedStamp[
   const features = [...scene.features, ...bakedStamps].sort((a, b) => a.layer - b.layer)
   const paths = features.map((feature) => {
     const width = feature.properties.renderWidthFeet ?? 0
-    return `<path class="road-feature-${feature.kind}" d="${svgPathForFeature(feature)}" stroke-width="${width}" />`
+    return `<path class="road-feature-${feature.kind}" data-geometry-type="${feature.geometry.type}" d="${svgPathForFeature(feature)}" stroke-width="${width}" />`
   }).join('\n  ')
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scene.viewport.width} ${scene.viewport.height}" width="${scene.viewport.width}" height="${scene.viewport.height}">
   <style>${EXPORT_STYLE}</style>
