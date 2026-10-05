@@ -224,6 +224,15 @@ function toSvgPoint(svg: SVGSVGElement, clientX: number, clientY: number): Posit
   return [point.x, point.y]
 }
 
+const MIN_ZOOM = 0.25
+const MAX_ZOOM = 10
+
+function zoomStep(zoom: number): number {
+  if (zoom >= 4) return 1
+  if (zoom >= 2) return 0.5
+  return 0.25
+}
+
 export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProps) {
   const [scene, setScene] = useState<RoadScene>(createReferenceRoadScene)
   const [stamps, setStamps] = useState<PlacedStamp[]>([])
@@ -328,12 +337,12 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
 
   function zoomIn() {
     captureZoomCenter()
-    setZoom((current) => Math.min(6, Math.round((current + 0.25) * 100) / 100))
+    setZoom((current) => Math.min(MAX_ZOOM, Math.round((current + zoomStep(current)) * 100) / 100))
   }
 
   function zoomOut() {
     captureZoomCenter()
-    setZoom((current) => Math.max(0.25, Math.round((current - 0.25) * 100) / 100))
+    setZoom((current) => Math.max(MIN_ZOOM, Math.round((current - zoomStep(current - 0.01)) * 100) / 100))
   }
 
   function resetZoom() {
