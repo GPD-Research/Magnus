@@ -2199,12 +2199,10 @@ mod tests {
                 .iter()
                 .any(|feature| feature.id.contains("right-shoulder-edge-1"))
         );
-        assert!(
-            !scene
-                .features
-                .iter()
-                .any(|feature| feature.kind == RoadFeatureKind::RampGore)
-        );
+        assert!(!scene
+            .features
+            .iter()
+            .any(|feature| feature.kind == RoadFeatureKind::RampGore));
         assert_eq!(
             scene
                 .features
