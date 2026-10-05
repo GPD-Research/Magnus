@@ -7,7 +7,6 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  Clock3,
   Download,
   FolderOpen,
   HardDrive,
@@ -51,14 +50,19 @@ import {
 } from './domain/appSettings'
 import { releaseVersionLabel } from './domain/appVersion'
 import {
-  buildInitialRadioExchange,
+  advanceCommunications,
+  DEFAULT_SSP_UNIT,
   DEFAULT_TOC_INCIDENT_DETAILS,
-  INCIDENT_TYPE_OPTIONS,
+  INITIAL_COMMUNICATIONS_STATE,
+  VEHICLE_HAZARD_STATE_OPTIONS,
   type CommunicationDirection,
+  type CommunicationsMode,
+  type CommunicationsState,
   type IncidentType,
   type TocIncidentDetails,
-  type YesNoUnknown,
+  type VehicleHazardState,
 } from './domain/communications'
+import { agenciesOnScene, isVehicleHazard, reportedHazards, vehicleHazardState } from './domain/sceneReport'
 import {
   createPortableScenario,
   parsePortableScenario,
@@ -181,19 +185,6 @@ const themeIds: ThemeId[] = ['dark', 'light', 'custom-1', 'custom-2', 'custom-3'
 const communicationDirections = travelDirections.filter(
   (direction): direction is { value: CommunicationDirection; label: string } => direction.value !== 'all',
 )
-const yesNoOptions: { value: YesNoUnknown; label: string }[] = [
-  { value: 'unknown', label: 'Unknown' },
-  { value: 'yes', label: 'Yes' },
-  { value: 'no', label: 'No' },
-]
-const impactedLaneOptions = [
-  { value: 'all lanes', label: 'All lanes' },
-  { value: 'multiple lanes', label: 'Multiple lanes' },
-  { value: 'the left lane', label: 'Left lane' },
-  { value: 'the center lane', label: 'Center lane' },
-  { value: 'the right lane', label: 'Right lane' },
-  { value: 'the right shoulder', label: 'Right shoulder' },
-]
 const appReleaseVersion = releaseVersionLabel(__APP_VERSION__)
 
 type SaveStatus = 'idle' | 'saved'
@@ -267,6 +258,9 @@ function loadSavedScenario(): PortableScenarioState | null {
           sceneRotation: scenario.sceneRotation ?? 0,
           mapRotation: 0,
           drawingStrokes: [],
+          communicationsState: INITIAL_COMMUNICATIONS_STATE,
+          communicationsMode: 'ssp-discovered',
+          sspUnit: DEFAULT_SSP_UNIT,
           incidentType: 'crash',
           tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
           roadScene: createReferenceRoadScene(),
@@ -304,6 +298,9 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     deployedEquipment: state.deployedEquipment,
     drawingStrokes: state.drawingStrokes,
     radioEvents: state.radioEvents,
+    communicationsState: state.communicationsState,
+    communicationsMode: state.communicationsMode,
+    sspUnit: state.sspUnit,
     incidentType: state.incidentType,
     tocIncidentDetails: state.tocIncidentDetails,
     roadScene: state.roadScene,
@@ -592,8 +589,11 @@ function App() {
     drawings: true,
   })
   const [radioEvents, setRadioEvents] = useState(savedScenario?.radioEvents ?? [])
-  const [incidentType, setIncidentType] = useState<IncidentType>(savedScenario?.incidentType ?? 'crash')
-  const [tocIncidentDetails, setTocIncidentDetails] = useState<TocIncidentDetails>(savedScenario?.tocIncidentDetails ?? DEFAULT_TOC_INCIDENT_DETAILS)
+  const [communicationsState, setCommunicationsState] = useState<CommunicationsState>(savedScenario?.communicationsState ?? INITIAL_COMMUNICATIONS_STATE)
+  const [communicationsMode, setCommunicationsMode] = useState<CommunicationsMode>(savedScenario?.communicationsMode ?? 'ssp-discovered')
+  const [sspUnit, setSspUnit] = useState(savedScenario?.sspUnit ?? DEFAULT_SSP_UNIT)
+  const [incidentType] = useState<IncidentType>(savedScenario?.incidentType ?? 'crash')
+  const [tocIncidentDetails] = useState<TocIncidentDetails>(savedScenario?.tocIncidentDetails ?? DEFAULT_TOC_INCIDENT_DETAILS)
 
   const audit = auditScene(scenario, mode, points)
   const upstreamCount = points.filter((point) => point.role !== 'perimeter').length
@@ -923,7 +923,7 @@ function App() {
       window.alert('The communications transcript is not ready to display.')
       return
     }
-    const display = window.open('', 'magnus-communications-display', 'popup,width=1100,height=700')
+    const display = window.open('', 'magnus-communications-display', 'popup,width=560,height=960')
     if (!display) {
       window.alert('Allow pop-up windows to display Magnus communications.')
       return
@@ -939,12 +939,13 @@ function App() {
       h1 { margin: 0; font-size: clamp(28px, 4vw, 54px); letter-spacing: 0; text-transform: uppercase; }
       button { flex: 0 0 auto; min-width: 110px; min-height: 48px; padding: 8px 18px; color: #f4f7f5; background: #27332f; border: 2px solid #74827d; border-radius: 4px; font: 700 20px "Barlow Condensed", sans-serif; cursor: pointer; }
       button:focus-visible { outline: 4px solid #f0b44d; outline-offset: 3px; }
-      main { width: min(1400px, 100%); margin: 0 auto; padding: clamp(24px, 4vw, 56px); }
-      .empty { margin: 10vh 0 0; color: #aebbb6; font-size: clamp(30px, 5vw, 68px); text-align: center; }
-      .radio-event { display: grid; grid-template-columns: auto 1fr; gap: 18px; padding: clamp(18px, 3vh, 34px) 0; border-bottom: 2px solid #394640; }
-      .radio-event svg { width: 32px; height: 32px; margin-top: 8px; color: #69c29a; }
-      .radio-event span { display: block; margin-bottom: 8px; color: #89dab5; font-size: clamp(18px, 2.2vw, 30px); font-weight: 700; }
-      .radio-event p { margin: 0; color: #f4f7f5; font-size: clamp(30px, 4.2vw, 64px); font-weight: 600; line-height: 1.15; letter-spacing: 0; }
+      main { display: flex; flex-direction: column; gap: 14px; width: min(720px, 100%); margin: 0 auto; padding: 24px 20px 40px; }
+      .empty, .radio-empty { margin: 10vh 0 0; color: #aebbb6; font-size: 26px; text-align: center; }
+      .radio-event { max-width: 84%; padding: 14px 18px; border-radius: 22px; }
+      .radio-event-ssp { align-self: flex-end; background: #2d7a56; border-bottom-right-radius: 6px; }
+      .radio-event-toc { align-self: flex-start; background: #2a3531; border-bottom-left-radius: 6px; }
+      .radio-event span { display: block; margin-bottom: 6px; color: #b8e6cf; font-size: 15px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+      .radio-event p { margin: 0; color: #f4f7f5; font-size: 28px; font-weight: 600; line-height: 1.2; }
     `
     const title = display.document.createElement('title')
     title.textContent = 'Magnus Communications Display'
@@ -972,7 +973,7 @@ function App() {
       } else {
         const empty = display.document.createElement('p')
         empty.className = 'empty'
-        empty.textContent = 'Build an initial radio call to display communications.'
+        empty.textContent = 'The exchange starts once an SSP truck and a reportable hazard are on scene.'
         transcript.replaceChildren(empty)
       }
     }
@@ -1103,6 +1104,7 @@ function App() {
     cancelDrawingStroke()
     setSelectedEquipmentId(null)
     setRadioEvents([])
+    setCommunicationsState(INITIAL_COMMUNICATIONS_STATE)
     setSceneVisible(true)
     setScenePlacementActive(false)
     setSceneOrigin({ x: 0, y: 0 })
@@ -1126,6 +1128,9 @@ function App() {
       deployedEquipment,
       drawingStrokes,
       radioEvents,
+      communicationsState,
+      communicationsMode,
+      sspUnit,
       incidentType,
       tocIncidentDetails,
       roadScene,
@@ -1232,8 +1237,9 @@ function App() {
     setTemporaryDrawingStrokes([])
     setSelectedEquipmentId(null)
     setRadioEvents(state.radioEvents)
-    setIncidentType(state.incidentType)
-    setTocIncidentDetails(state.tocIncidentDetails)
+    setCommunicationsState(state.communicationsState)
+    setCommunicationsMode(state.communicationsMode)
+    setSspUnit(state.sspUnit)
     initializedZoomSceneRef.current = state.roadScene
     setRoadScene(state.roadScene)
     setLocationRequest(state.locationRequest)
@@ -1452,22 +1458,29 @@ function App() {
     setSelectedEquipmentId(null)
   }
 
-  function addRadioEvent() {
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  useEffect(() => {
     const direction = locationRequest.direction === 'all' ? 'northbound' : locationRequest.direction
-    const exchange = buildInitialRadioExchange({
-      unit: 'SSP970',
+    const { state, messages } = advanceCommunications(communicationsState, {
+      unit: sspUnit,
+      mode: communicationsMode,
       highway: locationRequest.highway,
       direction,
       referenceType: locationRequest.referenceType,
       reference: locationRequest.reference,
-      incidentType,
-      details: tocIncidentDetails,
       scenario,
       travelLanes: laneCount,
+      sspOnScene: sceneVisible && trucks.length > 0,
+      hazards: reportedHazards(deployedEquipment),
+      agencies: agenciesOnScene(deployedEquipment),
     })
-    setRadioEvents((current) => [...current, ...exchange.map((message) => ({ ...message, time: now }))])
-  }
+    if (messages.length === 0) return
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    // The transcript is an append-only log of scene transitions, so it has to be committed from the
+    // effect that observes them; the state guard above keeps this from re-firing.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCommunicationsState(state)
+    setRadioEvents((current) => [...current, ...messages.map((message) => ({ ...message, time: now }))])
+  }, [communicationsState, communicationsMode, sspUnit, locationRequest, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment])
 
   function removeRearCone() {
     const lastTaper = points
@@ -3218,6 +3231,25 @@ function App() {
                     <option value="270">270°</option>
                   </select>
                 </label>
+                {isVehicleHazard(selectedEquipment.definitionId) && (
+                  <label>
+                    Vehicle state
+                    <select
+                      value={vehicleHazardState(selectedEquipment)}
+                      onChange={(event) =>
+                        updateDeployedEquipment(selectedEquipment.id, {
+                          hazardState: event.target.value as VehicleHazardState,
+                        })
+                      }
+                    >
+                      {VEHICLE_HAZARD_STATE_OPTIONS.map((option) => (
+                        <option value={option.value} key={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {selectedEquipmentDefinition.resizable && (
                   <>
                     <label>
@@ -3625,6 +3657,27 @@ function App() {
               </button>
             </div>
             <div className="communications-fields">
+              <label htmlFor="communications-unit">
+                Unit
+                <input
+                  id="communications-unit"
+                  type="text"
+                  value={sspUnit}
+                  placeholder={DEFAULT_SSP_UNIT}
+                  onChange={(event) => setSspUnit(event.target.value.toUpperCase().replace(/\s+/g, ''))}
+                />
+              </label>
+              <label htmlFor="communications-mode">
+                Scene origin
+                <select
+                  id="communications-mode"
+                  value={communicationsMode}
+                  onChange={(event) => setCommunicationsMode(event.target.value as CommunicationsMode)}
+                >
+                  <option value="ssp-discovered">SSP discovered</option>
+                  <option value="toc-dispatched">TOC dispatched</option>
+                </select>
+              </label>
               <label htmlFor="communications-direction">
                 Travel direction
                 <select
@@ -3648,535 +3701,20 @@ function App() {
                   ))}
                 </select>
               </label>
-              <label htmlFor="incident-type">
-                Incident type
-                <select
-                  id="incident-type"
-                  value={incidentType}
-                  onChange={(event) =>
-                    setIncidentType(event.target.value as IncidentType)
-                  }
-                >
-                  {INCIDENT_TYPE_OPTIONS.map((incident) => (
-                    <option value={incident.value} key={incident.value}>
-                      {incident.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
             </div>
-            {(incidentType === "crash" || incidentType === "severe-crash") && (
-              <div
-                className="toc-detail-fields"
-                aria-label="What TOC will need to know"
-              >
-                <strong>What TOC will need to know</strong>
-                <label>
-                  Vehicle count
-                  <input
-                    type="number"
-                    min="1"
-                    value={tocIncidentDetails.crashVehicleCount}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        crashVehicleCount: Math.max(
-                          1,
-                          Number(event.target.value),
-                        ),
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Transported by EMS
-                  <input
-                    type="number"
-                    min="0"
-                    value={tocIncidentDetails.emsTransportCount}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        emsTransportCount: Math.max(
-                          0,
-                          Number(event.target.value),
-                        ),
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Injuries
-                  <select
-                    value={tocIncidentDetails.injuries}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        injuries: event.target
-                          .value as TocIncidentDetails["injuries"],
-                      }))
-                    }
-                  >
-                    <option value="unknown">Unknown</option>
-                    <option value="none">None reported</option>
-                    <option value="reported">Reported</option>
-                  </select>
-                </label>
-              </div>
-            )}
-            {(incidentType === "disabled-vehicle" ||
-              incidentType === "blocking-disabled") && (
-              <div
-                className="toc-detail-fields vehicle-details"
-                aria-label="What TOC will need to know"
-              >
-                <strong>What TOC will need to know</strong>
-                <label>
-                  License plate
-                  <input
-                    value={tocIncidentDetails.licensePlate}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        licensePlate: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Plate state
-                  <input
-                    value={tocIncidentDetails.licensePlateState}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        licensePlateState: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Vehicle make
-                  <input
-                    value={tocIncidentDetails.vehicleMake}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        vehicleMake: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Vehicle model
-                  <input
-                    value={tocIncidentDetails.vehicleModel}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        vehicleModel: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Vehicle color
-                  <input
-                    value={tocIncidentDetails.vehicleColor}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        vehicleColor: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-            )}
-            {incidentType === "plane-crash" && (
-              <div
-                className="toc-detail-fields"
-                aria-label="What TOC will need to know"
-              >
-                <strong>What TOC will need to know</strong>
-                <label>
-                  Lanes impacted
-                  <select
-                    value={tocIncidentDetails.planeLanesImpacted}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        planeLanesImpacted: event.target.value,
-                      }))
-                    }
-                  >
-                    {impactedLaneOptions.slice(0, 5).map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Plane size
-                  <select
-                    value={tocIncidentDetails.planeSize}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        planeSize: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="unknown size">Unknown</option>
-                    <option value="small">Small</option>
-                    <option value="medium">Medium</option>
-                    <option value="large">Large</option>
-                  </select>
-                </label>
-                <label>
-                  Survivors
-                  <select
-                    value={tocIncidentDetails.survivors}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        survivors: event.target
-                          .value as TocIncidentDetails["survivors"],
-                      }))
-                    }
-                  >
-                    <option value="unknown">Unknown</option>
-                    <option value="yes">Reported</option>
-                    <option value="no">None reported</option>
-                  </select>
-                </label>
-              </div>
-            )}
-            {incidentType === "downed-tree" && (
-              <div
-                className="toc-detail-fields"
-                aria-label="What TOC will need to know"
-              >
-                <strong>What TOC will need to know</strong>
-                <label>
-                  Tree lanes blocked
-                  <select
-                    value={tocIncidentDetails.treeLanesBlocked}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        treeLanesBlocked: event.target.value,
-                      }))
-                    }
-                  >
-                    {impactedLaneOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Tree size
-                  <input
-                    value={tocIncidentDetails.treeSize}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        treeSize: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Resources to move tree
-                  <input
-                    value={tocIncidentDetails.treeResourcesNeeded}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        treeResourcesNeeded: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-            )}
-            {incidentType === "debris" && (
-              <div
-                className="toc-detail-fields"
-                aria-label="What TOC will need to know"
-              >
-                <strong>What TOC will need to know</strong>
-                <label>
-                  Hazardous debris
-                  <select
-                    value={tocIncidentDetails.debrisHazardous}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        debrisHazardous: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  SSP can remove manually
-                  <select
-                    value={tocIncidentDetails.debrisManualRemoval}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        debrisManualRemoval: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Needs VSP slow-roll
-                  <select
-                    value={tocIncidentDetails.debrisNeedsSlowRoll}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        debrisNeedsSlowRoll: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  SSP has lane blade
-                  <select
-                    value={tocIncidentDetails.debrisHasLaneBlade}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        debrisHasLaneBlade: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-            {incidentType === "car-fire" && (
-              <div
-                className="toc-detail-fields"
-                aria-label="What TOC will need to know"
-              >
-                <strong>What TOC will need to know</strong>
-                <label>
-                  Motorist out
-                  <select
-                    value={tocIncidentDetails.carFireMotoristOut}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        carFireMotoristOut: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Fully engulfed
-                  <select
-                    value={tocIncidentDetails.carFireFullyEngulfed}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        carFireFullyEngulfed: event.target
-                          .value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Electric vehicle
-                  <select
-                    value={tocIncidentDetails.carFireIsEv}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        carFireIsEv: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Fire lanes blocked
-                  <select
-                    value={tocIncidentDetails.carFireLanesBlocked}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        carFireLanesBlocked: event.target.value,
-                      }))
-                    }
-                  >
-                    {impactedLaneOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-            {incidentType === "tractor-trailer-fire" && (
-              <div
-                className="toc-detail-fields"
-                aria-label="What TOC will need to know"
-              >
-                <strong>What TOC will need to know</strong>
-                <label>
-                  Driver out
-                  <select
-                    value={tocIncidentDetails.tractorDriverOut}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        tractorDriverOut: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Trailer hauling
-                  <input
-                    value={tocIncidentDetails.tractorTrailerCargo}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        tractorTrailerCargo: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  HAZMAT
-                  <select
-                    value={tocIncidentDetails.tractorHazmat}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        tractorHazmat: event.target.value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Fully engulfed
-                  <select
-                    value={tocIncidentDetails.tractorFullyEngulfed}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        tractorFullyEngulfed: event.target
-                          .value as YesNoUnknown,
-                      }))
-                    }
-                  >
-                    {yesNoOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Truck fire lanes blocked
-                  <select
-                    value={tocIncidentDetails.tractorLanesBlocked}
-                    onChange={(event) =>
-                      setTocIncidentDetails((current) => ({
-                        ...current,
-                        tractorLanesBlocked: event.target.value,
-                      }))
-                    }
-                  >
-                    {impactedLaneOptions.map((option) => (
-                      <option value={option.value} key={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-            <div className="radio-log">
+            <div className="radio-log" aria-label="Radio transcript">
+              {radioEvents.length === 0 && (
+                <p className="radio-empty">Place an SSP truck and a crashed, disabled or burning vehicle, debris or a downed tree to start the exchange.</p>
+              )}
               {radioEvents.map((event, index) => (
-                <div className="radio-event" key={`${event.time}-${index}`}>
-                  <Clock3 size={14} />
-                  <div>
-                    <span>
-                      {event.time} · {event.channel}
-                    </span>
-                    <p>{event.text}</p>
-                  </div>
+                <div className={`radio-event radio-event-${event.channel.toLowerCase()}`} key={`${event.time}-${index}`}>
+                  <span>
+                    {event.channel} · {event.time}
+                  </span>
+                  <p>{event.text}</p>
                 </div>
               ))}
             </div>
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={addRadioEvent}
-            >
-              <Radio size={16} /> Build initial radio call
-            </button>
           </section>
         </aside>
       </section>

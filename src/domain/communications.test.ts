@@ -1,157 +1,120 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TOC_INCIDENT_DETAILS, buildInitialRadioExchange } from './communications'
+import {
+  INITIAL_COMMUNICATIONS_STATE,
+  NO_HAZARDS,
+  advanceCommunications,
+  controllerFor,
+  incidentPhrase,
+  type CommunicationsScene,
+} from './communications'
 
-const details = DEFAULT_TOC_INCIDENT_DETAILS
+const scene: CommunicationsScene = {
+  unit: 'SSP970',
+  mode: 'ssp-discovered',
+  highway: 'I-95',
+  direction: 'northbound',
+  referenceType: 'exit',
+  reference: '155',
+  scenario: 'right-lane',
+  travelLanes: 3,
+  sspOnScene: true,
+  hazards: { ...NO_HAZARDS, crashedVehicles: 1 },
+  agencies: [],
+}
 
-describe('initial radio exchange', () => {
-  it('builds the opening, acknowledgement, and single-lane scene callout', () => {
-    expect(buildInitialRadioExchange({
-      unit: 'SSP970',
-      highway: 'I-95',
-      direction: 'northbound',
-      referenceType: 'exit',
-      reference: '166',
-      incidentType: 'crash',
-      details,
-      scenario: 'right-lane',
-      travelLanes: 3,
-    })).toEqual([
-      { channel: 'SSP', text: 'SSP970 to 95 control' },
-      { channel: 'TOC', text: 'SSP970, go ahead' },
-      { channel: 'SSP', text: "Show me out northbound 95 at exit 166, with a crash blocking the right lane, 2 vehicles involved, 0 motorists transported by EMS, injuries unknown, I'll advise." },
+describe('controllerFor', () => {
+  it('splits I-95 between 95 Control and Stafford Control at exit 148', () => {
+    expect(controllerFor('I-95', '155')).toBe('95 Control')
+    expect(controllerFor('I-95', '148')).toBe('95 Control')
+    expect(controllerFor('I-95', '147.5')).toBe('Stafford Control')
+    expect(controllerFor('I-95', '130')).toBe('Stafford Control')
+  })
+
+  it('uses a single controller per route elsewhere and falls back on the route number', () => {
+    expect(controllerFor('I-66', '52')).toBe('66 Control')
+    expect(controllerFor('I-495', '177')).toBe('495 Control')
+    expect(controllerFor('I-395', '')).toBe('395 Control')
+    expect(controllerFor('Route 7', '12')).toBe('7 Control')
+  })
+})
+
+describe('advanceCommunications', () => {
+  it('stays silent until an SSP truck and a reportable hazard are both on scene', () => {
+    expect(advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, hazards: NO_HAZARDS }).messages).toEqual([])
+    expect(advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, sspOnScene: false }).messages).toEqual([])
+  })
+
+  it('builds the SSP-discovered call-out with a VSP request off the shoulder', () => {
+    const { state, messages } = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, scene)
+    expect(messages).toEqual([
+      { channel: 'SSP', text: 'SSP970 to 95 Control?' },
+      { channel: 'TOC', text: 'SSP970, go ahead.' },
+      { channel: 'SSP', text: "Show me on scene at northbound exit 155 in the main lanes blocking the right lane with an accident. I'll advise. Send VSP." },
+      { channel: 'TOC', text: 'Copy. VSP en route.' },
     ])
+    expect(state).toEqual({ phase: 'on-scene', agencies: [] })
   })
 
-  it('names both affected lanes on a three-lane highway', () => {
-    const exchange = buildInitialRadioExchange({
-      unit: 'SSP970',
-      highway: 'I-495',
-      direction: 'southbound',
-      referenceType: 'mile-marker',
-      reference: '42.5',
-      incidentType: 'severe-crash',
-      details: { ...details, crashVehicleCount: 3, emsTransportCount: 1, injuries: 'reported' },
-      scenario: 'two-left-lanes',
-      travelLanes: 3,
-    })
-
-    expect(exchange[2].text).toBe("Show me out southbound 495 at mile marker 42.5, with a severe crash blocking the left and center lanes, 3 vehicles involved, 1 motorist transported by EMS, injuries reported, roll EMS, I'll advise.")
+  it('folds agencies already drawn into the call-out and skips the VSP request', () => {
+    const { messages } = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, agencies: ['vsp', 'fire-rescue'] })
+    expect(messages[2].text).toBe('Show me on scene at northbound exit 155 in the main lanes blocking the right lane with an accident. Fire and rescue plus VSP already on scene.')
+    expect(messages[3].text).toBe('Copy.')
   })
 
-  it('uses a numeric lane count description on wider highways', () => {
-    const exchange = buildInitialRadioExchange({
-      unit: 'SSP970',
-      highway: 'Route 66',
-      direction: 'westbound',
-      referenceType: 'exit',
-      reference: '53',
-      incidentType: 'blocking-disabled',
-      details: { ...details, licensePlate: 'ABC123', licensePlateState: 'Virginia', vehicleMake: 'Honda', vehicleModel: 'Accord', vehicleColor: 'blue' },
-      scenario: 'two-right-lanes',
-      travelLanes: 4,
-    })
-
-    expect(exchange[2].text).toBe("Show me out westbound 66 at exit 53, with a disabled vehicle blocking two right lanes, Virginia plate ABC123, blue Honda Accord, I'll advise.")
+  it('does not request VSP for a shoulder scene', () => {
+    const { messages } = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, scenario: 'shoulder', hazards: { ...NO_HAZARDS, disabledVehicles: 1 } })
+    expect(messages[2].text).toBe("Show me on scene at northbound exit 155 in the main lanes on the right shoulder with a disabled vehicle. I'll advise.")
+    expect(messages[3].text).toBe('Copy.')
   })
 
-  it('uses shoulder and debris wording without awkward articles', () => {
-    const base = {
-      unit: 'SSP970',
-      highway: 'I-95',
-      direction: 'northbound' as const,
-      referenceType: 'exit' as const,
-      reference: '166',
-      scenario: 'shoulder' as const,
-      travelLanes: 3,
-      details,
-    }
-
-    expect(buildInitialRadioExchange({ ...base, incidentType: 'disabled-vehicle' })[2].text)
-      .toContain('with a disabled vehicle on the right shoulder')
-    expect(buildInitialRadioExchange({ ...base, incidentType: 'debris' })[2].text)
-      .toContain('with debris blocking the right shoulder')
+  it('opens from TOC when dispatched, then continues as discovered once on scene', () => {
+    const dispatched = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, mode: 'toc-dispatched', sspOnScene: false })
+    expect(dispatched.messages).toEqual([
+      { channel: 'TOC', text: '95 Control to SSP970?' },
+      { channel: 'SSP', text: 'SSP970.' },
+      { channel: 'TOC', text: 'I show an accident blocking the right lane at northbound exit 155 in the main lanes.' },
+      { channel: 'SSP', text: 'Show me en route.' },
+    ])
+    expect(dispatched.state.phase).toBe('dispatched')
+    const arrived = advanceCommunications(dispatched.state, { ...scene, mode: 'toc-dispatched' })
+    expect(arrived.messages[0].text).toBe('SSP970 to 95 Control?')
+    expect(arrived.messages).toHaveLength(4)
   })
 
-  it('supports major incident types without adding automatic fire or police requests', () => {
-    const base = {
-      unit: 'SSP970',
-      highway: 'I-95',
-      direction: 'northbound' as const,
-      referenceType: 'exit' as const,
-      reference: '166',
-      scenario: 'right-lane' as const,
-      travelLanes: 3,
-      details,
-    }
-    const expectedPhrases = {
-      'tractor-trailer-fire': 'a tractor trailer fire',
-      'plane-crash': 'a plane crash',
-      'bridge-collapse': 'a bridge collapse',
-      'overhead-signage-collapse': 'an overhead signage collapse',
-      'downed-tree': 'a downed tree',
-    } as const
-
-    for (const [incidentType, phrase] of Object.entries(expectedPhrases)) {
-      const callout = buildInitialRadioExchange({ ...base, incidentType: incidentType as keyof typeof expectedPhrases })[2].text
-      expect(callout).toContain(`with ${phrase} blocking the right lane`)
-      expect(callout).not.toMatch(/roll fire|roll VSP/i)
-    }
+  it('reports agencies on first arrival and last departure only, then clears', () => {
+    const onScene = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, scene).state
+    const first = advanceCommunications(onScene, { ...scene, agencies: ['vsp'] })
+    expect(first.messages).toEqual([
+      { channel: 'SSP', text: 'SSP970 to 95 Control, VSP now on scene.' },
+      { channel: 'TOC', text: 'Copy.' },
+    ])
+    expect(advanceCommunications(first.state, { ...scene, agencies: ['vsp'] }).messages).toEqual([])
+    const fire = advanceCommunications(first.state, { ...scene, agencies: ['vsp', 'fire-rescue'] })
+    expect(fire.messages[0].text).toBe('SSP970 to 95 Control, fire and rescue now on scene.')
+    const gone = advanceCommunications(fire.state, { ...scene, agencies: ['vsp'] })
+    expect(gone.messages[0].text).toBe('SSP970 to 95 Control, fire and rescue have cleared.')
+    const tree = advanceCommunications(gone.state, { ...scene, agencies: ['vsp', 'tree-removal'] })
+    expect(tree.messages[0].text).toBe('SSP970 to 95 Control, tree removal workers on scene.')
+    const clear = advanceCommunications(tree.state, { ...scene, sspOnScene: false })
+    expect(clear.messages).toEqual([
+      { channel: 'SSP', text: 'SSP970 to 95 Control, show me clear.' },
+      { channel: 'TOC', text: 'Copy.' },
+    ])
+    expect(clear.state.phase).toBe('cleared')
   })
 
-  it('reports a full roadway closure as blocking all lanes', () => {
-    const exchange = buildInitialRadioExchange({
-      unit: 'SSP970',
-      highway: 'I-95',
-      direction: 'northbound',
-      referenceType: 'exit',
-      reference: '166',
-      incidentType: 'plane-crash',
-      details: { ...details, planeLanesImpacted: 'all lanes', planeSize: 'small', survivors: 'yes' },
-      scenario: 'all-lanes',
-      travelLanes: 3,
-    })
-
-    expect(exchange[2].text).toBe("Show me out northbound 95 at exit 166, with a plane crash blocking all lanes, all lanes impacted, small plane, survivors reported, I'll advise.")
+  it('uses the configured unit and Stafford Control south of exit 148', () => {
+    const { messages } = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, unit: 'IMC601', reference: '133' })
+    expect(messages[0].text).toBe('IMC601 to Stafford Control?')
+    expect(messages[1].text).toBe('IMC601, go ahead.')
   })
+})
 
-  it('appends tree and debris response details', () => {
-    const base = {
-      unit: 'SSP970', highway: 'I-95', direction: 'northbound' as const,
-      referenceType: 'exit' as const, reference: '166', scenario: 'all-lanes' as const, travelLanes: 3,
-    }
-    const tree = buildInitialRadioExchange({
-      ...base,
-      incidentType: 'downed-tree',
-      details: { ...details, treeLanesBlocked: 'all lanes', treeSize: '20 feet', treeResourcesNeeded: 'chainsaw crew' },
-    })[2].text
-    const debris = buildInitialRadioExchange({
-      ...base,
-      incidentType: 'debris',
-      details: { ...details, debrisHazardous: 'no', debrisManualRemoval: 'no', debrisNeedsSlowRoll: 'yes', debrisHasLaneBlade: 'yes' },
-    })[2].text
-
-    expect(tree).toContain('all lanes blocked, 20 feet tree, additional resources needed: chainsaw crew')
-    expect(debris).toContain('debris is not hazardous, SSP cannot remove it manually, VSP slow-roll needed, SSP has a lane blade')
-  })
-
-  it('appends car and tractor trailer fire details without dispatch requests', () => {
-    const base = {
-      unit: 'SSP970', highway: 'I-95', direction: 'northbound' as const,
-      referenceType: 'exit' as const, reference: '166', scenario: 'right-lane' as const, travelLanes: 3,
-    }
-    const carFire = buildInitialRadioExchange({
-      ...base,
-      incidentType: 'car-fire',
-      details: { ...details, carFireMotoristOut: 'yes', carFireFullyEngulfed: 'yes', carFireIsEv: 'no', carFireLanesBlocked: 'the right lane' },
-    })[2].text
-    const tractorFire = buildInitialRadioExchange({
-      ...base,
-      incidentType: 'tractor-trailer-fire',
-      details: { ...details, tractorDriverOut: 'yes', tractorTrailerCargo: 'lumber', tractorHazmat: 'no', tractorFullyEngulfed: 'yes', tractorLanesBlocked: 'two right lanes' },
-    })[2].text
-
-    expect(carFire).toContain('motorist is out, vehicle is fully engulfed, vehicle is not an EV, the right lane blocked')
-    expect(tractorFire).toContain('driver is out, trailer hauling lumber, no HAZMAT reported, tractor trailer is fully engulfed, two right lanes blocked')
-    expect(`${carFire} ${tractorFire}`).not.toMatch(/roll fire|roll VSP/i)
+describe('incidentPhrase', () => {
+  it('describes the mix of reportable hazards', () => {
+    expect(incidentPhrase({ ...NO_HAZARDS, crashedVehicles: 3 })).toBe('an accident involving 3 vehicles')
+    expect(incidentPhrase({ ...NO_HAZARDS, tractorTrailerFires: 1 })).toBe('a tractor-trailer fire')
+    expect(incidentPhrase({ ...NO_HAZARDS, debris: 2, downedTrees: 1 })).toBe('debris and a downed tree')
+    expect(incidentPhrase({ ...NO_HAZARDS, crashedVehicles: 1, disabledVehicles: 1, vehicleFires: 1 })).toBe('an accident, a disabled vehicle and a vehicle fire')
   })
 })
