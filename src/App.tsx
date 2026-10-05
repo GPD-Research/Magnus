@@ -21,7 +21,6 @@ import {
   MousePointer2,
   Navigation,
   Pencil,
-  PencilRuler,
   Plus,
   Radio,
   RefreshCw,
@@ -80,7 +79,6 @@ import {
   type DrawingStroke,
 } from './domain/drawing'
 import { RoadwayLabels, RoadwayLayer } from './components/RoadwayLayer'
-import { SceneDesigner } from './components/SceneDesigner'
 import { SceneEquipmentGlyph } from './components/SceneEquipmentGlyph'
 import {
   EQUIPMENT_CATALOG,
@@ -153,7 +151,6 @@ import {
   type SignboardMessage,
   type SspTruckState,
 } from './domain/signboard'
-import type { SceneTemplateDocument } from './domain/sceneTemplate'
 import {
   RIGHT_LANE_STANDARD,
   SCENARIO_CATALOG,
@@ -553,7 +550,6 @@ function App() {
   const [savedScenes, setSavedScenes] = useState(() => listSavedScenes(localStorage))
   const [sceneZoom, setSceneZoom] = useState(savedScenario?.sceneZoom ?? 1)
   const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
-  const [designerOpen, setDesignerOpen] = useState(false)
   const [templateCreatorOpen, setTemplateCreatorOpen] = useState(false)
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false)
   const [locationTemplates, setLocationTemplates] = useState(() => listLocationTemplates(localStorage))
@@ -1480,16 +1476,6 @@ function App() {
     if (lastTaper) setPoints((current) => current.filter((point) => point.id !== lastTaper.id))
   }
 
-  function saveTemplate(template: SceneTemplateDocument) {
-    localStorage.setItem('magnus.scene-template', JSON.stringify(template))
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    setRadioEvents((current) => [
-      ...current,
-      { time: now, text: `Template saved: ${template.name}`, channel: 'DESIGN' },
-    ])
-    setDesignerOpen(false)
-  }
-
   function setCenteredSceneZoom(nextZoom: number) {
     const zoom = clampSceneZoom(nextZoom, maximumSceneZoom)
     rememberViewedCenter(zoom)
@@ -2269,20 +2255,6 @@ function App() {
             </button>
             {toolsMenuOpen && (
               <div className="tools-menu" role="menu" aria-label="Tools">
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setDesignerOpen(true);
-                    setToolsMenuOpen(false);
-                  }}
-                >
-                  <PencilRuler size={16} />
-                  <span>
-                    <b>Scene design tool</b>
-                    <small>Author vector SOP templates</small>
-                  </span>
-                </button>
                 <button
                   type="button"
                   role="menuitem"
@@ -4208,12 +4180,6 @@ function App() {
           </section>
         </aside>
       </section>
-      {designerOpen && (
-        <SceneDesigner
-          onClose={() => setDesignerOpen(false)}
-          onSave={saveTemplate}
-        />
-      )}
       {templateCreatorOpen && (
         <LocationTemplateCreator
           onClose={() => {
