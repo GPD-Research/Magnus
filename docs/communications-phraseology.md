@@ -145,5 +145,10 @@ questions. Still to do:
 4. `in the main lanes` / ramp wording from the scene's roadway context (§3a).
 5. "Who is there" from external assets on the scene instead of the fixed `I'll advise` (§4).
 6. Exchange types beyond marking out: on scene (3b), hazard report (3c), shift/route status (3d).
-7. Unit number should be a setting rather than the hard-coded `SSP970` in `App.tsx` (`addRadioEvent`).
+7. Unit number input in the Communications panel, replacing the hard-coded `SSP970` in `App.tsx`
+   (`addRadioEvent`). Free text, persisted with app settings; any call sign works (`SSP970`,
+   `SSP914`, `IMC601`) and is used verbatim in the hail and the TOC acknowledgement.
 8. The panel only fills after **Build initial radio call** is pressed; consider regenerating live.
+9. Classroom display (`displayCommunications`): open as a portrait/vertical window and render the
+   exchange like a text-message thread — SSP messages as bubbles on one side, TOC on the other,
+   timestamps between groups — rather than the current log list.
