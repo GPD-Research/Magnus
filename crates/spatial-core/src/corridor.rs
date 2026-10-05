@@ -83,6 +83,7 @@ pub struct Corridor {
 
 impl Corridor {
     /// Edge line on the driver's left of the traveled way.
+    /// Driver's-left edge; `offset_polyline` treats the y-down scene frame.
     pub fn left_edge(&self) -> Vec<Position> {
         offset_polyline(&self.center_line, -self.width_feet / 2.0)
     }
@@ -625,8 +626,9 @@ pub fn offset_polyline(line: &[Position], distance_feet: f64) -> Vec<Position> {
             if length == 0.0 {
                 [0.0, 0.0]
             } else {
-                // Right-hand normal in a y-up frame.
-                [dy / length, -dx / length]
+                // Driver's-right normal. Scene coordinates are y-down (north
+                // is -y, as projected by the topology worker).
+                [-dy / length, dx / length]
             }
         })
         .collect::<Vec<_>>();
@@ -761,14 +763,15 @@ mod tests {
 
     #[test]
     fn permanent_lane_gain_keeps_the_drivers_left_edge_straight() {
-        // Northbound (y increasing): a 4-lane fragment centred at x=0 meets a
-        // 6-lane fragment whose centre is a lane further right, as osm2streets
-        // centres each on its own width. Driver's left is -x.
+        // Southbound (y increasing in the y-down scene frame): a 4-lane
+        // fragment centred at x=0 meets a 6-lane fragment whose centre is a
+        // lane further right (driver's right is -x), as osm2streets centres
+        // each on its own width. Driver's left is +x.
         let four = fragment(1, 4, vec![[0.0, 0.0], [0.0, 1000.0]]);
-        let six = fragment(2, 6, vec![[12.0, 1000.0], [12.0, 2000.0]]);
+        let six = fragment(2, 6, vec![[-12.0, 1000.0], [-12.0, 2000.0]]);
         let ramp = Fragment {
             highway: "motorway_link".into(),
-            ..fragment(3, 2, vec![[80.0, 600.0], [36.0, 1000.0]])
+            ..fragment(3, 2, vec![[-80.0, 600.0], [-36.0, 1000.0]])
         };
         let corridors = build_corridors(&[four, six, ramp], &[junction(&[1, 2, 3], [0.0, 1000.0])]);
         assert_eq!(corridors.len(), 2, "mainline chains, ramp stays separate");
@@ -786,9 +789,9 @@ mod tests {
             max - min < 0.5,
             "left edge should not step at the lane gain: {min}..{max}"
         );
-        assert!((min - -24.0).abs() < 0.5, "left edge sits at -24 ft: {min}");
+        assert!((min - 24.0).abs() < 0.5, "left edge sits at +24 ft: {min}");
         let right = mainline.right_edge();
-        assert!(right.iter().all(|p| (p[0] - 48.0).abs() < 0.5));
+        assert!(right.iter().all(|p| (p[0] - -48.0).abs() < 0.5));
     }
 
     #[test]
@@ -903,7 +906,7 @@ mod tests {
         let corridors = build_corridors(&[backward], &[]);
         let line = &corridors[0].center_line;
         assert!(line[0][1] < line[line.len() - 1][1]);
-        // Driver's left of northbound travel is -x.
-        assert!(corridors[0].left_edge()[0][0] < 0.0);
+        // Travel is +y (south in the y-down frame); driver's left is +x.
+        assert!(corridors[0].left_edge()[0][0] > 0.0);
     }
 }

@@ -461,7 +461,7 @@ mod tests {
                 {"laneType": "driving", "direction": "forward", "widthFeet": 12.0},
                 {"laneType": "driving", "direction": "forward", "widthFeet": 12.0}
             ],
-            "centerLine": [[6.0, 1040.0], [6.0, 2000.0]],
+            "centerLine": [[-6.0, 1040.0], [-6.0, 2000.0]],
             "surfacePolygon": [],
             "widthFeet": 36.0,
             "trimStartFeet": 40.0,
@@ -519,15 +519,15 @@ mod tests {
         assert_eq!(surface.properties.endpoint_node_ids, vec![100, 101, 102]);
         assert_eq!(surface.properties.lanes, Some(3));
 
-        // Driver's left edge (northbound: -x) stays put through the lane
-        // gain, which the right edge absorbs.
+        // Driver's left edge (+x for +y travel in the y-down frame) stays put
+        // through the lane gain, which the right edge absorbs.
         let left = line_of(&scene, "topology-road-3-left-edge-0");
         let xs = left.iter().map(|p| p[0]).collect::<Vec<_>>();
         let spread =
             xs.iter().fold(f64::MIN, |a, &b| a.max(b)) - xs.iter().fold(f64::MAX, |a, &b| a.min(b));
         assert!(spread < 0.5, "left edge spread {spread}");
         let right = line_of(&scene, "topology-road-3-right-edge-0");
-        assert!((right[0][0] - left[0][0] - 36.0).abs() < 0.5);
+        assert!((left[0][0] - right[0][0] - 36.0).abs() < 0.5);
         // The trimmed gap at the shared node is closed.
         let center = line_of(&scene, "topology-road-3-surface-0");
         let longest_gap = center
@@ -578,11 +578,11 @@ mod tests {
         let end = line[line.len() - 1];
         let mainline = line_of(&scene, "topology-road-3-surface-0");
         // Scene is translated to the viewport; the mainline corridor is 36 ft
-        // wide, so its driver-left edge sits 18 ft left of its centre line.
-        let mainline_left_edge = mainline[0][0] - 18.0;
+        // wide, so the edge the ramp approaches sits 18 ft from its centre.
+        let mainline_edge = mainline[0][0] - 18.0;
         assert!(
-            (end[0] - mainline_left_edge).abs() < 0.5,
-            "ramp centre line ends on the mainline edge: {end:?} vs {mainline_left_edge}"
+            (end[0] - mainline_edge).abs() < 0.5,
+            "ramp centre line ends on the mainline edge: {end:?} vs {mainline_edge}"
         );
         assert!(
             mainline.len() > 2 && mainline[mainline.len() - 1][1] - mainline[0][1] > 1900.0,
