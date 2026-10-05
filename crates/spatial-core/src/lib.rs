@@ -1,4 +1,5 @@
 mod compiler;
+pub mod corridor;
 mod location;
 mod overpass;
 mod scene;
@@ -11,9 +12,9 @@ pub use compiler::{CompileOptions, SpatialError, compile_pbf, compile_pbf_locati
 pub use location::{RoadLocationRequest, RoadReferenceType, TravelDirection};
 pub use overpass::{OverpassSceneError, compile_overpass_json, scene_radius_feet};
 pub use scene::{
-    CoordinateSystem, FeatureProperties, Geometry, LaneRecord, MergeLaneZone, NavigationMap,
-    NavigationIntersection, NavigationMarking, NavigationRoad, Position, RoadFeature,
-    RelationshipRecord, RoadFeatureKind, RoadScene, SceneSource, SceneSourceType,
+    CoordinateSystem, FeatureProperties, Geometry, LaneRecord, MergeLaneZone,
+    NavigationIntersection, NavigationMap, NavigationMarking, NavigationRoad, Position,
+    RelationshipRecord, RoadFeature, RoadFeatureKind, RoadScene, SceneSource, SceneSourceType,
     TopologyDiagnostic, Viewport,
 };
 pub use spatial_index::SpatialFeatureIndex;

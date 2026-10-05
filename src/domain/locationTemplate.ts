@@ -199,7 +199,7 @@ export function parseLocationTemplateDocument(document: string): LocationTemplat
 }
 
 const EXPORT_STYLE = `
-.road-feature-road-casing { fill: #343b3d; stroke: #343b3d; stroke-width: 12; stroke-linejoin: round; }
+.road-feature-road-casing { fill: #3c4547; stroke: #3c4547; stroke-width: 12; stroke-linejoin: round; }
 .road-feature-road-surface { fill: #3c4547; stroke: none; }
 .road-feature-road-casing[data-geometry-type='LineString'] { fill: none; }
 .road-feature-road-surface[data-geometry-type='LineString'] { fill: none; stroke: #3c4547; stroke-linejoin: round; }
@@ -209,8 +209,8 @@ const EXPORT_STYLE = `
 .road-feature-auxiliary-lane-line { fill: none; stroke: #edf0e8; stroke-dasharray: 3 9; }
 .road-feature-shoulder-edge { fill: none; stroke: #d8ddd9; }
 .road-feature-ramp-surface-ribbon { fill: #3c4547; stroke: none; }
-.road-feature-ramp-casing-ribbon { fill: #343b3d; stroke: none; }
-.road-feature-intersection-surface { fill: #343b3d; stroke: #343b3d; }
+.road-feature-ramp-casing-ribbon { fill: #3c4547; stroke: none; }
+.road-feature-intersection-surface { fill: #3c4547; stroke: #3c4547; }
 .road-feature-semantic-marking { fill: #f5f6ee; stroke: #f5f6ee; }
 `
 
