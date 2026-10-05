@@ -184,11 +184,17 @@ async fn resolve_road_scene(
     let cache_key = scene_cache_key(&overpass_query);
     let topology_worker = env::var("MAGNUS_TOPOLOGY_WORKER").ok();
     let scene_cache_key = if topology_worker.is_some() {
-        format!("topology-v23-{cache_key}")
+        format!("topology-v24-{cache_key}")
     } else {
         cache_key.clone()
     };
-    if let Some(scene) = state.scene_cache.read().await.get(&scene_cache_key).cloned() {
+    if let Some(scene) = state
+        .scene_cache
+        .read()
+        .await
+        .get(&scene_cache_key)
+        .cloned()
+    {
         return Ok(Json(scene));
     }
     if topology_worker.is_none() {
@@ -367,24 +373,25 @@ fn topology_clip_geojson(response: &Value) -> Result<String, String> {
         .into_iter()
         .flatten()
         .filter(|element| {
-            element["type"] == "node"
-                && element["tags"]["highway"] == "motorway_junction"
+            element["type"] == "node" && element["tags"]["highway"] == "motorway_junction"
         })
         .filter_map(|element| Some((element["lon"].as_f64()?, element["lat"].as_f64()?)))
         .collect::<Vec<_>>();
-    let Some((minimum_longitude, maximum_longitude, minimum_latitude, maximum_latitude)) = anchors
-        .iter()
-        .fold(None::<(f64, f64, f64, f64)>, |bounds, (longitude, latitude)| {
-            Some(match bounds {
-                None => (*longitude, *longitude, *latitude, *latitude),
-                Some((min_lon, max_lon, min_lat, max_lat)) => (
-                    min_lon.min(*longitude),
-                    max_lon.max(*longitude),
-                    min_lat.min(*latitude),
-                    max_lat.max(*latitude),
-                ),
-            })
-        })
+    let Some((minimum_longitude, maximum_longitude, minimum_latitude, maximum_latitude)) =
+        anchors.iter().fold(
+            None::<(f64, f64, f64, f64)>,
+            |bounds, (longitude, latitude)| {
+                Some(match bounds {
+                    None => (*longitude, *longitude, *latitude, *latitude),
+                    Some((min_lon, max_lon, min_lat, max_lat)) => (
+                        min_lon.min(*longitude),
+                        max_lon.max(*longitude),
+                        min_lat.min(*latitude),
+                        max_lat.max(*latitude),
+                    ),
+                })
+            },
+        )
     else {
         return Err("topology response contains no motorway junction anchors".into());
     };
@@ -405,7 +412,8 @@ fn topology_clip_geojson(response: &Value) -> Result<String, String> {
                 ]]
             }
         }]
-    }).to_string())
+    })
+    .to_string())
 }
 
 fn overpass_to_osm_xml(response: &Value) -> Result<String, String> {
