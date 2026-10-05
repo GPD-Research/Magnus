@@ -159,6 +159,16 @@ npm start
 
 Open `http://127.0.0.1:8787`. In VS Code, `Ctrl+Shift+B` exposes equivalent development and production launch tasks.
 
+### Debian / Ubuntu package
+
+Tagged releases publish a `.deb` on the [GitHub Releases page](https://github.com/GPD-Research/Magnus/releases) (built by `.github/workflows/release.yml`). It installs the release `spatial_server`, the topology worker and the built web app under `/opt/magnus`, plus a `magnus` command and an application-drawer entry. Install with:
+
+```bash
+sudo apt install ./magnus_<version>_amd64.deb
+```
+
+Build the same package locally with `scripts/package-deb.sh` (output in `dist-deb/`). Pulled scenes are cached under `~/.local/state/magnus/road-cache`.
+
 ### Linux application drawer
 
 To add Magnus to the current user's Linux application drawer, run:

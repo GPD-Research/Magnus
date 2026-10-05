@@ -1,0 +1,39 @@
+name: Release
+
+# Pushing a tag like v10.0.0-rc.1 builds the Linux .deb and attaches it to a
+# GitHub Release of the same name. Can also be run by hand from the Actions tab.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            tools/topology-worker
+      - run: npm ci
+      - run: scripts/package-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: magnus-deb
+          path: dist-deb/*.deb
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-deb/*.deb
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          generate_release_notes: true

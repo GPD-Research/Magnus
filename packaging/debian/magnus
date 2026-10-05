@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Launcher installed by the Magnus .deb: starts the bundled spatial server
+# (serving the bundled web app) if it is not already running, then opens it.
+set -euo pipefail
+
+MAGNUS_HOME=/opt/magnus
+MAGNUS_URL="${MAGNUS_URL:-http://127.0.0.1:8787}"
+STATE_DIRECTORY="${XDG_STATE_HOME:-$HOME/.local/state}/magnus"
+LOG_FILE="$STATE_DIRECTORY/magnus.log"
+BUILD_COMMIT="$(cat "$MAGNUS_HOME/BUILD_COMMIT" 2>/dev/null || echo unknown)"
+
+open_magnus() {
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$MAGNUS_URL" >/dev/null 2>&1 || true
+  elif command -v gio >/dev/null 2>&1; then
+    gio open "$MAGNUS_URL" >/dev/null 2>&1 || true
+  else
+    printf 'Magnus is available at %s\n' "$MAGNUS_URL" >&2
+  fi
+}
+
+is_healthy() {
+  curl --silent --fail "$MAGNUS_URL/api/health" >/dev/null 2>&1
+}
+
+running_commit() {
+  curl --silent --fail "$MAGNUS_URL/api/health" 2>/dev/null \
+    | grep -o '"commit":"[^"]*"' | cut -d'"' -f4 || true
+}
+
+if is_healthy; then
+  if [[ "$(running_commit)" == "$BUILD_COMMIT" ]]; then
+    open_magnus
+    exit 0
+  fi
+  printf 'Restarting Magnus to pick up the installed build...\n' >&2
+  curl --silent --fail -X POST "$MAGNUS_URL/api/exit" >/dev/null 2>&1 || true
+  for _ in {1..30}; do
+    is_healthy || break
+    sleep 1
+  done
+fi
+
+mkdir -p "$STATE_DIRECTORY"
+cd "$STATE_DIRECTORY"
+MAGNUS_WEB_DIR="$MAGNUS_HOME/web" \
+MAGNUS_TOPOLOGY_WORKER="$MAGNUS_HOME/bin/magnus-topology-worker" \
+MAGNUS_ROAD_CACHE_DIR="$STATE_DIRECTORY/road-cache" \
+MAGNUS_BUILD_COMMIT="$BUILD_COMMIT" \
+  nohup "$MAGNUS_HOME/bin/spatial_server" >>"$LOG_FILE" 2>&1 &
+
+for _ in {1..60}; do
+  if is_healthy; then
+    open_magnus
+    exit 0
+  fi
+  sleep 1
+done
+printf 'Magnus did not start. See %s\n' "$LOG_FILE" >&2
+exit 1

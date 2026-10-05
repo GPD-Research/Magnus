@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Magnus
+GenericName=SSP Scene Builder
+Comment=Build and review Safety Service Patrol roadway scenes
+Exec=/usr/bin/magnus
+Icon=magnus
+Terminal=false
+Categories=Utility;Education;
+StartupNotify=false
