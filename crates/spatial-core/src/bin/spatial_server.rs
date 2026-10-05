@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
     extract::{Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use magnus_spatial_core::{
     Geometry, RoadFeatureKind, RoadLocationRequest, RoadScene, compile_overpass_json,
@@ -135,6 +135,7 @@ async fn main() -> Result<()> {
         .route("/api/health", get(health))
         .route("/api/exit", post(exit_application))
         .route("/api/road-scenes/resolve", get(resolve_road_scene))
+        .route("/api/road-scenes/cache", delete(clear_scene_cache))
         .route("/api/offline/status", get(offline_status))
         .route("/api/offline/prepare", post(prepare_offline_region))
         .with_state(state)
@@ -169,6 +170,42 @@ async fn exit_application(State(state): State<AppState>) -> StatusCode {
         }
     });
     StatusCode::ACCEPTED
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClearedSceneCache {
+    removed_files: usize,
+}
+
+async fn clear_scene_cache(
+    State(state): State<AppState>,
+) -> Result<Json<ClearedSceneCache>, (StatusCode, Json<ApiError>)> {
+    state.scene_cache.write().await.clear();
+    let mut removed_files = 0;
+    let mut entries = match tokio::fs::read_dir(&state.cache_directory).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Json(ClearedSceneCache { removed_files }));
+        }
+        Err(error) => {
+            return Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("scene cache could not be read: {error}"),
+            ));
+        }
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+            && tokio::fs::remove_file(&path).await.is_ok()
+        {
+            removed_files += 1;
+        }
+    }
+    Ok(Json(ClearedSceneCache { removed_files }))
 }
 
 async fn resolve_road_scene(

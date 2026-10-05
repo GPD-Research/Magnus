@@ -20,6 +20,13 @@ export async function probeSpatialService(): Promise<boolean> {
   }
 }
 
+export async function clearRoadSceneCache(): Promise<number> {
+  const response = await fetch('/api/road-scenes/cache', { method: 'DELETE' })
+  if (!response.ok) throw new Error(`Spatial service could not clear its cache (${response.status})`)
+  const body = (await response.json()) as { removedFiles: number }
+  return body.removedFiles
+}
+
 export interface RoadLocationRequest {
   highway: string
   direction: TravelDirection
