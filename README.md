@@ -1,8 +1,8 @@
-# Magnus 9.0.0
+# Magnus 10.0.0-rc.1
 
 <img src="public/favicon.svg" alt="Magnus arrow-M logo" width="96" height="96">
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 9.0.0 is the navigation-foundation rewrite branch.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 10.0.0-rc.1 is the first release candidate of the navigation-foundation rewrite.
 
 The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md). A full version-by-version development timeline reconstructed from git history is in [docs/development-history.md](docs/development-history.md).
 
