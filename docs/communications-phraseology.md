@@ -119,7 +119,7 @@ The trailing clause should be generated from external assets present in the scen
 | `vsp-cruiser`, `vsp-officer`                      | `VSP`             |
 | `ems-ambulance`                                   | `EMS`             |
 | `ladder-truck`, `pump-truck`, `fire-chief`, `hurst` | `Fire and rescue` |
-| tow asset (if/when added to the catalog)          | `tow`             |
+| `tow-truck`, `heavy-tow-truck`                    | `tow`             |
 
 Composition: none → `I'll advise.`; one → `<X> on scene.`; several → `<A>, <B> plus <C> already on
 scene.` (spreadsheet forms: `VSP on scene`, `EMS VSP on scene`, `Fire, EMS VSP on scene`,
