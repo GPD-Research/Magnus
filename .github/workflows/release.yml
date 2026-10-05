@@ -1,7 +1,10 @@
 name: Release
 
-# Pushing a tag like v10.0.0-rc.1 builds the Linux .deb and attaches it to a
-# GitHub Release of the same name. Can also be run by hand from the Actions tab.
+# Pushing a tag like v10.0.0-rc.2 builds the Linux .deb and attaches it to a
+# GitHub Release of the same name, plus a stable-named copy so
+# https://github.com/GPD-Research/Magnus/releases/latest/download/magnus_latest_amd64.deb
+# always serves the newest release. Releases are never marked prerelease because GitHub's
+# /releases/latest skips prereleases. Can also be run by hand from the Actions tab.
 on:
   push:
     tags: ['v*']
@@ -27,6 +30,7 @@ jobs:
             tools/topology-worker
       - run: npm ci
       - run: scripts/package-deb.sh
+      - run: cp dist-deb/magnus_*_amd64.deb dist-deb/magnus_latest_amd64.deb
       - uses: actions/upload-artifact@v4
         with:
           name: magnus-deb
@@ -35,5 +39,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist-deb/*.deb
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
           generate_release_notes: true
