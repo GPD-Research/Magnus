@@ -88,7 +88,7 @@
 .loc-creator-canvas { background: #303837; border: 1px solid #131a19; box-shadow: 0 4px 16px rgba(20,30,27,.18); touch-action: none; cursor: crosshair; }
 .loc-creator-backdrop { fill: #56624d; }
 .loc-creator-canvas .road-feature { vector-effect: none; }
-.loc-creator-canvas .road-feature-road-casing { fill: #343b3d; stroke: #343b3d; stroke-width: 12; stroke-linejoin: round; }
+.loc-creator-canvas .road-feature-road-casing { fill: #3c4547; stroke: #3c4547; stroke-width: 12; stroke-linejoin: round; }
 .loc-creator-canvas .road-feature-road-surface { fill: #3c4547; stroke: none; }
 .loc-creator-canvas .road-feature-road-casing[data-geometry-type='LineString'] { fill: none; }
 .loc-creator-canvas .road-feature-road-surface[data-geometry-type='LineString'] { fill: none; stroke: #3c4547; stroke-linejoin: round; }
@@ -99,9 +99,9 @@
 .loc-creator-canvas .road-feature-shoulder-edge { fill: none; stroke: #d8ddd9; }
 .loc-creator-canvas .road-feature-ramp-gore { fill: rgba(245,246,238,.35); stroke: #f5f6ee; stroke-width: .75; }
 .loc-creator-canvas .road-feature-direction-arrow { fill: none; stroke: #f5f6ee; }
-.loc-creator-canvas .road-feature-ramp-casing-ribbon { fill: #343b3d; stroke: none; }
+.loc-creator-canvas .road-feature-ramp-casing-ribbon { fill: #3c4547; stroke: none; }
 .loc-creator-canvas .road-feature-ramp-surface-ribbon { fill: #3c4547; stroke: none; }
-.loc-creator-canvas .road-feature-intersection-surface { fill: #343b3d; stroke: #343b3d; stroke-width: 0; }
+.loc-creator-canvas .road-feature-intersection-surface { fill: #3c4547; stroke: #3c4547; stroke-width: 0; }
 .loc-creator-canvas .road-feature-semantic-marking { fill: #f5f6ee; stroke: #f5f6ee; stroke-width: 0; }
 .loc-creator-hit-area { fill: none; stroke: transparent; stroke-width: 10; cursor: pointer; }
 .loc-creator-hit-area.polygon { fill: transparent; }

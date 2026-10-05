@@ -1,7 +1,9 @@
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::corridor::{Fragment, Junction, Travel, build_corridors, clip_outside_polygons};
+use crate::corridor::{
+    Fragment, Junction, Travel, build_corridors, clip_outside_polygons, ribbon_polygon,
+};
 use crate::{
     CoordinateSystem, FeatureProperties, Geometry, LaneRecord, NavigationIntersection,
     NavigationMap, NavigationMarking, NavigationRoad, RelationshipRecord, RoadFeature,
@@ -213,23 +215,42 @@ pub fn compile_topology_scene(
             ..FeatureProperties::default()
         };
         let id = format!("topology-road-{}", corridor.id);
-        features.push(RoadFeature {
-            id: format!("{id}-casing"),
-            kind: RoadFeatureKind::RoadCasing,
-            layer: corridor.layer,
-            geometry: Geometry::Polygon(vec![corridor.surface_polygon(4.0)]),
-            properties: FeatureProperties {
-                render_width_feet: Some(corridor.width_feet + 8.0),
-                ..properties.clone()
-            },
-        });
-        features.push(RoadFeature {
-            id: format!("{id}-surface"),
-            kind: RoadFeatureKind::RoadSurface,
-            layer: corridor.layer,
-            geometry: Geometry::LineString(corridor.center_line.clone()),
-            properties: properties.clone(),
-        });
+        // Ramp pavement stops where it reaches a through road's pavement on
+        // the same layer; through roads keep their full ribbon.
+        let through_pavement = if corridor.is_ramp() {
+            corridors
+                .iter()
+                .filter(|other| !other.is_ramp() && other.layer == corridor.layer)
+                .map(|other| other.surface_polygon(0.0))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        for (index, piece) in clip_outside_polygons(&corridor.center_line, &through_pavement)
+            .into_iter()
+            .enumerate()
+        {
+            features.push(RoadFeature {
+                id: format!("{id}-casing-{index}"),
+                kind: RoadFeatureKind::RoadCasing,
+                layer: corridor.layer,
+                geometry: Geometry::Polygon(vec![ribbon_polygon(
+                    &piece,
+                    corridor.width_feet / 2.0 + 4.0,
+                )]),
+                properties: FeatureProperties {
+                    render_width_feet: Some(corridor.width_feet + 8.0),
+                    ..properties.clone()
+                },
+            });
+            features.push(RoadFeature {
+                id: format!("{id}-surface-{index}"),
+                kind: RoadFeatureKind::RoadSurface,
+                layer: corridor.layer,
+                geometry: Geometry::LineString(piece),
+                properties: properties.clone(),
+            });
+        }
         // Edge lines follow the smoothed pavement: yellow on the driver's left
         // and white on the right of one-way carriageways; two-way local roads
         // get white edges on both sides.
@@ -492,7 +513,7 @@ mod tests {
             .iter()
             .find(|feature| feature.kind == RoadFeatureKind::RoadSurface)
             .expect("surface");
-        assert_eq!(surface.id, "topology-road-3-surface");
+        assert_eq!(surface.id, "topology-road-3-surface-0");
         assert_eq!(surface.properties.render_width_feet, Some(36.0));
         assert_eq!(surface.properties.source_way_ids, vec![1, 2]);
         assert_eq!(surface.properties.endpoint_node_ids, vec![100, 101, 102]);
@@ -508,12 +529,65 @@ mod tests {
         let right = line_of(&scene, "topology-road-3-right-edge-0");
         assert!((right[0][0] - left[0][0] - 36.0).abs() < 0.5);
         // The trimmed gap at the shared node is closed.
-        let center = line_of(&scene, "topology-road-3-surface");
+        let center = line_of(&scene, "topology-road-3-surface-0");
         let longest_gap = center
             .windows(2)
             .map(|pair| (pair[1][1] - pair[0][1]).abs())
             .fold(0.0, f64::max);
         assert!(longest_gap <= 30.0, "longest sample gap {longest_gap}");
+    }
+
+    #[test]
+    fn ramp_pavement_stops_at_the_through_roads_edge() {
+        let mut topology: serde_json::Value =
+            serde_json::from_str(TWO_FRAGMENT_MAINLINE).expect("fixture parses");
+        topology["roads"]
+            .as_array_mut()
+            .expect("roads")
+            .push(serde_json::json!({
+                "topologyRoadId": 7,
+                "sourceWayIds": [9],
+                "endpointNodeIds": [200, 201],
+                "layer": 0,
+                "highway": "motorway_link",
+                "laneCount": 1,
+                "laneRecords": [{"laneType": "driving", "direction": "forward", "widthFeet": 12.0}],
+                "centerLine": [[-300.0, 200.0], [-6.0, 1400.0]],
+                "surfacePolygon": [],
+                "widthFeet": 12.0,
+                "trimStartFeet": 0.0,
+                "trimEndFeet": 0.0
+            }));
+        let scene = compile_topology_scene(&topology.to_string(), "ramp fixture")
+            .expect("topology scene should parse");
+        let ramp_pieces = scene
+            .features
+            .iter()
+            .filter(|f| {
+                f.kind == RoadFeatureKind::RoadSurface && f.id.starts_with("topology-road-7-")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ramp_pieces.len(),
+            1,
+            "ramp keeps the piece outside the mainline"
+        );
+        let Geometry::LineString(line) = &ramp_pieces[0].geometry else {
+            panic!("surface is a line")
+        };
+        let end = line[line.len() - 1];
+        let mainline = line_of(&scene, "topology-road-3-surface-0");
+        // Scene is translated to the viewport; the mainline corridor is 36 ft
+        // wide, so its driver-left edge sits 18 ft left of its centre line.
+        let mainline_left_edge = mainline[0][0] - 18.0;
+        assert!(
+            (end[0] - mainline_left_edge).abs() < 0.5,
+            "ramp centre line ends on the mainline edge: {end:?} vs {mainline_left_edge}"
+        );
+        assert!(
+            mainline.len() > 2 && mainline[mainline.len() - 1][1] - mainline[0][1] > 1900.0,
+            "mainline unclipped"
+        );
     }
 
     #[test]
@@ -527,7 +601,7 @@ mod tests {
         assert_eq!(navigation_map.roads[0].trim_start_feet, 0.0);
         assert_eq!(
             navigation_map.roads[0].center_line,
-            line_of(&scene, "topology-road-3-surface")
+            line_of(&scene, "topology-road-3-surface-0")
         );
         assert_eq!(navigation_map.intersections.len(), 1);
         assert_eq!(
@@ -662,7 +736,7 @@ mod tests {
         let surface = scene
             .features
             .iter()
-            .find(|feature| feature.id == "topology-road-9-surface")
+            .find(|feature| feature.id == "topology-road-9-surface-0")
             .expect("surface");
         assert_eq!(surface.properties.left_shoulder_width_feet, Some(4.0));
         assert_eq!(surface.properties.right_shoulder_width_feet, Some(8.0));

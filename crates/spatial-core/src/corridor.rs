@@ -93,15 +93,7 @@ impl Corridor {
     }
 
     pub fn surface_polygon(&self, extra_width_feet: f64) -> Vec<Position> {
-        let half = self.width_feet / 2.0 + extra_width_feet;
-        let mut ring = offset_polyline(&self.center_line, -half);
-        let mut right = offset_polyline(&self.center_line, half);
-        right.reverse();
-        ring.extend(right);
-        if let Some(first) = ring.first().copied() {
-            ring.push(first);
-        }
-        ring
+        ribbon_polygon(&self.center_line, self.width_feet / 2.0 + extra_width_feet)
     }
 }
 
@@ -110,6 +102,24 @@ enum RoadClass {
     Mainline,
     Ramp,
     Local,
+}
+
+impl Corridor {
+    pub fn is_ramp(&self) -> bool {
+        road_class(&self.highway) == RoadClass::Ramp
+    }
+}
+
+/// Closed ring around `line` at `half_width_feet` either side.
+pub fn ribbon_polygon(line: &[Position], half_width_feet: f64) -> Vec<Position> {
+    let mut ring = offset_polyline(line, -half_width_feet);
+    let mut right = offset_polyline(line, half_width_feet);
+    right.reverse();
+    ring.extend(right);
+    if let Some(first) = ring.first().copied() {
+        ring.push(first);
+    }
+    ring
 }
 
 fn road_class(highway: &str) -> RoadClass {
