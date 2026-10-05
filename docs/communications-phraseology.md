@@ -39,8 +39,8 @@ function controllerFor(highway: string, referenceType: RoadReferenceType, refere
 
 ## 2. Exchange structure
 
-Every exchange is a hail, an acknowledgement, then the message. Note the TOC acknowledgement is
-the unit number as a question, not "go ahead".
+Every exchange is a hail, an acknowledgement, then the message (TOC acknowledges the hail with
+`<unit>, go ahead`; see §7a for the TOC-dispatched opening).
 
 ```
 SSP:  SSP970 to 95 Control?
