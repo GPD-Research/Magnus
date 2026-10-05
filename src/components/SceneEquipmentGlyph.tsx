@@ -67,6 +67,18 @@ export function SceneEquipmentGlyph({ definition }: SceneEquipmentGlyphProps) {
       return <><VehicleBody width={width} length={length} color={definition.color} /><path d={`M ${-width * .38} ${length * .02} H ${width * .38} V ${length * .38} H ${-width * .38} Z M 0 ${length * .04} V ${length * .3} M ${-width * .28} ${length * .32} L 0 ${length * .18} L ${width * .28} ${length * .32}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" flashing /></>
     case 'heavy-tow':
       return <><VehicleBody width={width} length={length} color={definition.color} /><rect x={-width * .42} y={-length * .08} width={width * .84} height={length * .38} fill="none" className="catalog-detail" /><path d={`M 0 ${-length * .02} V ${length * .38} M ${-width * .34} ${length * .3} L 0 ${length * .08} L ${width * .34} ${length * .3}`} className="catalog-tow-rig" /><LightBar width={width} color="#efbd20" flashing /></>
+    case 'tree-removal':
+      return <>
+        <VehicleBody width={width} length={length} color={definition.color} />
+        <rect x={-width * .42} y={-length * .3} width={width * .84} height={length * .68} fill="#f7f8f5" stroke="#8d948f" strokeWidth=".6" />
+        <g transform={`translate(0 ${length * .04})`}>
+          <path d={`M 0 ${-width * .3} L ${width * .22} ${width * .02} H ${width * .08} L ${width * .2} ${width * .22} H ${-width * .2} L ${-width * .08} ${width * .02} H ${-width * .22} Z`} fill="#2f7d4a" />
+          <rect x={-width * .04} y={width * .22} width={width * .08} height={width * .12} fill="#6b4a2b" />
+        </g>
+        {[[-.4, -.46], [.4, -.46], [-.4, .46], [.4, .46]].map(([x, y]) => (
+          <circle key={`${x}${y}`} className="emergency-light" cx={width * x} cy={length * y} r={width * .07} fill="#efbd20" />
+        ))}
+      </>
     case 'tma-crash':
       return <><VehicleBody width={width} length={length * .72} color={definition.color} /><path d={`M ${-halfWidth} ${length * .2} H ${halfWidth} L ${width * .34} ${halfLength} H ${-width * .34} Z M ${-width * .28} ${length * .28} L ${width * .28} ${length * .42} M ${width * .28} ${length * .28} L ${-width * .28} ${length * .42}`} className="catalog-attenuator" /><LightBar width={width} color="#efbd20" /></>
     case 'tma-cone':

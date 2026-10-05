@@ -1,3 +1,5 @@
+import type { VehicleHazardState } from './communications'
+
 export type ToolkitCategory = 'ssp-asset' | 'external-asset' | 'hazard' | 'incidental'
 export type SceneCountClass = 'vehicle' | 'cone' | 'personnel' | 'equipment' | 'hazard'
 
@@ -14,7 +16,7 @@ export type EquipmentGlyph =
   | 'tractor-trailer' | 'jackknife' | 'tractor' | 'bus' | 'trailer'
   | 'car-hauler' | 'vehicle-fire' | 'tanker' | 'debris' | 'deer' | 'airplane' | 'helipad'
   | 'tow-truck' | 'heavy-tow' | 'tma-crash' | 'tma-cone' | 'barrel' | 'motorcycle' | 'injured-person'
-  | 'gas-can' | 'floor-jack' | 'tool-bag' | 'compressor' | 'tire' | 'debris-area' | 'downed-tree'
+  | 'gas-can' | 'floor-jack' | 'tool-bag' | 'compressor' | 'tire' | 'debris-area' | 'downed-tree' | 'tree-removal'
 
 export interface EquipmentDefinition {
   id: string
@@ -40,6 +42,7 @@ export interface DeployedEquipment {
   rotation: number
   width?: number
   length?: number
+  hazardState?: VehicleHazardState
 }
 
 // Add new scene items here. Existing glyphs need no component changes; genuinely
@@ -68,6 +71,7 @@ export const EQUIPMENT_CATALOG: EquipmentDefinition[] = [
   { id: 'command-cone', label: 'Incident command cone', category: 'external-asset', countClass: 'cone', glyph: 'cone', color: '#ed6a24', width: 3, length: 3, capacity: { per: 'incident-command', quantity: 10 } },
   { id: 'tow-truck', label: 'Tow truck', category: 'external-asset', countClass: 'vehicle', glyph: 'tow-truck', color: '#e6e9e7', width: 9, length: 24, rotatable: true },
   { id: 'heavy-tow-truck', label: 'Heavy tow truck', category: 'external-asset', countClass: 'vehicle', glyph: 'heavy-tow', color: '#d8dcda', width: 10, length: 38, rotatable: true },
+  { id: 'tree-removal-truck', label: 'Tree removal workers', category: 'external-asset', countClass: 'vehicle', glyph: 'tree-removal', color: '#f1f3ef', width: 9, length: 26, rotatable: true },
   { id: 'tma-crash-truck', label: 'TMA crash truck', category: 'external-asset', countClass: 'vehicle', glyph: 'tma-crash', color: '#e3e6e2', width: 11, length: 36, rotatable: true },
   { id: 'tma-cone-truck', label: 'TMA cone truck', category: 'external-asset', countClass: 'vehicle', glyph: 'tma-cone', color: '#e3e6e2', width: 11, length: 32, rotatable: true },
   { id: 'barrel', label: 'Barrel / drum', category: 'external-asset', countClass: 'equipment', glyph: 'barrel', color: '#ed6a24', width: 6, length: 6, capacity: { per: 'tma-cone-truck', quantity: 50 } },

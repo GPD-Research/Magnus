@@ -1,6 +1,15 @@
 import type { DeployedEquipment } from './equipmentCatalog'
 import type { DrawingStroke } from './drawing'
-import { isIncidentType, normalizeTocIncidentDetails, type IncidentType, type TocIncidentDetails } from './communications'
+import {
+  DEFAULT_SSP_UNIT,
+  isIncidentType,
+  normalizeCommunicationsState,
+  normalizeTocIncidentDetails,
+  type CommunicationsMode,
+  type CommunicationsState,
+  type IncidentType,
+  type TocIncidentDetails,
+} from './communications'
 import type { ResolvedRoadLocation, RoadLocationRequest } from './roadLocation'
 import type { RoadLayerVisibility, RoadScene } from './roadScene'
 import type { SspTruckState } from './signboard'
@@ -19,6 +28,9 @@ export interface PortableScenarioState {
   deployedEquipment: DeployedEquipment[]
   drawingStrokes: DrawingStroke[]
   radioEvents: { time: string; text: string; channel: string }[]
+  communicationsState: CommunicationsState
+  communicationsMode: CommunicationsMode
+  sspUnit: string
   incidentType: IncidentType
   tocIncidentDetails: TocIncidentDetails
   roadScene: RoadScene
@@ -89,6 +101,9 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
         assetType: truck.assetType === 'lane-blade-truck' ? 'lane-blade-truck' : 'ssp-truck',
       })),
       drawingStrokes: Array.isArray(state.drawingStrokes) ? state.drawingStrokes : [],
+      communicationsState: normalizeCommunicationsState(state.communicationsState),
+      communicationsMode: state.communicationsMode === 'toc-dispatched' ? 'toc-dispatched' : 'ssp-discovered',
+      sspUnit: typeof state.sspUnit === 'string' && state.sspUnit.trim() ? state.sspUnit : DEFAULT_SSP_UNIT,
       incidentType: isIncidentType(state.incidentType) ? state.incidentType : 'crash',
       tocIncidentDetails: normalizeTocIncidentDetails(state.tocIncidentDetails),
       roadScene: normalizeRoadScene(state.roadScene),

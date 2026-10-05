@@ -139,102 +139,232 @@ export interface RadioMessage {
   text: string
 }
 
-export interface InitialRadioCallOptions {
+export type CommunicationsMode = 'ssp-discovered' | 'toc-dispatched'
+export type VehicleHazardState = 'traffic' | 'crashed' | 'disabled' | 'fire'
+export type AgencyGroup = 'vsp' | 'fire-rescue' | 'tow' | 'tree-removal'
+export type CommunicationsPhase = 'idle' | 'dispatched' | 'on-scene' | 'cleared'
+
+export const DEFAULT_SSP_UNIT = 'SSP970'
+
+export const VEHICLE_HAZARD_STATE_OPTIONS: { value: VehicleHazardState; label: string }[] = [
+  { value: 'traffic', label: 'Traffic (not reported)' },
+  { value: 'crashed', label: 'Crashed' },
+  { value: 'disabled', label: 'Disabled' },
+  { value: 'fire', label: 'Fire' },
+]
+
+export function isVehicleHazardState(value: unknown): value is VehicleHazardState {
+  return VEHICLE_HAZARD_STATE_OPTIONS.some((option) => option.value === value)
+}
+
+export interface TocSector {
+  patrolRoute: string
+  route: string
+  fromExit: number
+  toExit: number
+  controller: string
+}
+
+/** NRO patrol routes and the TOC controller that works each one; `fromExit` is the north/east end. */
+export const TOC_SECTORS: TocSector[] = [
+  { patrolRoute: '66-1', route: '66', fromExit: 73, toExit: 62, controller: '66 Control' },
+  { patrolRoute: '66-2', route: '66', fromExit: 62, toExit: 52, controller: '66 Control' },
+  { patrolRoute: '66-3', route: '66', fromExit: 52, toExit: 40, controller: '66 Control' },
+  { patrolRoute: '495-1', route: '495', fromExit: 177, toExit: 54, controller: '495 Control' },
+  { patrolRoute: '495-2', route: '495', fromExit: 44, toExit: 54, controller: '495 Control' },
+  { patrolRoute: '395-1', route: '395', fromExit: 10, toExit: 2, controller: '395 Control' },
+  { patrolRoute: '95-1', route: '95', fromExit: 177, toExit: 160, controller: '95 Control' },
+  { patrolRoute: '95-2', route: '95', fromExit: 160, toExit: 148, controller: '95 Control' },
+  { patrolRoute: '95-3', route: '95', fromExit: 148, toExit: 133, controller: 'Stafford Control' },
+  { patrolRoute: '95-4', route: '95', fromExit: 133, toExit: 118, controller: 'Stafford Control' },
+]
+
+export function controllerFor(highway: string, reference: string): string {
+  const route = spokenHighway(highway)
+  const sectors = TOC_SECTORS.filter((sector) => sector.route === route)
+  if (sectors.length === 0) return `${route} Control`
+  const milepost = Number.parseFloat(reference.trim())
+  if (Number.isNaN(milepost)) return sectors[0].controller
+  // Sector boundaries are inclusive at the top: I-95 at or north of exit 148 stays with 95 Control.
+  const match = sectors.find((sector) => milepost <= sector.fromExit && milepost >= sector.toExit)
+  return (match ?? sectors[sectors.length - 1]).controller
+}
+
+export interface ReportedHazards {
+  crashedVehicles: number
+  disabledVehicles: number
+  vehicleFires: number
+  tractorTrailerFires: number
+  debris: number
+  downedTrees: number
+}
+
+export const NO_HAZARDS: ReportedHazards = {
+  crashedVehicles: 0, disabledVehicles: 0, vehicleFires: 0, tractorTrailerFires: 0, debris: 0, downedTrees: 0,
+}
+
+export function hasReportableHazard(hazards: ReportedHazards): boolean {
+  return Object.values(hazards).some((count) => count > 0)
+}
+
+export interface CommunicationsScene {
   unit: string
+  mode: CommunicationsMode
   highway: string
   direction: CommunicationDirection
   referenceType: RoadReferenceType
   reference: string
-  incidentType: IncidentType
-  details: TocIncidentDetails
   scenario: ScenarioType
   travelLanes: number
+  sspOnScene: boolean
+  hazards: ReportedHazards
+  agencies: AgencyGroup[]
 }
 
-export function buildInitialRadioExchange(options: InitialRadioCallOptions): RadioMessage[] {
-  const highway = spokenHighway(options.highway)
-  const location = options.referenceType === 'exit'
-    ? `exit ${options.reference.trim()}`
-    : `mile marker ${options.reference.trim()}`
-  const incident = incidentDescription(options.incidentType, options.scenario, options.travelLanes)
-  const details = tocDetails(options.incidentType, options.details)
-  const escalation = options.incidentType === 'severe-crash' ? 'roll EMS, ' : ''
+export interface CommunicationsState {
+  phase: CommunicationsPhase
+  agencies: AgencyGroup[]
+}
+
+export const INITIAL_COMMUNICATIONS_STATE: CommunicationsState = { phase: 'idle', agencies: [] }
+
+export function normalizeCommunicationsState(value: unknown): CommunicationsState {
+  if (!value || typeof value !== 'object') return INITIAL_COMMUNICATIONS_STATE
+  const state = value as Partial<CommunicationsState>
+  const phases: CommunicationsPhase[] = ['idle', 'dispatched', 'on-scene', 'cleared']
+  const groups: AgencyGroup[] = ['vsp', 'fire-rescue', 'tow', 'tree-removal']
+  return {
+    phase: phases.includes(state.phase!) ? state.phase! : 'idle',
+    agencies: Array.isArray(state.agencies) ? state.agencies.filter((group): group is AgencyGroup => groups.includes(group)) : [],
+  }
+}
+
+const AGENCY_ORDER: AgencyGroup[] = ['fire-rescue', 'vsp', 'tow', 'tree-removal']
+
+const AGENCY_PHRASES: Record<AgencyGroup, { name: string; arrived: string; departed: string }> = {
+  'fire-rescue': { name: 'fire and rescue', arrived: 'fire and rescue now on scene', departed: 'fire and rescue have cleared' },
+  vsp: { name: 'VSP', arrived: 'VSP now on scene', departed: 'VSP has departed the scene' },
+  tow: { name: 'tow', arrived: 'tow is on scene', departed: 'tow has cleared' },
+  'tree-removal': { name: 'tree removal workers', arrived: 'tree removal workers on scene', departed: 'tree removal has cleared' },
+}
+
+/**
+ * Advances the radio conversation from the previous state to the current scene, emitting only the
+ * exchanges the scene change warrants (initial call-out, first-arrival/last-departure agency
+ * updates, "show me clear"). Pure: the caller stores the returned state alongside the transcript.
+ */
+export function advanceCommunications(
+  state: CommunicationsState,
+  scene: CommunicationsScene,
+): { state: CommunicationsState; messages: RadioMessage[] } {
+  const unit = scene.unit.trim() || DEFAULT_SSP_UNIT
+  const controller = controllerFor(scene.highway, scene.reference)
+  const reportable = hasReportableHazard(scene.hazards)
+  const messages: RadioMessage[] = []
+  const hail = (text: string): RadioMessage => ({ channel: 'SSP', text: `${unit} to ${controller}, ${text}.` })
+  const copy: RadioMessage = { channel: 'TOC', text: 'Copy.' }
+
+  if (state.phase === 'on-scene') {
+    if (!scene.sspOnScene) {
+      messages.push(hail('show me clear'), copy)
+      return { state: { phase: 'cleared', agencies: [] }, messages }
+    }
+    const present = sortAgencies(scene.agencies)
+    for (const group of AGENCY_ORDER) {
+      const was = state.agencies.includes(group)
+      const is = present.includes(group)
+      if (is && !was) messages.push(hail(AGENCY_PHRASES[group].arrived), copy)
+      if (was && !is) messages.push(hail(AGENCY_PHRASES[group].departed), copy)
+    }
+    return { state: { phase: 'on-scene', agencies: present }, messages }
+  }
+
+  if (!reportable) return { state, messages }
+
+  if (scene.sspOnScene) {
+    if (scene.mode === 'toc-dispatched' && state.phase !== 'dispatched') messages.push(...dispatchExchange(unit, controller, scene))
+    messages.push(...onSceneExchange(unit, controller, scene))
+    return { state: { phase: 'on-scene', agencies: sortAgencies(scene.agencies) }, messages }
+  }
+
+  if (scene.mode === 'toc-dispatched' && state.phase === 'idle') {
+    messages.push(...dispatchExchange(unit, controller, scene))
+    return { state: { phase: 'dispatched', agencies: [] }, messages }
+  }
+
+  return { state, messages }
+}
+
+function dispatchExchange(unit: string, controller: string, scene: CommunicationsScene): RadioMessage[] {
   return [
-    { channel: 'SSP', text: `${options.unit} to ${highway} control` },
-    { channel: 'TOC', text: `${options.unit}, go ahead` },
-    {
-      channel: 'SSP',
-      text: `Show me out ${options.direction} ${highway} at ${location}, with ${incident}, ${details}${escalation}I'll advise.`,
-    },
+    { channel: 'TOC', text: `${controller} to ${unit}?` },
+    { channel: 'SSP', text: `${unit}.` },
+    { channel: 'TOC', text: `I show ${incidentPhrase(scene.hazards)} ${positionPhrase(scene.scenario, scene.travelLanes)} at ${locationPhrase(scene)}.` },
+    { channel: 'SSP', text: 'Show me en route.' },
   ]
 }
 
-function tocDetails(incidentType: IncidentType, details: TocIncidentDetails): string {
-  if (incidentType === 'crash' || incidentType === 'severe-crash') {
-    const vehicles = `${details.crashVehicleCount} ${details.crashVehicleCount === 1 ? 'vehicle' : 'vehicles'} involved`
-    const transported = `${details.emsTransportCount} ${details.emsTransportCount === 1 ? 'motorist' : 'motorists'} transported by EMS`
-    const injuries = details.injuries === 'reported' ? 'injuries reported' : details.injuries === 'none' ? 'no injuries reported' : 'injuries unknown'
-    return `${vehicles}, ${transported}, ${injuries}, `
-  }
-  if (incidentType === 'disabled-vehicle' || incidentType === 'blocking-disabled') {
-    const plateState = details.licensePlateState.trim() || 'unknown state'
-    const plate = details.licensePlate.trim() || 'unknown plate'
-    const color = details.vehicleColor.trim() || 'unknown color'
-    const make = details.vehicleMake.trim() || 'unknown make'
-    const model = details.vehicleModel.trim() || 'unknown model'
-    return `${plateState} plate ${plate}, ${color} ${make} ${model}, `
-  }
-  if (incidentType === 'plane-crash') {
-    const lanes = details.planeLanesImpacted.trim() || 'unknown lanes'
-    const size = details.planeSize.trim() || 'unknown size'
-    const survivors = details.survivors === 'yes' ? 'survivors reported' : details.survivors === 'no' ? 'no survivors reported' : 'survivors unknown'
-    return `${lanes} impacted, ${size} plane, ${survivors}, `
-  }
-  if (incidentType === 'downed-tree') {
-    const lanes = details.treeLanesBlocked.trim() || 'unknown lanes'
-    const size = details.treeSize.trim() || 'unknown size'
-    const resources = details.treeResourcesNeeded.trim() || 'unknown'
-    return `${lanes} blocked, ${size} tree, additional resources needed: ${resources}, `
-  }
-  if (incidentType === 'debris') {
-    return `${yesNoPhrase(details.debrisHazardous, 'debris is hazardous', 'debris is not hazardous', 'debris hazard status unknown')}, ${yesNoPhrase(details.debrisManualRemoval, 'SSP can remove it manually', 'SSP cannot remove it manually', 'manual removal ability unknown')}, ${yesNoPhrase(details.debrisNeedsSlowRoll, 'VSP slow-roll needed', 'VSP slow-roll not needed', 'VSP slow-roll need unknown')}, ${yesNoPhrase(details.debrisHasLaneBlade, 'SSP has a lane blade', 'SSP does not have a lane blade', 'lane blade availability unknown')}, `
-  }
-  if (incidentType === 'car-fire') {
-    return `${yesNoPhrase(details.carFireMotoristOut, 'motorist is out', 'motorist is not out', 'motorist status unknown')}, ${yesNoPhrase(details.carFireFullyEngulfed, 'vehicle is fully engulfed', 'vehicle is not fully engulfed', 'engulfment status unknown')}, ${yesNoPhrase(details.carFireIsEv, 'vehicle is an EV', 'vehicle is not an EV', 'EV status unknown')}, ${(details.carFireLanesBlocked.trim() || 'unknown lanes')} blocked, `
-  }
-  if (incidentType === 'tractor-trailer-fire') {
-    const cargo = details.tractorTrailerCargo.trim() || 'unknown cargo'
-    return `${yesNoPhrase(details.tractorDriverOut, 'driver is out', 'driver is not out', 'driver status unknown')}, trailer hauling ${cargo}, ${yesNoPhrase(details.tractorHazmat, 'HAZMAT confirmed', 'no HAZMAT reported', 'HAZMAT status unknown')}, ${yesNoPhrase(details.tractorFullyEngulfed, 'tractor trailer is fully engulfed', 'tractor trailer is not fully engulfed', 'engulfment status unknown')}, ${(details.tractorLanesBlocked.trim() || 'unknown lanes')} blocked, `
-  }
-  return ''
+function onSceneExchange(unit: string, controller: string, scene: CommunicationsScene): RadioMessage[] {
+  const onShoulder = scene.scenario === 'shoulder'
+  const present = sortAgencies(scene.agencies)
+  const needsVsp = !onShoulder && !present.includes('vsp')
+  const report = [
+    `Show me on scene at ${locationPhrase(scene)} ${positionPhrase(scene.scenario, scene.travelLanes)} with ${incidentPhrase(scene.hazards)}.`,
+    agenciesPhrase(present),
+    needsVsp ? 'Send VSP.' : '',
+  ].filter(Boolean).join(' ')
+  return [
+    { channel: 'SSP', text: `${unit} to ${controller}?` },
+    { channel: 'TOC', text: `${unit}, go ahead.` },
+    { channel: 'SSP', text: report },
+    { channel: 'TOC', text: needsVsp ? 'Copy. VSP en route.' : 'Copy.' },
+  ]
 }
 
-function yesNoPhrase(value: YesNoUnknown, yes: string, no: string, unknown: string): string {
-  return value === 'yes' ? yes : value === 'no' ? no : unknown
+function locationPhrase(scene: CommunicationsScene): string {
+  const reference = scene.reference.trim()
+  const where = scene.referenceType === 'exit' ? `exit ${reference}` : `mile marker ${reference}`
+  const area = scene.scenario === 'ramp-closure' ? 'on the ramp' : 'in the main lanes'
+  return `${scene.direction} ${where} ${area}`
+}
+
+function positionPhrase(scenario: ScenarioType, travelLanes: number): string {
+  if (scenario === 'shoulder') return 'on the right shoulder'
+  return `blocking ${blockedArea(scenario, travelLanes)}`
+}
+
+export function incidentPhrase(hazards: ReportedHazards): string {
+  const parts: string[] = []
+  if (hazards.crashedVehicles > 0) {
+    parts.push(hazards.crashedVehicles === 1 ? 'an accident' : `an accident involving ${hazards.crashedVehicles} vehicles`)
+  }
+  if (hazards.disabledVehicles > 0) parts.push(hazards.disabledVehicles === 1 ? 'a disabled vehicle' : `${hazards.disabledVehicles} disabled vehicles`)
+  if (hazards.tractorTrailerFires > 0) parts.push('a tractor-trailer fire')
+  if (hazards.vehicleFires > 0) parts.push('a vehicle fire')
+  if (hazards.debris > 0) parts.push('debris')
+  if (hazards.downedTrees > 0) parts.push('a downed tree')
+  if (parts.length === 0) return 'an incident'
+  if (parts.length === 1) return parts[0]
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
+function agenciesPhrase(agencies: AgencyGroup[]): string {
+  if (agencies.length === 0) return "I'll advise."
+  const names = agencies.map((group) => AGENCY_PHRASES[group].name)
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} plus ${names[names.length - 1]}`
+  return `${capitalize(list)} already on scene.`
+}
+
+function sortAgencies(agencies: AgencyGroup[]): AgencyGroup[] {
+  return AGENCY_ORDER.filter((group) => agencies.includes(group))
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function spokenHighway(highway: string): string {
   return /\d+[A-Za-z]?/.exec(highway)?.[0] ?? highway.trim()
-}
-
-function incidentDescription(incidentType: IncidentType, scenario: ScenarioType, travelLanes: number): string {
-  const area = blockedArea(scenario, travelLanes)
-  if (incidentType === 'disabled-vehicle') return `a disabled vehicle on ${area}`
-  if (incidentType === 'blocking-disabled') return `a disabled vehicle blocking ${area}`
-  if (incidentType === 'debris') return `debris blocking ${area}`
-  if (incidentType === 'downed-tree') return `a downed tree blocking ${area}`
-  if (incidentType === 'bridge-collapse') return `a bridge collapse blocking ${area}`
-  if (incidentType === 'overhead-signage-collapse') return `an overhead signage collapse blocking ${area}`
-  const incident = incidentType === 'car-fire'
-    ? 'a car fire'
-    : incidentType === 'tractor-trailer-fire'
-      ? 'a tractor trailer fire'
-      : incidentType === 'plane-crash'
-        ? 'a plane crash'
-        : incidentType === 'severe-crash'
-          ? 'a severe crash'
-          : 'a crash'
-  return `${incident} blocking ${area}`
 }
 
 function blockedArea(scenario: ScenarioType, travelLanes: number): string {
@@ -243,12 +373,11 @@ function blockedArea(scenario: ScenarioType, travelLanes: number): string {
   if (scenario === 'left-lane') return 'the left lane'
   if (scenario === 'center-lane') return 'the center lane'
   if (scenario === 'two-right-lanes') {
-    return travelLanes === 3 ? 'the right and center lanes' : 'two right lanes'
+    return travelLanes === 3 ? 'the right and center lanes' : 'the two right lanes'
   }
   if (scenario === 'two-left-lanes') {
-    return travelLanes === 3 ? 'the left and center lanes' : 'two left lanes'
+    return travelLanes === 3 ? 'the left and center lanes' : 'the two left lanes'
   }
-  if (scenario === 'shoulder') return 'the right shoulder'
   if (scenario === 'ramp-closure') return 'the ramp'
   return 'the travel lanes'
 }

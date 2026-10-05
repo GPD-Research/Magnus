@@ -470,11 +470,15 @@
 .toc-detail-fields label { min-width: 0; display: grid; gap: 4px; color: #8f9a96; font-size: 8px; font-weight: 600; }
 .toc-detail-fields input, .toc-detail-fields select { min-width: 0; width: 100%; height: 30px; padding: 0 7px; color: var(--ink); background: var(--control-bg); border: 1px solid var(--line); border-radius: 3px; font-size: 9px; }
 .toc-detail-fields input:focus, .toc-detail-fields select:focus { outline: 2px solid #92baa9; outline-offset: 1px; }
-.radio-log { max-height: 118px; overflow-y: auto; }
-.radio-event { display: grid; grid-template-columns: 17px 1fr; gap: 6px; padding: 8px 0; border-bottom: 1px solid #e1e5e3; }
-.radio-event svg { margin-top: 2px; color: #6e7a76; }
-.radio-event span { display: block; color: var(--green); font-size: 8px; font-weight: 600; }
-.radio-event p { margin: 2px 0 0; color: #4e5956; font-size: 9px; line-height: 1.35; }
+.radio-log { display: flex; flex-direction: column; gap: 6px; max-height: 240px; padding: 6px 2px; overflow-y: auto; }
+.radio-empty { margin: 6px 0; color: #8a948f; font-size: 9px; line-height: 1.4; text-align: center; }
+.radio-event { max-width: 86%; padding: 6px 9px; border-radius: 12px; }
+.radio-event-ssp { align-self: flex-end; color: #f4f7f5; background: var(--green); border-bottom-right-radius: 3px; }
+.radio-event-toc { align-self: flex-start; color: #2e3835; background: #e4e9e7; border-bottom-left-radius: 3px; }
+.radio-event span { display: block; font-size: 7px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; opacity: .75; }
+.radio-event p { margin: 2px 0 0; font-size: 9px; line-height: 1.35; }
+.communications-fields input { min-width: 0; width: 100%; height: 33px; padding: 0 8px; color: var(--ink); background: #fff; border: 1px solid #cbd3d0; border-radius: 3px; font-size: 10px; }
+.communications-fields input:focus { outline: 2px solid #92baa9; outline-offset: 1px; }
 .secondary-button { width: 100%; height: 32px; gap: 6px; margin-top: 10px; color: #40504b; background: white; border: 1px solid #cbd4d0; border-radius: 4px; font-size: 10px; font-weight: 600; }
 
 /* Dark operations surfaces */
@@ -544,8 +548,7 @@
 .location-result.compiled-map,
 .location-result.live-map { color: #a9dfc4; background: #183329; border-left-color: #4fa77d; }
 .equipment-inspector { color: #e7d69f; background: #342e1e; border-color: #776634; }
-.radio-event { border-color: #39433f; }
-.radio-event p { color: #b7c1bd; }
+.radio-event-toc { color: #dde3e0; background: #2a3531; }
 .communications-fields label { color: #8f9a96; }
 .communications-fields select { color: #e7ecea; background: #202925; border-color: #44504b; }
 
