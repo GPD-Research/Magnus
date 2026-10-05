@@ -185,10 +185,12 @@ SSP:  Show me en route.
 
 - Nothing is generated while hazards/assets are placed before an SSP truck exists.
 - The on-scene report fires when **both** an SSP truck and a reportable hazard are in the scene,
-  whichever is placed second. Reportable hazards: a crashed car, a disabled car, or debris.
-- Hazard catalog needs three car variants sharing the car glyphs: **Car** (scenery, not reportable),
-  **Crashed car**, **Disabled car**. Today the sedans/pickups (`sedan-*`, `pickup-*`) carry no state;
-  the crash/disabled distinction decides the "what" slot (`an accident` vs `a disabled vehicle`).
+  whichever is placed second. Reportable hazards: a crashed, disabled or burning vehicle, or debris.
+- Vehicle hazards carry a **state**, selectable for cars and tractor trailers alike and sharing the
+  existing glyphs: **Traffic** (scenery, not reportable), **Crashed**, **Disabled**, **Fire**. Today
+  the sedans/pickups (`sedan-*`, `pickup-*`), `tractor-trailer`, `jackknife-left` etc. carry no
+  state and `vehicle-fire` is a separate item; the state decides the "what" slot — `an accident
+  involving <n> vehicles`, `a disabled <vehicle>`, `a vehicle fire` / `a tractor-trailer fire`.
 - `send VSP` is appended to the initial call-out for any incident not on a shoulder, and TOC's
   acknowledgement becomes `copy. VSP en route.`
 
