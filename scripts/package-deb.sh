@@ -10,7 +10,8 @@ VERSION="$(node -p "require('./package.json').version")"
 DEB_VERSION="${VERSION/-/\~}"
 ARCH="$(dpkg --print-architecture)"
 COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
-PACKAGE="magnus_${DEB_VERSION}_${ARCH}"
+# GitHub rewrites "~" in release asset names, so the file name uses the npm version.
+PACKAGE="magnus_${VERSION}_${ARCH}"
 STAGE="$PROJECT_DIRECTORY/dist-deb/$PACKAGE"
 
 if [[ "${SKIP_BUILD:-}" != "1" ]]; then
