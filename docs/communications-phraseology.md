@@ -44,7 +44,7 @@ the unit number as a question, not "go ahead".
 
 ```
 SSP:  SSP970 to 95 Control?
-TOC:  SSP970?
+TOC:  SSP970, go ahead
 SSP:  <message>
 ```
 
@@ -140,7 +140,7 @@ location, incident description from the scenario's blocked lanes, and per-incide
 questions. Still to do:
 
 1. Controller selection by sector table (§1) — currently always `<route> control`.
-2. TOC acknowledgement should be `SSP970?` (§2), not `SSP970, go ahead`.
+2. TOC acknowledgement: the instructor gave both `SSP970?` and `SSP970, go ahead`; spec uses `go ahead` (§7a) pending confirmation.
 3. Hail punctuation: `SSP970 to 95 Control?`.
 4. `in the main lanes` / ramp wording from the scene's roadway context (§3a).
 5. "Who is there" from external assets on the scene instead of the fixed `I'll advise` (§4).
@@ -152,3 +152,72 @@ questions. Still to do:
 9. Classroom display (`displayCommunications`): open as a portrait/vertical window and render the
    exchange like a text-message thread — SSP messages as bubbles on one side, TOC on the other,
    timestamps between groups — rather than the current log list.
+
+## 7. Event-driven conversation (scene state drives the transcript)
+
+The transcript is generated from scene edits, whether or not the display window is open, so
+opening Communications later shows the whole conversation. TOC acknowledges every SSP report with
+`copy.` (plus any dispatch note, e.g. `copy. VSP en route.`).
+
+### 7a. Mode: SSP-discovered vs TOC-dispatched (selector in the panel)
+
+**SSP-discovered** (default) — SSP opens:
+
+```
+SSP:  SSP970 to 95 Control?
+TOC:  SSP970, go ahead
+SSP:  Show me on scene at exit 158 main lanes blocking the right lane with an accident. <who is there> <send VSP>
+TOC:  copy. VSP en route.
+```
+
+**TOC-dispatched** — TOC opens, SSP goes en route, then on arrival the conversation continues
+exactly as SSP-discovered (the on-scene report re-states what TOC saw, usually on a camera):
+
+```
+TOC:  95 Control to SSP970?
+SSP:  SSP970
+TOC:  I show an accident blocking the right lane at exit 158 in the main lanes.
+SSP:  Show me en route.
+...   (SSP truck added → SSP-discovered on-scene report and updates as above)
+```
+
+### 7b. When the initial call-out fires
+
+- Nothing is generated while hazards/assets are placed before an SSP truck exists.
+- The on-scene report fires when **both** an SSP truck and a reportable hazard are in the scene,
+  whichever is placed second. Reportable hazards: a crashed car, a disabled car, or debris.
+- Hazard catalog needs three car variants sharing the car glyphs: **Car** (scenery, not reportable),
+  **Crashed car**, **Disabled car**. Today the sedans/pickups (`sedan-*`, `pickup-*`) carry no state;
+  the crash/disabled distinction decides the "what" slot (`an accident` vs `a disabled vehicle`).
+- `send VSP` is appended to the initial call-out for any incident not on a shoulder, and TOC's
+  acknowledgement becomes `copy. VSP en route.`
+
+### 7c. Agency updates — first arrival and last departure only
+
+Track external assets by agency group; one update when the group goes 0→1, one when it returns to 0.
+Additional units of the same group generate nothing.
+
+| Group            | Asset ids                                                   | Arrival update                       | Departure update                        |
+|------------------|-------------------------------------------------------------|--------------------------------------|-----------------------------------------|
+| VSP              | `vsp-cruiser` (officers ride along; cruisers define presence) | `VSP now on scene`                 | `VSP has departed the scene`            |
+| Fire and rescue  | `ladder-truck`, `pump-truck`, `fire-chief`, `ems-ambulance` | `Fire and rescue now on scene`       | `Fire and rescue have cleared`          |
+| Tow              | `tow-truck`, `heavy-tow-truck`                              | `Tow is on scene`                    | (none specified)                        |
+
+Each update is an SSP line (`SSP970 to 95 Control, <update>`) followed by `TOC: copy.` Fire and
+rescue "cleared" waits until every fire apparatus **and** ambulance is deleted; VSP "departed" waits
+until every cruiser is deleted.
+
+Agencies already present when the initial call-out fires are folded into its "who is there" clause
+instead of separate updates (§4).
+
+### 7d. Closing
+
+Deleting the last SSP truck generates `Show me clear` / `TOC: copy.` — normally the final line.
+
+### 7e. Implementation notes
+
+- Keep a reducer over scene changes (`sspTrucks`, hazards, external assets) that emits
+  `RadioMessage`s with timestamps; store the transcript in scene state so it persists with saved
+  scenes and survives the display window being closed.
+- Recomputing "who is there" (§4) and the agency counters from the same asset list keeps the two
+  consistent.
