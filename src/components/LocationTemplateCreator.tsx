@@ -42,6 +42,7 @@ import {
   type RoadScene,
 } from '../domain/roadScene'
 import {
+  clearRoadSceneCache,
   normalizeHighway,
   probeSpatialService,
   resolveRoadLocation,
@@ -229,6 +230,7 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
   const [stamps, setStamps] = useState<PlacedStamp[]>([])
   const [locationRequest, setLocationRequest] = useState<RoadLocationRequest>(DEFAULT_LOCATION_REQUEST)
   const [locationErrors, setLocationErrors] = useState<string[]>([])
+  const [cacheNotice, setCacheNotice] = useState<string | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
   const [resolvedLocation, setResolvedLocation] = useState<ResolvedRoadLocation | null>(null)
   const [spatialServiceStatus, setSpatialServiceStatus] = useState<SpatialServiceStatus>('checking')
@@ -466,6 +468,16 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
     setSpatialServiceStatus('checking')
     const available = await probeSpatialService()
     setSpatialServiceStatus(available ? 'connected' : 'unavailable')
+  }
+
+  async function clearSceneCache() {
+    setCacheNotice('Clearing cached pulls…')
+    try {
+      const removed = await clearRoadSceneCache()
+      setCacheNotice(`Cleared ${removed} cached pull${removed === 1 ? '' : 's'}. Re-pull the location to fetch fresh data.`)
+    } catch (error) {
+      setCacheNotice(error instanceof Error ? error.message : 'Could not clear the spatial cache.')
+    }
   }
 
   async function loadRoadLocation(event: React.FormEvent<HTMLFormElement>) {
@@ -1289,7 +1301,13 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
                 <RefreshCw size={14} />
               </button>
             )}
+            {spatialServiceStatus === 'connected' && (
+              <button type="button" title="Clear cached location pulls so the next pull fetches fresh data" onClick={() => { void clearSceneCache() }}>
+                <Eraser size={14} />
+              </button>
+            )}
           </div>
+          {cacheNotice && <p className="loc-editor-cache-notice" role="status">{cacheNotice}</p>}
 
           <form className="loc-editor-source-section" aria-label="Roadway location" onSubmit={(event) => { void loadRoadLocation(event) }}>
             <div className="loc-editor-source-heading">
