@@ -205,7 +205,7 @@ Additional units of the same group generate nothing.
 | VSP              | `vsp-cruiser` (officers ride along; cruisers define presence) | `VSP now on scene`                 | `VSP has departed the scene`            |
 | Fire and rescue  | `ladder-truck`, `pump-truck`, `fire-chief`, `ems-ambulance` | `Fire and rescue now on scene`       | `Fire and rescue have cleared`          |
 | Tow              | `tow-truck`, `heavy-tow-truck`                              | `Tow is on scene`                    | (none specified)                        |
-| Tree removal     | `tree-removal-truck` (new asset: white box truck, tree logo on roof, yellow corner strobes) | `Tree removal now on scene` | `Tree removal has cleared` |
+| Tree removal     | `tree-removal-truck` (new asset: white box truck, tree logo on roof, yellow corner strobes) | `Tree removal workers on scene` | `Tree removal has cleared` |
 
 Each update is an SSP line (`SSP970 to 95 Control, <update>`) followed by `TOC: copy.` Fire and
 rescue "cleared" waits until every fire apparatus **and** ambulance is deleted; VSP "departed" waits
