@@ -18,12 +18,19 @@ inside the scene JSON.
 
 Non-goals (this version): audio playback, scoring of trainee answers, multi-unit conversations.
 
+## 1a. Two views, one switch
+
+The communications tool becomes a **full-screen view** of the app, not a side panel: the main window
+shows either the roadway/scene view or the comms view. A large round switch icon in the **bottom-right
+corner** of each view flips to the other (radio glyph on the scene view, roadway glyph on the comms
+view). The Communications section in the scene view's side pane is reduced to that same switch, so the
+right pane loses the transcript, unit/origin fields and finding selectors — they all live in the comms
+view. Scene state is shared in-process (both views render from the same React state), so no popup or
+BroadcastChannel is needed; the Roadway Template Editor keeps its separate window.
+
 ## 2. Window and layout
 
-- Opens from the Communications section ("Open conversation flow") in its own window via the same
-  mechanism as the Roadway Template Editor (`openTemplateEditorWindow` pattern, `?view=conversation`),
-  so the scene builder stays untouched behind it. Falls back to a full-screen overlay if the popup is
-  blocked.
+- Reached by the bottom-right switch icon (see 1a); fills the window below the top bar.
 - Two panes, resizable split (default 62 / 38):
   - **Left — timeline canvas (SVG).** A serpentine path: horizontal rows that alternate direction
     (left→right, then right→left) joined by semicircular bends, with an arrowhead at the end of the
@@ -38,7 +45,8 @@ Non-goals (this version): audio playback, scoring of trainee answers, multi-unit
   - **Right — transcript.** The existing text-message bubbles (SSP right-aligned, TOC left-aligned),
     one bubble per node, in timeline order.
 - Toolbar (top of left pane): origin selector (SSP discovered / TOC dispatched), unit, vehicle finding
-  + who identifies it, "Regenerate from scene", "Add call", zoom ± , "Save with scene".
+  + who identifies it, **Record** toggle (see 4a), "Regenerate from scene", "Add call", zoom ± ,
+  "Save with scene".
 - Dark/light/custom themes reuse the existing CSS variables; path stroke `--line`, nodes filled per
   speaker (SSP accent `--green`, TOC `--yellow`), selected node ringed.
 
@@ -98,9 +106,36 @@ Merge rules when regenerating over an `existing` conversation:
 - `pinned` nodes are preserved at their relative position (after the node they followed).
 - Heuristic nodes whose trigger no longer applies are removed unless `edited` or `pinned`.
 
-Live mode: while the window is open, scene changes still run `advanceCommunications`; emitted
-messages are appended as new nodes at the end (not re-sorted), so a trainee can watch the flow grow
-as assets are added.
+Departures and the closing call are **never prefilled**; they come from recording (4a).
+
+### 4a. Record toggle — when the scene is allowed to talk
+
+Editing a scene must not grow the conversation. A **Record** toggle in the comms toolbar (red dot,
+also mirrored as a small indicator on the scene view's switch icon so the instructor can see it is
+armed while moving assets) gates the live diff:
+
+- **Record off (default):** moving, adding or deleting scene assets changes nothing in the
+  conversation. `advanceCommunications` is not run on scene changes.
+- **Record on:** each scene change runs the reducer against the last recorded state and appends the
+  emitted lines as nodes at the end of the path, including the acknowledgements:
+  - first asset of an agency added → `EMS now on scene.` / `fire now on scene.` / `VSP now on scene.` /
+    `tow is on scene.` / `tree removal workers on scene.` + `Copy.`
+  - last asset of an agency removed → `EMS has departed.` / `fire has departed.` / `VSP has departed
+    the scene.` / `tow has cleared.` / `tree removal has cleared.` + `Copy.` ("department" is not
+    spoken in this context.)
+  - finding set (SSP-sourced) → `vehicle is disabled.` / `vehicles were in a crash.` + `Copy.`
+  - everything except the SSP truck deleted (no hazards, no agencies, no cones) → `scene clear, I'm
+    clear.` + `Copy.`, which ends the script; further recording starts a new conversation only after
+    a new qualifying hazard is placed.
+- Toggling Record on snapshots the current scene as the baseline (so pre-existing assets do not
+  re-announce); toggling off keeps the nodes and discards the baseline.
+- Recorded nodes carry their trigger, so a later "Regenerate from scene" preserves them like edited
+  nodes (they reflect a sequence the heuristic cannot reconstruct from the final scene).
+
+Typical lesson flow: build the scene with Record off → open comms, pick origin/finding, Regenerate
+(skeleton: hail, dispatch/arrival report, finding, acks) → Record on → go back to the scene via the
+switch and delete agencies in the order they would leave, then the hazards → the departure and
+clearing calls appear in order → Record off → tweak wording → Save with scene.
 
 ## 5. Editing
 
@@ -142,14 +177,15 @@ conversation across scenes) is a possible later addition and is not needed for v
    `main.tsx` route for `?view=conversation`; state shared with the main window through the existing
    saved-scene channel (BroadcastChannel `magnus-scene`), so edits in the flow window land in the
    scene builder's state and vice-versa.
-5. Communications section: "Open conversation flow" button; the in-panel transcript becomes read-only
-   mirror of the conversation nodes.
+5. View switch: `view: 'scene' | 'comms'` in `App.tsx`, the bottom-right switch button on both views,
+   Record toggle + baseline snapshot, and removal of the Communications fields/transcript from the
+   scene view's right pane (the SSP-truck/vehicle-state inspector fields stay).
 6. Version bump to 11.0.0-rc.1, `.deb` release.
 
 Decisions from the instructor:
 - Every acknowledgement (`Copy.`, `10-4.`, `Disregard.`) is its **own node**; nothing is folded into
   a neighbouring node.
-
-Open question:
-- Should departures of agencies be prefilled at the end of the skeleton (before `show me clear`) so a
-  complete lesson exists without edits? Design above assumes **not prefilled**.
+- Departures are **not prefilled**; they are produced by deleting assets with Record on (4a), and the
+  closing call is `scene clear, I'm clear.` once only the SSP truck remains.
+- Comms is a full-screen view switched with a large bottom-right icon, and the scene view's comms
+  section shrinks to that same icon (1a).
