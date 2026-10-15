@@ -17,6 +17,7 @@ const state: PortableScenarioState = {
   drawingStrokes: [{ id: 'stroke-1', points: [{ x: 10, y: 20 }, { x: 20, y: 30 }], color: '#ffffff', widthFeet: 4, createdAt: 1, persistence: 'persistent' }],
   radioEvents: [],
   communicationsState: { phase: 'idle', agencies: [] },
+  conversation: { version: 1, nodes: [], suppressed: [] },
   communicationsMode: 'ssp-discovered',
   sspUnit: 'SSP970',
   incidentNature: 'unknown',

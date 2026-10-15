@@ -90,14 +90,14 @@ describe('advanceCommunications', () => {
     ])
     expect(advanceCommunications(first.state, { ...scene, agencies: ['vsp'] }).messages).toEqual([])
     const fire = advanceCommunications(first.state, { ...scene, agencies: ['vsp', 'fire'] })
-    expect(fire.messages[0].text).toBe('SSP970 to 95 Control, fire department now on scene.')
+    expect(fire.messages[0].text).toBe('SSP970 to 95 Control, fire now on scene.')
     const gone = advanceCommunications(fire.state, { ...scene, agencies: ['vsp'] })
-    expect(gone.messages[0].text).toBe('SSP970 to 95 Control, fire department has cleared.')
+    expect(gone.messages[0].text).toBe('SSP970 to 95 Control, fire has departed.')
     const tree = advanceCommunications(gone.state, { ...scene, agencies: ['vsp', 'tree-removal'] })
     expect(tree.messages[0].text).toBe('SSP970 to 95 Control, tree removal workers on scene.')
     const clear = advanceCommunications(tree.state, { ...scene, sspOnScene: false })
     expect(clear.messages).toEqual([
-      { channel: 'SSP', text: 'SSP970 to 95 Control, show me clear.' },
+      { channel: 'SSP', text: "SSP970 to 95 Control, scene clear, I'm clear." },
       { channel: 'TOC', text: 'Copy.' },
     ])
     expect(clear.state.phase).toBe('cleared')

@@ -1,0 +1,43 @@
+.conversation-flow { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - 64px); background: var(--paper); color: var(--ink); }
+.conversation-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 18px; padding: 10px 18px; background: var(--panel-raised); border-bottom: 1px solid var(--line); }
+.conversation-toolbar .communications-fields { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.conversation-toolbar .communications-fields label { min-width: 120px; }
+.conversation-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.conversation-actions > button, .quick-acks button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 10px; color: var(--ink); background: var(--control-bg); border: 1px solid var(--line); border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; }
+.conversation-actions > button:hover, .quick-acks button:hover { background: var(--control-hover); }
+.quick-acks { display: flex; gap: 4px; padding: 0 6px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.quick-acks button { padding: 0 7px; font-weight: 500; }
+.record-toggle { color: #d9a0a0; }
+.record-toggle.recording { color: #fff; background: var(--red); border-color: var(--red); animation: record-pulse 1.4s ease-in-out infinite; }
+@keyframes record-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--red) 35%, transparent); } }
+.conversation-body { display: grid; grid-template-columns: minmax(0, 62fr) minmax(300px, 38fr); min-height: 0; }
+.conversation-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.conversation-canvas svg { display: block; }
+.flow-path { fill: none; stroke: var(--line); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.flow-arrowhead { fill: var(--muted); }
+.flow-connector { stroke: var(--yellow); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.flow-node { cursor: pointer; outline: none; transition: transform .35s ease; }
+.flow-node circle { fill: var(--control-bg); stroke: var(--line); stroke-width: 2.5; transition: r .15s ease; }
+.flow-node.speaker-ssp circle { fill: var(--green); stroke: color-mix(in srgb, var(--green) 60%, #fff); }
+.flow-node.speaker-toc circle { fill: var(--yellow); stroke: color-mix(in srgb, var(--yellow) 60%, #000); }
+.flow-node.selected circle { stroke: #fff; stroke-width: 3; filter: drop-shadow(0 0 6px rgba(255,255,255,.45)); }
+.flow-node.recorded circle { stroke-dasharray: 3 2; }
+.flow-node:focus-visible circle { stroke: var(--yellow); }
+.flow-node-speaker { fill: #10100e; font: 700 11px 'Barlow Condensed', sans-serif; pointer-events: none; }
+.flow-node.speaker-ssp .flow-node-speaker { fill: #f4f7f5; }
+.flow-node-label { fill: var(--ink); font-size: 10px; pointer-events: none; }
+.flow-empty { position: absolute; inset: 40% 10% auto; margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
+.conversation-transcript { min-height: 0; padding: 12px; overflow-y: auto; background: var(--panel-bg); border-left: 1px solid var(--line); }
+.conversation-log { max-height: none; gap: 8px; }
+.conversation-log .radio-event { position: relative; cursor: pointer; border: 2px solid transparent; }
+.conversation-log .radio-event.selected { border-color: var(--yellow); }
+.conversation-log .radio-event p { font-size: 11px; }
+.conversation-log .radio-event p i { opacity: .7; }
+.conversation-log textarea { width: 100%; min-height: 48px; margin-top: 3px; padding: 4px 6px; color: inherit; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.3); border-radius: 4px; font: inherit; font-size: 11px; resize: vertical; }
+.radio-event-tools { display: flex; gap: 4px; margin-top: 6px; }
+.radio-event-tools button { display: inline-flex; align-items: center; min-height: 22px; padding: 0 7px; color: inherit; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.3); border-radius: 3px; font-size: 9px; font-weight: 600; cursor: pointer; }
+.radio-event-note { width: 100%; margin-top: 6px; padding: 3px 6px; color: inherit; background: rgba(0,0,0,.14); border: 1px dashed rgba(255,255,255,.35); border-radius: 3px; font: inherit; font-size: 9px; }
+.view-switch { position: fixed; right: 26px; bottom: 26px; z-index: 20; display: grid; place-items: center; width: 68px; height: 68px; color: #f4f7f5; background: var(--green); border: 3px solid color-mix(in srgb, var(--green) 55%, #fff); border-radius: 50%; box-shadow: 0 8px 22px rgba(0,0,0,.35); cursor: pointer; }
+.view-switch:hover { transform: scale(1.06); }
+.view-switch .record-dot { position: absolute; top: 4px; right: 4px; width: 14px; height: 14px; background: var(--red); border: 2px solid #fff; border-radius: 50%; animation: record-pulse 1.4s ease-in-out infinite; }
+.view-hidden { display: none !important; }

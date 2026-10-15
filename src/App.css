@@ -638,3 +638,8 @@
 .config-panel .location-template-current { margin: auto 12px 10px; padding: 8px 10px; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
 .config-panel .location-template-current span { font-size: 8px; }
 .config-panel .location-template-current b { font-size: 12px; font-weight: 600; color: var(--muted); }
+.radio-section-compact { display: grid; gap: 8px; }
+.comms-open-button { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; width: 100%; padding: 10px 12px; color: var(--ink); background: var(--control-bg); border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-weight: 600; text-align: left; cursor: pointer; }
+.comms-open-button:hover { background: var(--control-hover); border-color: var(--green); }
+.comms-open-button small { grid-column: 2; color: var(--muted); font-size: 8px; font-weight: 500; }
+.recording-badge { color: #fff !important; background: var(--red) !important; }
