@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, useMemo } from 'react'
 import {
   AlertTriangle,
   Check,
@@ -38,6 +38,8 @@ import {
   X,
 } from 'lucide-react'
 import { ArrowUp } from 'lucide-react'
+import { ConversationFlow } from './components/ConversationFlow'
+import { EMPTY_CONVERSATION, buildConversation, recordSceneChange, type Conversation } from './domain/conversation'
 import './App.css'
 import {
   DEFAULT_APP_SETTINGS,
@@ -49,7 +51,6 @@ import {
 } from './domain/appSettings'
 import { releaseVersionLabel } from './domain/appVersion'
 import {
-  advanceCommunications,
   DEFAULT_SSP_UNIT,
   DEFAULT_TOC_INCIDENT_DETAILS,
   INITIAL_COMMUNICATIONS_STATE,
@@ -58,6 +59,7 @@ import {
   VEHICLE_HAZARD_STATE_OPTIONS,
   type CommunicationDirection,
   type CommunicationsMode,
+  type CommunicationsScene,
   type CommunicationsState,
   type IncidentNature,
   type NatureSource,
@@ -263,6 +265,7 @@ function loadSavedScenario(): PortableScenarioState | null {
           mapRotation: 0,
           drawingStrokes: [],
           communicationsState: INITIAL_COMMUNICATIONS_STATE,
+          conversation: EMPTY_CONVERSATION,
           communicationsMode: 'ssp-discovered',
           sspUnit: DEFAULT_SSP_UNIT,
           incidentNature: 'unknown',
@@ -306,6 +309,7 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     drawingStrokes: state.drawingStrokes,
     radioEvents: state.radioEvents,
     communicationsState: state.communicationsState,
+    conversation: state.conversation,
     communicationsMode: state.communicationsMode,
     sspUnit: state.sspUnit,
     incidentNature: state.incidentNature,
@@ -602,6 +606,9 @@ function App() {
   })
   const [radioEvents, setRadioEvents] = useState(savedScenario?.radioEvents ?? [])
   const [communicationsState, setCommunicationsState] = useState<CommunicationsState>(savedScenario?.communicationsState ?? INITIAL_COMMUNICATIONS_STATE)
+  const [conversation, setConversation] = useState<Conversation>(savedScenario?.conversation ?? EMPTY_CONVERSATION)
+  const [recording, setRecording] = useState(false)
+  const [activeView, setActiveView] = useState<'scene' | 'comms'>('scene')
   const [communicationsMode, setCommunicationsMode] = useState<CommunicationsMode>(savedScenario?.communicationsMode ?? 'ssp-discovered')
   const [sspUnit, setSspUnit] = useState(savedScenario?.sspUnit ?? DEFAULT_SSP_UNIT)
   const [incidentNature, setIncidentNature] = useState<IncidentNature>(savedScenario?.incidentNature ?? 'unknown')
@@ -1119,6 +1126,8 @@ function App() {
     setSelectedEquipmentId(null)
     setRadioEvents([])
     setCommunicationsState(INITIAL_COMMUNICATIONS_STATE)
+    setConversation(EMPTY_CONVERSATION)
+    setRecording(false)
     setSceneVisible(true)
     setScenePlacementActive(false)
     setSceneOrigin({ x: 0, y: 0 })
@@ -1143,6 +1152,7 @@ function App() {
       drawingStrokes,
       radioEvents,
       communicationsState,
+      conversation,
       communicationsMode,
       sspUnit,
       incidentNature,
@@ -1257,6 +1267,8 @@ function App() {
     setSelectedEquipmentId(null)
     setRadioEvents(state.radioEvents)
     setCommunicationsState(state.communicationsState)
+    setConversation(state.conversation)
+    setRecording(false)
     setCommunicationsMode(state.communicationsMode)
     setSspUnit(state.sspUnit)
     setIncidentNature(state.incidentNature)
@@ -1479,33 +1491,49 @@ function App() {
     setSelectedEquipmentId(null)
   }
 
+  const communicationsScene = useMemo((): CommunicationsScene => ({
+    unit: sspUnit,
+    mode: communicationsMode,
+    highway: locationRequest.highway,
+    direction: locationRequest.direction === 'all' ? 'northbound' : locationRequest.direction,
+    referenceType: locationRequest.referenceType,
+    reference: locationRequest.reference,
+    location: incidentLocation,
+    scenario,
+    travelLanes: laneCount,
+    sspOnScene: sceneVisible && trucks.length > 0,
+    sceneEmpty: trucks.length > 0 && deployedEquipment.length === 0,
+    hazards: reportedHazards(deployedEquipment),
+    sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
+    incidentNature,
+    natureSource,
+    agencies: agenciesOnScene(deployedEquipment),
+  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment, roadScene, incidentNature, natureSource])
+
+  // With Record on, scene changes are diffed against the last recorded state and appended to the
+  // conversation; with it off the instructor can edit the scene freely.
   useEffect(() => {
-    const direction = locationRequest.direction === 'all' ? 'northbound' : locationRequest.direction
-    const { state, messages } = advanceCommunications(communicationsState, {
-      unit: sspUnit,
-      mode: communicationsMode,
-      highway: locationRequest.highway,
-      direction,
-      referenceType: locationRequest.referenceType,
-      reference: locationRequest.reference,
-      location: incidentLocation,
-      scenario,
-      travelLanes: laneCount,
-      sspOnScene: sceneVisible && trucks.length > 0,
-      hazards: reportedHazards(deployedEquipment),
-      sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
-      incidentNature,
-      natureSource,
-      agencies: agenciesOnScene(deployedEquipment),
-    })
-    if (messages.length === 0) return
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    // The transcript is an append-only log of scene transitions, so it has to be committed from the
-    // effect that observes them; the state guard above keeps this from re-firing.
+    if (!recording) return
+    const result = recordSceneChange(conversation, communicationsState, communicationsScene)
+    if (result.conversation === conversation && result.state === communicationsState) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setCommunicationsState(state)
-    setRadioEvents((current) => [...current, ...messages.map((message) => ({ ...message, time: now }))])
-  }, [communicationsState, communicationsMode, sspUnit, incidentNature, natureSource, locationRequest, incidentLocation, scenario, laneCount, roadScene, sceneVisible, trucks.length, deployedEquipment])
+    setCommunicationsState(result.state)
+    setConversation(result.conversation)
+  }, [recording, conversation, communicationsState, communicationsScene])
+
+  function regenerateConversation() {
+    const result = buildConversation(communicationsScene, conversation)
+    setConversation(result.conversation)
+    setCommunicationsState(result.state)
+  }
+
+  function toggleRecording() {
+    if (!recording && communicationsState.phase === 'idle' && conversation.nodes.length > 0) {
+      // Arm from the current scene so pre-existing assets do not re-announce themselves.
+      setCommunicationsState(buildConversation(communicationsScene, conversation).state)
+    }
+    setRecording((current) => !current)
+  }
 
   function changeLaneCount(delta: number) {
     const next = Math.min(5, Math.max(2, laneCount + delta))
@@ -2258,7 +2286,7 @@ function App() {
       </header>
 
       <section
-        className={`workspace${appSettings.leftPaneCollapsed ? " left-pane-collapsed" : ""}${appSettings.rightPaneCollapsed ? " right-pane-collapsed" : ""}`}
+        className={`workspace${appSettings.leftPaneCollapsed ? " left-pane-collapsed" : ""}${appSettings.rightPaneCollapsed ? " right-pane-collapsed" : ""}${activeView === "comms" ? " view-hidden" : ""}`}
         style={
           {
             "--pane-scale": appSettings.interfaceScale / 100,
@@ -3696,106 +3724,108 @@ function App() {
               </div>
             </div>
           </section>
-          <section className="radio-section">
+          <section className="radio-section radio-section-compact">
             <div className="section-title">
               <span>Communications</span>
-              <button
-                className="communications-display-button"
-                type="button"
-                onClick={displayCommunications}
-                title="Open large classroom display"
-              >
-                <MonitorUp size={14} /> Display
-              </button>
+              {recording && <b className="recording-badge">REC</b>}
             </div>
-            <div className="communications-fields">
-              <label htmlFor="communications-unit">
-                Unit
-                <input
-                  id="communications-unit"
-                  type="text"
-                  value={sspUnit}
-                  placeholder={DEFAULT_SSP_UNIT}
-                  onChange={(event) => setSspUnit(event.target.value.toUpperCase().replace(/\s+/g, ''))}
-                />
-              </label>
-              <label htmlFor="communications-mode">
-                Scene origin
-                <select
-                  id="communications-mode"
-                  value={communicationsMode}
-                  onChange={(event) => setCommunicationsMode(event.target.value as CommunicationsMode)}
-                >
-                  <option value="ssp-discovered">SSP discovered</option>
-                  <option value="toc-dispatched">TOC dispatched</option>
-                </select>
-              </label>
-              <label htmlFor="communications-nature">
-                Vehicle finding
-                <select
-                  id="communications-nature"
-                  value={incidentNature}
-                  onChange={(event) => setIncidentNature(event.target.value as IncidentNature)}
-                >
-                  {INCIDENT_NATURE_OPTIONS.map((option) => (
-                    <option value={option.value} key={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              {communicationsMode === 'toc-dispatched' && (
-                <label htmlFor="communications-nature-source">
-                  Who identifies it
-                  <select
-                    id="communications-nature-source"
-                    value={natureSource}
-                    onChange={(event) => setNatureSource(event.target.value as NatureSource)}
-                  >
-                    {NATURE_SOURCE_OPTIONS.map((option) => (
-                      <option value={option.value} key={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <label htmlFor="communications-direction">
-                Travel direction
-                <select
-                  id="communications-direction"
-                  value={
-                    locationRequest.direction === "all"
-                      ? "northbound"
-                      : locationRequest.direction
-                  }
-                  onChange={(event) =>
-                    setLocationRequest((current) => ({
-                      ...current,
-                      direction: event.target.value as CommunicationDirection,
-                    }))
-                  }
-                >
-                  {communicationDirections.map((direction) => (
-                    <option value={direction.value} key={direction.value}>
-                      {direction.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div className="radio-log" aria-label="Radio transcript">
-              {radioEvents.length === 0 && (
-                <p className="radio-empty">Place an SSP truck and a crashed, disabled or burning vehicle, debris or a downed tree to start the exchange.</p>
-              )}
-              {radioEvents.map((event, index) => (
-                <div className={`radio-event radio-event-${event.channel.toLowerCase()}`} key={`${event.time}-${index}`}>
-                  <span>
-                    {event.channel} · {event.time}
-                  </span>
-                  <p>{event.text}</p>
-                </div>
-              ))}
-            </div>
+            <button type="button" className="comms-open-button" onClick={() => setActiveView('comms')}>
+              <Radio size={15} /> Open conversation flow
+              <small>{conversation.nodes.length === 0 ? 'No calls yet' : `${conversation.nodes.length} calls`}</small>
+            </button>
           </section>
         </aside>
       </section>
+      {activeView === 'comms' ? (
+        <ConversationFlow
+          conversation={conversation}
+          onChange={setConversation}
+          onRegenerate={regenerateConversation}
+          recording={recording}
+          onToggleRecording={toggleRecording}
+          onSwitchToScene={() => setActiveView('scene')}
+          onDisplay={displayCommunications}
+          fields={(
+        <div className="communications-fields">
+          <label htmlFor="communications-unit">
+            Unit
+            <input
+              id="communications-unit"
+              type="text"
+              value={sspUnit}
+              placeholder={DEFAULT_SSP_UNIT}
+              onChange={(event) => setSspUnit(event.target.value.toUpperCase().replace(/\s+/g, ''))}
+            />
+          </label>
+          <label htmlFor="communications-mode">
+            Scene origin
+            <select
+              id="communications-mode"
+              value={communicationsMode}
+              onChange={(event) => setCommunicationsMode(event.target.value as CommunicationsMode)}
+            >
+              <option value="ssp-discovered">SSP discovered</option>
+              <option value="toc-dispatched">TOC dispatched</option>
+            </select>
+          </label>
+          <label htmlFor="communications-nature">
+            Vehicle finding
+            <select
+              id="communications-nature"
+              value={incidentNature}
+              onChange={(event) => setIncidentNature(event.target.value as IncidentNature)}
+            >
+              {INCIDENT_NATURE_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          {communicationsMode === 'toc-dispatched' && (
+            <label htmlFor="communications-nature-source">
+              Who identifies it
+              <select
+                id="communications-nature-source"
+                value={natureSource}
+                onChange={(event) => setNatureSource(event.target.value as NatureSource)}
+              >
+                {NATURE_SOURCE_OPTIONS.map((option) => (
+                  <option value={option.value} key={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label htmlFor="communications-direction">
+            Travel direction
+            <select
+              id="communications-direction"
+              value={
+                locationRequest.direction === "all"
+                  ? "northbound"
+                  : locationRequest.direction
+              }
+              onChange={(event) =>
+                setLocationRequest((current) => ({
+                  ...current,
+                  direction: event.target.value as CommunicationDirection,
+                }))
+              }
+            >
+              {communicationDirections.map((direction) => (
+                <option value={direction.value} key={direction.value}>
+                  {direction.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+          )}
+        />
+      ) : (
+        <button type="button" className="view-switch" onClick={() => setActiveView('comms')} title="Open the conversation flow" aria-label="Switch to communications">
+          <Radio size={30} />
+          {recording && <span className="record-dot" aria-label="Recording" />}
+        </button>
+      )}
       {templateCreatorOpen && (
         <LocationTemplateCreator
           onClose={() => {

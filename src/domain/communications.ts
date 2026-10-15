@@ -252,6 +252,8 @@ export interface CommunicationsScene {
   scenario: ScenarioType
   travelLanes: number
   sspOnScene: boolean
+  /** Only the SSP truck is left: no hazards, agencies or other equipment. Ends the script with "scene clear". */
+  sceneEmpty?: boolean
   hazards: ReportedHazards
   /** Footprint-derived hazards; when present they replace `hazards`/`scenario` for the call-out wording. */
   sceneHazards?: SceneHazard[]
@@ -281,11 +283,11 @@ export function normalizeCommunicationsState(value: unknown): CommunicationsStat
   }
 }
 
-const AGENCY_ORDER: AgencyGroup[] = ['ems', 'fire', 'vsp', 'tow', 'tree-removal']
+export const AGENCY_ORDER: AgencyGroup[] = ['ems', 'fire', 'vsp', 'tow', 'tree-removal']
 
 const AGENCY_PHRASES: Record<AgencyGroup, { name: string; arrived: string; departed: string }> = {
-  ems: { name: 'EMS', arrived: 'EMS now on scene', departed: 'EMS has cleared' },
-  fire: { name: 'fire department', arrived: 'fire department now on scene', departed: 'fire department has cleared' },
+  ems: { name: 'EMS', arrived: 'EMS now on scene', departed: 'EMS has departed' },
+  fire: { name: 'fire department', arrived: 'fire now on scene', departed: 'fire has departed' },
   vsp: { name: 'VSP', arrived: 'VSP now on scene', departed: 'VSP has departed the scene' },
   tow: { name: 'tow', arrived: 'tow is on scene', departed: 'tow has cleared' },
   'tree-removal': { name: 'tree removal workers', arrived: 'tree removal workers on scene', departed: 'tree removal has cleared' },
@@ -308,8 +310,8 @@ export function advanceCommunications(
   const copy: RadioMessage = { channel: 'TOC', text: 'Copy.' }
 
   if (state.phase === 'on-scene') {
-    if (!scene.sspOnScene) {
-      messages.push(hail('show me clear'), copy)
+    if (!scene.sspOnScene || scene.sceneEmpty) {
+      messages.push(hail("scene clear, I'm clear"), copy)
       return { state: { phase: 'cleared', agencies: [] }, messages }
     }
     const present = sortAgencies(scene.agencies)

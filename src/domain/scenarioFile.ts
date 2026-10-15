@@ -1,4 +1,5 @@
 import type { DeployedEquipment } from './equipmentCatalog'
+import { normalizeConversation, type Conversation } from './conversation'
 import type { DrawingStroke } from './drawing'
 import {
   DEFAULT_SSP_UNIT,
@@ -33,6 +34,7 @@ export interface PortableScenarioState {
   drawingStrokes: DrawingStroke[]
   radioEvents: { time: string; text: string; channel: string }[]
   communicationsState: CommunicationsState
+  conversation: Conversation
   communicationsMode: CommunicationsMode
   sspUnit: string
   incidentNature: IncidentNature
@@ -109,6 +111,7 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
       })),
       drawingStrokes: Array.isArray(state.drawingStrokes) ? state.drawingStrokes : [],
       communicationsState: normalizeCommunicationsState(state.communicationsState),
+      conversation: normalizeConversation(state.conversation),
       communicationsMode: state.communicationsMode === 'toc-dispatched' ? 'toc-dispatched' : 'ssp-discovered',
       sspUnit: typeof state.sspUnit === 'string' && state.sspUnit.trim() ? state.sspUnit : DEFAULT_SSP_UNIT,
       incidentNature: isIncidentNature(state.incidentNature) ? state.incidentNature : 'unknown',
