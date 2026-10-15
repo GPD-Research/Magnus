@@ -28,7 +28,7 @@
 .flow-node-label { fill: var(--ink); font-size: 10px; pointer-events: none; }
 .flow-empty { position: absolute; inset: 40% 10% auto; margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
 .conversation-transcript { min-height: 0; padding: 12px; overflow-y: auto; background: var(--panel-bg); border-left: 1px solid var(--line); }
-.conversation-log { max-height: none; gap: 8px; }
+.conversation-transcript .conversation-log { max-height: none; min-height: 100%; gap: 8px; padding: 0; }
 .conversation-log .radio-event { position: relative; cursor: pointer; border: 2px solid transparent; }
 .conversation-log .radio-event.selected { border-color: var(--yellow); }
 .conversation-log .radio-event p { font-size: 11px; }
