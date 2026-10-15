@@ -4,7 +4,7 @@ import { sideAwareOffsets } from './locationTemplateEditing'
 export type HighwayLaneCount = 1 | 2 | 3 | 4 | 5
 export type HighwayDirectionMode = 'one-direction' | 'both-directions'
 export type HighwayAuxiliaryLane = 'none' | 'acceleration-lane' | 'deceleration-lane'
-export type HighwayRampStyle = 'straight-off-ramp' | 'straight-on-ramp' | 'circular-off-ramp' | 'circular-on-ramp'
+export type HighwayRampStyle = 'none' | 'straight-off-ramp' | 'straight-on-ramp' | 'circular-off-ramp' | 'circular-on-ramp'
 
 export interface HighwayGeneratorOptions {
   lanes: HighwayLaneCount
@@ -33,6 +33,7 @@ export const HIGHWAY_AUXILIARY_LANE_OPTIONS: { value: HighwayAuxiliaryLane; labe
 ]
 
 export const HIGHWAY_RAMP_OPTIONS: { value: HighwayRampStyle; label: string }[] = [
+  { value: 'none', label: 'No ramp' },
   { value: 'straight-off-ramp', label: 'Straight off-ramp' },
   { value: 'straight-on-ramp', label: 'Straight on-ramp' },
   { value: 'circular-off-ramp', label: 'Circular off-ramp' },
@@ -246,7 +247,7 @@ export function generateHighwayScene(options: HighwayGeneratorOptions): RoadScen
     features.push(...aux.features)
     attachPoint = aux.attachPoint
   }
-  features.push(...rampFeatures('primary', attachPoint, options.ramp))
+  if (options.ramp !== 'none') features.push(...rampFeatures('primary', attachPoint, options.ramp))
 
   const bounds = boundsOf(features)
   const shiftX = bounds.minX < 4 ? 4 - bounds.minX : 0
@@ -261,7 +262,7 @@ export function generateHighwayScene(options: HighwayGeneratorOptions): RoadScen
     version: 1,
     source: {
       type: 'reference-layout',
-      dataset: `Generated ${options.lanes}-lane ${directionLabel} highway with ${rampLabel.toLowerCase()} scale reference`,
+      dataset: `Generated ${options.lanes}-lane ${directionLabel} highway${options.ramp === 'none' ? '' : ` with ${rampLabel.toLowerCase()}`} scale reference`,
       generatedAt: new Date().toISOString(),
       attribution: 'Magnus generic highway generator; geometry is not map-derived.',
     },
@@ -274,5 +275,5 @@ export function generateHighwayScene(options: HighwayGeneratorOptions): RoadScen
 export function defaultGeneratedHighwayName(options: HighwayGeneratorOptions): string {
   const directionLabel = options.direction === 'both-directions' ? 'Divided' : 'One-Way'
   const rampLabel = HIGHWAY_RAMP_OPTIONS.find((option) => option.value === options.ramp)?.label ?? ''
-  return `${options.lanes} Lane Highway (${directionLabel}, ${rampLabel})`
+  return options.ramp === 'none' ? `${options.lanes} Lane Highway (${directionLabel})` : `${options.lanes} Lane Highway (${directionLabel}, ${rampLabel})`
 }
