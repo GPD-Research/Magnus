@@ -99,7 +99,6 @@ states and converts each emitted `RadioMessage` into a node with the matching tr
 4. **agency updates** — one arrived node per agency group present in the scene, in `AGENCY_ORDER`,
    each followed by `Copy.`; departed nodes are *not* prefilled (the instructor adds them where the
    lesson needs them, or they appear live when assets are deleted).
-5. **clear** — `show me clear.` + `Copy.`
 
 Merge rules when regenerating over an `existing` conversation:
 - Nodes with the same `trigger` keep their `id`, and keep `text`/`speaker` if `edited`.
@@ -127,6 +126,8 @@ armed while moving assets) gates the live diff:
   - everything except the SSP truck deleted (no hazards, no agencies, no cones) → `scene clear, I'm
     clear.` + `Copy.`, which ends the script; further recording starts a new conversation only after
     a new qualifying hazard is placed.
+- Recording never asks for confirmation: anything it adds that the instructor does not want is simply
+  deleted from the timeline afterwards (Delete / ✕), which is cheaper than gating each line.
 - Toggling Record on snapshots the current scene as the baseline (so pre-existing assets do not
   re-announce); toggling off keeps the nodes and discards the baseline.
 - Recorded nodes carry their trigger, so a later "Regenerate from scene" preserves them like edited
