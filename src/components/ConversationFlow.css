@@ -25,18 +25,20 @@
 .flow-node:focus-visible circle { stroke: var(--yellow); }
 .flow-node-speaker { fill: #10100e; font: 700 11px 'Barlow Condensed', sans-serif; pointer-events: none; }
 .flow-node.speaker-ssp .flow-node-speaker { fill: #f4f7f5; }
-.flow-node-label { fill: var(--ink); font-size: 10px; pointer-events: none; }
+.flow-node-label { fill: var(--ink); font-size: 12px; pointer-events: none; }
 .flow-empty { position: absolute; inset: 40% 10% auto; margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
 .conversation-transcript { min-height: 0; padding: 12px; overflow-y: auto; background: var(--panel-bg); border-left: 1px solid var(--line); }
 .conversation-transcript .conversation-log { max-height: none; min-height: 100%; gap: 8px; padding: 0; }
 .conversation-log .radio-event { position: relative; cursor: pointer; border: 2px solid transparent; }
 .conversation-log .radio-event.selected { border-color: var(--yellow); }
-.conversation-log .radio-event p { font-size: 11px; }
+.conversation-log .radio-event { max-width: 92%; padding: 9px 12px; }
+.conversation-log .radio-event span { font-size: 9px; }
+.conversation-log .radio-event p { font-size: 14px; line-height: 1.4; }
 .conversation-log .radio-event p i { opacity: .7; }
-.conversation-log textarea { width: 100%; min-height: 48px; margin-top: 3px; padding: 4px 6px; color: inherit; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.3); border-radius: 4px; font: inherit; font-size: 11px; resize: vertical; }
+.conversation-log textarea { width: 100%; min-height: 56px; margin-top: 3px; padding: 6px 8px; color: inherit; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.3); border-radius: 4px; font: inherit; font-size: 14px; line-height: 1.4; resize: vertical; }
 .radio-event-tools { display: flex; gap: 4px; margin-top: 6px; }
-.radio-event-tools button { display: inline-flex; align-items: center; min-height: 22px; padding: 0 7px; color: inherit; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.3); border-radius: 3px; font-size: 9px; font-weight: 600; cursor: pointer; }
-.radio-event-note { width: 100%; margin-top: 6px; padding: 3px 6px; color: inherit; background: rgba(0,0,0,.14); border: 1px dashed rgba(255,255,255,.35); border-radius: 3px; font: inherit; font-size: 9px; }
+.radio-event-tools button { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; color: inherit; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.3); border-radius: 3px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.radio-event-note { width: 100%; margin-top: 6px; padding: 4px 8px; color: inherit; background: rgba(0,0,0,.14); border: 1px dashed rgba(255,255,255,.35); border-radius: 3px; font: inherit; font-size: 11px; }
 .view-switch { position: fixed; right: 26px; bottom: 26px; z-index: 20; display: grid; place-items: center; width: 68px; height: 68px; color: #f4f7f5; background: var(--green); border: 3px solid color-mix(in srgb, var(--green) 55%, #fff); border-radius: 50%; box-shadow: 0 8px 22px rgba(0,0,0,.35); cursor: pointer; }
 .view-switch:hover { transform: scale(1.06); }
 .view-switch .record-dot { position: absolute; top: 4px; right: 4px; width: 14px; height: 14px; background: var(--red); border: 2px solid #fff; border-radius: 50%; animation: record-pulse 1.4s ease-in-out infinite; }
