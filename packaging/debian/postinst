@@ -1,0 +1,27 @@
+#!/bin/sh
+# Remove leftovers from the older per-user install (scripts/install-linux-app.sh) and stop any
+# running server so the freshly installed build is the one that answers on port 8787.
+set -e
+
+pkill -x spatial_server 2>/dev/null || true
+
+for home in /root /home/*; do
+  [ -d "$home" ] || continue
+  for stale in "$home/bin/magnus" "$home/.local/bin/magnus"; do
+    if [ -f "$stale" ] && grep -q 'spatial_server' "$stale" 2>/dev/null; then
+      rm -f "$stale"
+      echo "magnus: removed stale launcher $stale"
+    fi
+  done
+  rm -f "$home/.local/share/applications/magnus.desktop" \
+        "$home/.local/share/icons/hicolor/scalable/apps/magnus.svg"
+  rm -rf "$home/.local/state/magnus/road-cache"
+done
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache --force /usr/share/icons/hicolor >/dev/null 2>&1 || true
+fi
+exit 0

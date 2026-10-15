@@ -23,6 +23,27 @@ is_healthy() {
   curl --silent --fail "$MAGNUS_URL/api/health" >/dev/null 2>&1
 }
 
+port_in_use() {
+  ss -ltn 2>/dev/null | grep -q ":${MAGNUS_URL##*:}\b"
+}
+
+# Stop whatever is serving on the Magnus port: ask it to exit, then kill a stray server
+# (an old build with no /api/exit, or a dev checkout) so the installed build can bind.
+stop_running() {
+  curl --silent --fail -X POST "$MAGNUS_URL/api/exit" >/dev/null 2>&1 || true
+  for _ in {1..10}; do
+    port_in_use || return 0
+    sleep 1
+  done
+  pkill -x spatial_server 2>/dev/null || true
+  for _ in {1..10}; do
+    port_in_use || return 0
+    sleep 1
+  done
+  printf 'Port %s is held by another program; close it and run magnus again.\n' "${MAGNUS_URL##*:}" >&2
+  exit 1
+}
+
 running_commit() {
   curl --silent --fail "$MAGNUS_URL/api/health" 2>/dev/null \
     | grep -o '"commit":"[^"]*"' | cut -d'"' -f4 || true
@@ -34,11 +55,10 @@ if is_healthy; then
     exit 0
   fi
   printf 'Restarting Magnus to pick up the installed build...\n' >&2
-  curl --silent --fail -X POST "$MAGNUS_URL/api/exit" >/dev/null 2>&1 || true
-  for _ in {1..30}; do
-    is_healthy || break
-    sleep 1
-  done
+  stop_running
+elif port_in_use; then
+  printf 'Something else is on the Magnus port; stopping it...\n' >&2
+  stop_running
 fi
 
 mkdir -p "$STATE_DIRECTORY"
