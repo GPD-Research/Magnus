@@ -186,7 +186,9 @@ export function buildConversation(scene: CommunicationsScene, existing: Conversa
     generated.push(...toNodes(result.messages, step.trigger))
   }
   const suppressed = new Set(existing.suppressed)
-  const byKey = new Map(existing.nodes.filter((node) => !node.pinned && !node.recorded).map((node) => [lineKey(node), node]))
+  const generatedKeys = new Set(generated.map(lineKey))
+  // Recorded lines the skeleton would produce anyway (an opening recorded live) are matched, not duplicated.
+  const byKey = new Map(existing.nodes.filter((node) => !node.pinned && (!node.recorded || generatedKeys.has(lineKey(node)))).map((node) => [lineKey(node), node]))
   const kept = new Set<string>()
   const fresh: ConversationNode[] = []
   for (const node of generated) {
@@ -201,7 +203,7 @@ export function buildConversation(scene: CommunicationsScene, existing: Conversa
     }
   }
   // Pinned/recorded nodes go back in after the node they followed in the previous conversation.
-  const carried = existing.nodes.filter((node) => node.pinned || node.recorded)
+  const carried = existing.nodes.filter((node) => node.pinned || (node.recorded && !generatedKeys.has(lineKey(node))))
   for (const node of carried) {
     const index = existing.nodes.findIndex((candidate) => candidate.id === node.id)
     const anchor = [...existing.nodes.slice(0, index)].reverse().find((candidate) => fresh.some((placed) => placed.id === candidate.id))

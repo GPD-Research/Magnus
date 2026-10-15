@@ -82,6 +82,23 @@ describe('recordSceneChange', () => {
     expect(clear.state.phase).toBe('cleared')
   })
 
+  it('regenerating after a recorded session does not duplicate the opening', () => {
+    // Record from an empty conversation: the opening is recorded live, then an agency leaves.
+    const live = recordSceneChange({ version: 1, nodes: [], suppressed: [] }, { phase: 'idle', agencies: [] }, { ...scene, agencies: ['ems'] })
+    const left = recordSceneChange(live.conversation, live.state, scene)
+    expect(left.conversation.nodes).toHaveLength(6)
+    const regenerated = buildConversation(scene, left.conversation).conversation
+    expect(texts(regenerated.nodes)).toEqual([
+      'SSP970 to 95 Control?',
+      'SSP970, go ahead.',
+      "Show me out at northbound exit 155 in the main lanes with a car blocking the right lane. I'll advise. Send VSP.",
+      'Copy. VSP en route.',
+      'SSP970 to 95 Control, EMS has departed.',
+      'Copy.',
+    ])
+    expect(buildConversation(scene, regenerated).conversation.nodes).toHaveLength(6)
+  })
+
   it('does nothing when the scene change says nothing', () => {
     const built = buildConversation(scene)
     const same = recordSceneChange(built.conversation, built.state, scene)
