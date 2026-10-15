@@ -43,3 +43,4 @@
 .view-switch:hover { transform: scale(1.06); }
 .view-switch .record-dot { position: absolute; top: 4px; right: 4px; width: 14px; height: 14px; background: var(--red); border: 2px solid #fff; border-radius: 50%; animation: record-pulse 1.4s ease-in-out infinite; }
 .view-hidden { display: none !important; }
+.communications-tag span { display: grid; grid-template-columns: 1fr 64px; gap: 4px; }

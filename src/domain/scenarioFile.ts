@@ -5,6 +5,9 @@ import {
   DEFAULT_SSP_UNIT,
   isIncidentNature,
   isNatureSource,
+  isInjurySeverity,
+  isServiceRendered,
+  DEFAULT_TAG_STATE,
   isIncidentType,
   normalizeCommunicationsState,
   normalizeTocIncidentDetails,
@@ -12,6 +15,8 @@ import {
   type CommunicationsState,
   type IncidentNature,
   type NatureSource,
+  type InjurySeverity,
+  type ServiceRendered,
   type IncidentType,
   type TocIncidentDetails,
 } from './communications'
@@ -39,6 +44,10 @@ export interface PortableScenarioState {
   sspUnit: string
   incidentNature: IncidentNature
   natureSource: NatureSource
+  injuries: InjurySeverity
+  service: ServiceRendered
+  tagNumber: string
+  tagState: string
   incidentLocation: string
   incidentType: IncidentType
   tocIncidentDetails: TocIncidentDetails
@@ -116,6 +125,10 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
       sspUnit: typeof state.sspUnit === 'string' && state.sspUnit.trim() ? state.sspUnit : DEFAULT_SSP_UNIT,
       incidentNature: isIncidentNature(state.incidentNature) ? state.incidentNature : 'unknown',
       natureSource: isNatureSource(state.natureSource) ? state.natureSource : 'ssp-update',
+      injuries: isInjurySeverity(state.injuries) ? state.injuries : 'none',
+      service: isServiceRendered(state.service) ? state.service : 'none',
+      tagNumber: typeof state.tagNumber === 'string' ? state.tagNumber : '',
+      tagState: typeof state.tagState === 'string' && state.tagState ? state.tagState : DEFAULT_TAG_STATE,
       incidentLocation: typeof state.incidentLocation === 'string' ? state.incidentLocation : '',
       incidentType: isIncidentType(state.incidentType) ? state.incidentType : 'crash',
       tocIncidentDetails: normalizeTocIncidentDetails(state.tocIncidentDetails),
