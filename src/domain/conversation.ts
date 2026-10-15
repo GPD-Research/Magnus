@@ -7,16 +7,18 @@ import {
   type CommunicationsState,
   type IncidentNature,
   type RadioMessage,
+  type ServiceRendered,
 } from './communications'
 
 export type Speaker = 'SSP' | 'TOC'
-export type NodeKind = 'hail' | 'ack' | 'report' | 'dispatch' | 'en-route' | 'update' | 'finding' | 'clear' | 'custom'
+export type NodeKind = 'hail' | 'ack' | 'report' | 'dispatch' | 'en-route' | 'update' | 'finding' | 'service' | 'clear' | 'custom'
 
 export type ConversationTrigger =
   | { type: 'origin' }
   | { type: 'arrival' }
   | { type: 'agency'; group: AgencyGroup; event: 'arrived' | 'departed' }
   | { type: 'finding'; nature: Exclude<IncidentNature, 'unknown'>; source: 'toc-dispatch' | 'ssp-update' }
+  | { type: 'service'; service: Exclude<ServiceRendered, 'none'> }
   | { type: 'clear' }
   | { type: 'manual' }
 
@@ -49,12 +51,13 @@ export const EMPTY_CONVERSATION: Conversation = { version: 1, nodes: [], suppres
 export const QUICK_ACKNOWLEDGEMENTS = ['Copy.', '10-4.', 'Disregard.', 'Go ahead.', 'Stand by.']
 
 const SPEAKERS: Speaker[] = ['SSP', 'TOC']
-const KINDS: NodeKind[] = ['hail', 'ack', 'report', 'dispatch', 'en-route', 'update', 'finding', 'clear', 'custom']
+const KINDS: NodeKind[] = ['hail', 'ack', 'report', 'dispatch', 'en-route', 'update', 'finding', 'service', 'clear', 'custom']
 
 export function triggerKey(trigger: ConversationTrigger): string {
   switch (trigger.type) {
     case 'agency': return `agency:${trigger.group}:${trigger.event}`
     case 'finding': return `finding:${trigger.nature}:${trigger.source}`
+    case 'service': return `service:${trigger.service}`
     default: return trigger.type
   }
 }
@@ -115,6 +118,11 @@ function normalizeTrigger(value: unknown): ConversationTrigger {
         return { type: 'finding', nature: trigger.nature, source: trigger.source }
       }
       return { type: 'manual' }
+    case 'service':
+      if (typeof trigger.service === 'string' && trigger.service !== 'none' && ['tire-change', 'jump-start', 'traffic-control', 'added-coolant', 'performed-push'].includes(trigger.service)) {
+        return { type: 'service', service: trigger.service as Exclude<ServiceRendered, 'none'> }
+      }
+      return { type: 'manual' }
     default: return { type: 'manual' }
   }
 }
@@ -122,6 +130,7 @@ function normalizeTrigger(value: unknown): ConversationTrigger {
 function kindOf(message: RadioMessage, trigger: ConversationTrigger): NodeKind {
   const text = message.text
   if (trigger.type === 'finding') return message.channel === 'SSP' ? 'finding' : 'ack'
+  if (trigger.type === 'service') return message.channel === 'SSP' ? 'service' : 'ack'
   if (trigger.type === 'clear') return message.channel === 'SSP' ? 'clear' : 'ack'
   if (text.endsWith('?')) return 'hail'
   if (text.startsWith("Please respond")) return 'dispatch'
@@ -150,25 +159,32 @@ interface Step { trigger: ConversationTrigger; scene: CommunicationsScene }
 
 /** Canonical scene sequence the skeleton is built from: origin → arrival → finding → each agency arriving. */
 function skeletonSteps(scene: CommunicationsScene): Step[] {
-  const base: CommunicationsScene = { ...scene, sspOnScene: true, sceneEmpty: false, agencies: [], incidentNature: 'unknown' }
+  // Agencies already drawn are part of the opening (TOC names them at dispatch); the rest arrive one by one.
+  const opening: AgencyGroup[] = scene.mode === 'toc-dispatched' ? AGENCY_ORDER.filter((group) => scene.agencies.includes(group)) : []
+  const base: CommunicationsScene = { ...scene, sspOnScene: true, sceneEmpty: false, agencies: opening, incidentNature: 'unknown', injuries: 'none', service: 'none' }
   const steps: Step[] = []
   if (scene.mode === 'toc-dispatched') {
     const tocKnows = scene.natureSource === 'toc-dispatch' && scene.incidentNature && scene.incidentNature !== 'unknown'
-    steps.push({ trigger: { type: 'origin' }, scene: { ...base, sspOnScene: false, ...(tocKnows ? { incidentNature: scene.incidentNature } : {}) } })
-    steps.push({ trigger: { type: 'arrival' }, scene: { ...base, ...(tocKnows ? { incidentNature: scene.incidentNature } : {}) } })
+    const known = tocKnows ? { incidentNature: scene.incidentNature, injuries: scene.injuries } : {}
+    steps.push({ trigger: { type: 'origin' }, scene: { ...base, sspOnScene: false, ...known } })
+    steps.push({ trigger: { type: 'arrival' }, scene: { ...base, ...known } })
   } else {
     steps.push({ trigger: { type: 'origin' }, scene: base })
   }
   const nature = scene.incidentNature
   if (nature && nature !== 'unknown' && scene.natureSource !== 'toc-dispatch') {
-    steps.push({ trigger: { type: 'finding', nature, source: 'ssp-update' }, scene: { ...base, incidentNature: nature } })
+    steps.push({ trigger: { type: 'finding', nature, source: 'ssp-update' }, scene: { ...base, incidentNature: nature, injuries: scene.injuries } })
   }
-  const present: AgencyGroup[] = []
+  const present: AgencyGroup[] = [...opening]
   const natureScene = steps[steps.length - 1].scene
   for (const group of AGENCY_ORDER) {
-    if (!scene.agencies.includes(group)) continue
+    if (!scene.agencies.includes(group) || present.includes(group)) continue
     present.push(group)
     steps.push({ trigger: { type: 'agency', group, event: 'arrived' }, scene: { ...natureScene, agencies: [...present] } })
+  }
+  const service = scene.service
+  if (service && service !== 'none') {
+    steps.push({ trigger: { type: 'service', service }, scene: { ...steps[steps.length - 1].scene, service } })
   }
   return steps
 }
@@ -241,7 +257,10 @@ export function recordSceneChange(
 /** Mirrors the on-scene branch of advanceCommunications, which emits two lines per event in this order. */
 function recordedTriggers(before: CommunicationsState, after: CommunicationsState, scene: CommunicationsScene): ConversationTrigger[] {
   if (before.phase !== 'on-scene') return []
-  if (after.phase === 'cleared') return [{ type: 'clear' }]
+  const serviceTrigger: ConversationTrigger[] = scene.service && scene.service !== 'none' && scene.service !== before.service
+    ? [{ type: 'service', service: scene.service }]
+    : []
+  if (after.phase === 'cleared') return [...serviceTrigger, { type: 'clear' }]
   const triggers: ConversationTrigger[] = []
   for (const group of AGENCY_ORDER) {
     const was = before.agencies.includes(group)
@@ -249,10 +268,10 @@ function recordedTriggers(before: CommunicationsState, after: CommunicationsStat
     if (is && !was) triggers.push({ type: 'agency', group, event: 'arrived' })
     if (was && !is) triggers.push({ type: 'agency', group, event: 'departed' })
   }
-  if (after.nature && after.nature !== 'unknown' && after.nature !== before.nature) {
+  if (after.nature && after.nature !== 'unknown' && (after.nature !== before.nature || after.injuries !== before.injuries)) {
     triggers.push({ type: 'finding', nature: after.nature, source: scene.natureSource ?? 'ssp-update' })
   }
-  return triggers
+  return [...triggers, ...serviceTrigger]
 }
 
 export function insertNode(conversation: Conversation, afterId: string | null, speaker: Speaker, text = '', kind: NodeKind = 'custom'): { conversation: Conversation; node: ConversationNode } {

@@ -56,6 +56,10 @@ import {
   INITIAL_COMMUNICATIONS_STATE,
   INCIDENT_NATURE_OPTIONS,
   NATURE_SOURCE_OPTIONS,
+  INJURY_OPTIONS,
+  SERVICE_OPTIONS,
+  US_STATES,
+  DEFAULT_TAG_STATE,
   VEHICLE_HAZARD_STATE_OPTIONS,
   type CommunicationDirection,
   type CommunicationsMode,
@@ -63,6 +67,8 @@ import {
   type CommunicationsState,
   type IncidentNature,
   type NatureSource,
+  type InjurySeverity,
+  type ServiceRendered,
   type IncidentType,
   type TocIncidentDetails,
   type VehicleHazardState,
@@ -270,6 +276,10 @@ function loadSavedScenario(): PortableScenarioState | null {
           sspUnit: DEFAULT_SSP_UNIT,
           incidentNature: 'unknown',
           natureSource: 'ssp-update',
+          injuries: 'none',
+          service: 'none',
+          tagNumber: '',
+          tagState: DEFAULT_TAG_STATE,
           incidentLocation: '',
           incidentType: 'crash',
           tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
@@ -314,6 +324,10 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     sspUnit: state.sspUnit,
     incidentNature: state.incidentNature,
     natureSource: state.natureSource,
+    injuries: state.injuries,
+    service: state.service,
+    tagNumber: state.tagNumber,
+    tagState: state.tagState,
     incidentLocation: state.incidentLocation,
     incidentType: state.incidentType,
     tocIncidentDetails: state.tocIncidentDetails,
@@ -613,6 +627,10 @@ function App() {
   const [sspUnit, setSspUnit] = useState(savedScenario?.sspUnit ?? DEFAULT_SSP_UNIT)
   const [incidentNature, setIncidentNature] = useState<IncidentNature>(savedScenario?.incidentNature ?? 'unknown')
   const [natureSource, setNatureSource] = useState<NatureSource>(savedScenario?.natureSource ?? 'ssp-update')
+  const [injuries, setInjuries] = useState<InjurySeverity>(savedScenario?.injuries ?? 'none')
+  const [service, setService] = useState<ServiceRendered>(savedScenario?.service ?? 'none')
+  const [tagNumber, setTagNumber] = useState(savedScenario?.tagNumber ?? '')
+  const [tagState, setTagState] = useState(savedScenario?.tagState ?? DEFAULT_TAG_STATE)
   const [incidentType] = useState<IncidentType>(savedScenario?.incidentType ?? 'crash')
   const [tocIncidentDetails] = useState<TocIncidentDetails>(savedScenario?.tocIncidentDetails ?? DEFAULT_TOC_INCIDENT_DETAILS)
 
@@ -1157,6 +1175,10 @@ function App() {
       sspUnit,
       incidentNature,
       natureSource,
+      injuries,
+      service,
+      tagNumber,
+      tagState,
       incidentLocation,
       incidentType,
       tocIncidentDetails,
@@ -1273,6 +1295,10 @@ function App() {
     setSspUnit(state.sspUnit)
     setIncidentNature(state.incidentNature)
     setNatureSource(state.natureSource)
+    setInjuries(state.injuries)
+    setService(state.service)
+    setTagNumber(state.tagNumber)
+    setTagState(state.tagState)
     initializedZoomSceneRef.current = state.roadScene
     setRoadScene(state.roadScene)
     setLocationRequest(state.locationRequest)
@@ -1507,8 +1533,12 @@ function App() {
     sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
     incidentNature,
     natureSource,
+    injuries,
+    service,
+    tagNumber,
+    tagState,
     agencies: agenciesOnScene(deployedEquipment),
-  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment, roadScene, incidentNature, natureSource])
+  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment, roadScene, incidentNature, natureSource, injuries, service, tagNumber, tagState])
 
   // With Record on, scene changes are diffed against the last recorded state and appended to the
   // conversation; with it off the instructor can edit the scene freely.
@@ -3806,6 +3836,39 @@ function App() {
               </select>
             </label>
           )}
+          <label htmlFor="communications-injuries">
+            Injuries
+            <select id="communications-injuries" value={injuries} onChange={(event) => setInjuries(event.target.value as InjurySeverity)}>
+              {INJURY_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="communications-service">
+            Service rendered
+            <select id="communications-service" value={service} onChange={(event) => setService(event.target.value as ServiceRendered)}>
+              {SERVICE_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="communications-tag" className="communications-tag">
+            Tag number
+            <span>
+              <input
+                id="communications-tag"
+                type="text"
+                value={tagNumber}
+                placeholder="none"
+                onChange={(event) => setTagNumber(event.target.value.toUpperCase())}
+              />
+              <select aria-label="Tag state" value={tagState} onChange={(event) => setTagState(event.target.value)}>
+                {US_STATES.map((state) => (
+                  <option value={state.code} key={state.code}>{state.code}</option>
+                ))}
+              </select>
+            </span>
+          </label>
           <label htmlFor="communications-direction">
             Travel direction
             <select

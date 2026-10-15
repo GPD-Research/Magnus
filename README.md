@@ -1,8 +1,8 @@
-# Magnus 11.0.0-rc.1
+# Magnus 11.0.1
 
 <img src="public/favicon.svg" alt="Magnus arrow-M logo" width="96" height="96">
 
-Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 11.0.0-rc.1 adds the Conversation Flow tool: a full-screen SSP ↔ TOC timeline prefilled from the scene, recordable, editable and saved with the scene.
+Magnus is a visual incident-scene builder for Virginia Department of Transportation Safety Service Patrol training. Version 11.0.1 is the first stable release; it adds the Conversation Flow tool: a full-screen SSP ↔ TOC timeline prefilled from the scene, recordable, editable and saved with the scene.
 
 The completed Version 6.0 release scope is recorded in [docs/version-6-delivery.md](docs/version-6-delivery.md). A full version-by-version development timeline reconstructed from git history is in [docs/development-history.md](docs/development-history.md).
 
@@ -164,7 +164,7 @@ Open `http://127.0.0.1:8787`. In VS Code, `Ctrl+Shift+B` exposes equivalent deve
 Tagged releases publish a `.deb` on the [GitHub Releases page](https://github.com/GPD-Research/Magnus/releases) (built by `.github/workflows/release.yml`). It installs the release `spatial_server`, the topology worker and the built web app under `/opt/magnus`, plus a `magnus` command and an application-drawer entry. Install with:
 
 ```bash
-sudo apt install ./magnus_11.0.0-rc.1_amd64.deb
+sudo apt install ./magnus_11.0.1_amd64.deb
 ```
 
 Build the same package locally with `scripts/package-deb.sh` (output in `dist-deb/`). Pulled scenes are cached under `~/.local/state/magnus/road-cache`.

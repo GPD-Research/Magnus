@@ -164,6 +164,44 @@ export function isNatureSource(value: unknown): value is NatureSource {
   return NATURE_SOURCE_OPTIONS.some((option) => option.value === value)
 }
 
+export type InjurySeverity = 'none' | 'minor' | 'major'
+export const INJURY_OPTIONS: { value: InjurySeverity; label: string }[] = [
+  { value: 'none', label: 'No injuries reported' },
+  { value: 'minor', label: 'Minor injuries' },
+  { value: 'major', label: 'Major injuries' },
+]
+export function isInjurySeverity(value: unknown): value is InjurySeverity {
+  return INJURY_OPTIONS.some((option) => option.value === value)
+}
+
+export type ServiceRendered = 'none' | 'tire-change' | 'jump-start' | 'traffic-control' | 'added-coolant' | 'performed-push'
+export const SERVICE_OPTIONS: { value: ServiceRendered; label: string; spoken: string }[] = [
+  { value: 'none', label: 'No service rendered', spoken: '' },
+  { value: 'tire-change', label: 'Tire change', spoken: 'I performed a tire change' },
+  { value: 'jump-start', label: 'Jump start', spoken: 'I performed a jump start' },
+  { value: 'traffic-control', label: 'Traffic control', spoken: 'I provided traffic control' },
+  { value: 'added-coolant', label: 'Added coolant', spoken: 'I added coolant' },
+  { value: 'performed-push', label: 'Performed push', spoken: 'I performed a push' },
+]
+export function isServiceRendered(value: unknown): value is ServiceRendered {
+  return SERVICE_OPTIONS.some((option) => option.value === value)
+}
+
+export const US_STATES: { code: string; name: string }[] = [
+  ['AL', 'Alabama'], ['AK', 'Alaska'], ['AZ', 'Arizona'], ['AR', 'Arkansas'], ['CA', 'California'], ['CO', 'Colorado'], ['CT', 'Connecticut'],
+  ['DE', 'Delaware'], ['DC', 'the District of Columbia'], ['FL', 'Florida'], ['GA', 'Georgia'], ['HI', 'Hawaii'], ['ID', 'Idaho'], ['IL', 'Illinois'],
+  ['IN', 'Indiana'], ['IA', 'Iowa'], ['KS', 'Kansas'], ['KY', 'Kentucky'], ['LA', 'Louisiana'], ['ME', 'Maine'], ['MD', 'Maryland'],
+  ['MA', 'Massachusetts'], ['MI', 'Michigan'], ['MN', 'Minnesota'], ['MS', 'Mississippi'], ['MO', 'Missouri'], ['MT', 'Montana'], ['NE', 'Nebraska'],
+  ['NV', 'Nevada'], ['NH', 'New Hampshire'], ['NJ', 'New Jersey'], ['NM', 'New Mexico'], ['NY', 'New York'], ['NC', 'North Carolina'],
+  ['ND', 'North Dakota'], ['OH', 'Ohio'], ['OK', 'Oklahoma'], ['OR', 'Oregon'], ['PA', 'Pennsylvania'], ['RI', 'Rhode Island'],
+  ['SC', 'South Carolina'], ['SD', 'South Dakota'], ['TN', 'Tennessee'], ['TX', 'Texas'], ['UT', 'Utah'], ['VT', 'Vermont'], ['VA', 'Virginia'],
+  ['WA', 'Washington'], ['WV', 'West Virginia'], ['WI', 'Wisconsin'], ['WY', 'Wyoming'],
+].map(([code, name]) => ({ code, name }))
+export const DEFAULT_TAG_STATE = 'VA'
+export function stateName(code: string): string {
+  return US_STATES.find((state) => state.code === code)?.name ?? code
+}
+
 export function isIncidentNature(value: unknown): value is IncidentNature {
   return INCIDENT_NATURE_OPTIONS.some((option) => option.value === value)
 }
@@ -259,6 +297,11 @@ export interface CommunicationsScene {
   sceneHazards?: SceneHazard[]
   incidentNature?: IncidentNature
   natureSource?: NatureSource
+  injuries?: InjurySeverity
+  service?: ServiceRendered
+  /** Licence plate read off the vehicle; spoken in SSP-discovered call-outs only. */
+  tagNumber?: string
+  tagState?: string
   agencies: AgencyGroup[]
 }
 
@@ -267,6 +310,8 @@ export interface CommunicationsState {
   agencies: AgencyGroup[]
   /** Nature already reported to TOC, so the update is sent once per change. */
   nature?: IncidentNature
+  injuries?: InjurySeverity
+  service?: ServiceRendered
 }
 
 export const INITIAL_COMMUNICATIONS_STATE: CommunicationsState = { phase: 'idle', agencies: [] }
@@ -280,6 +325,8 @@ export function normalizeCommunicationsState(value: unknown): CommunicationsStat
     phase: phases.includes(state.phase!) ? state.phase! : 'idle',
     agencies: Array.isArray(state.agencies) ? state.agencies.filter((group): group is AgencyGroup => groups.includes(group)) : [],
     ...(isIncidentNature(state.nature) && state.nature !== 'unknown' ? { nature: state.nature } : {}),
+    ...(isInjurySeverity(state.injuries) && state.injuries !== 'none' ? { injuries: state.injuries } : {}),
+    ...(isServiceRendered(state.service) && state.service !== 'none' ? { service: state.service } : {}),
   }
 }
 
@@ -310,7 +357,9 @@ export function advanceCommunications(
   const copy: RadioMessage = { channel: 'TOC', text: 'Copy.' }
 
   if (state.phase === 'on-scene') {
+    const service = serviceUpdate(state, scene)
     if (!scene.sspOnScene || scene.sceneEmpty) {
+      if (service) messages.push(hail(service), copy)
       messages.push(hail("scene clear, I'm clear"), copy)
       return { state: { phase: 'cleared', agencies: [] }, messages }
     }
@@ -321,19 +370,19 @@ export function advanceCommunications(
       if (is && !was) messages.push(hail(AGENCY_PHRASES[group].arrived), copy)
       if (was && !is) messages.push(hail(AGENCY_PHRASES[group].departed), copy)
     }
-    const nature = natureUpdate(state, scene)
-    if (nature) messages.push(hail(nature), copy)
-    return { state: { phase: 'on-scene', agencies: present, nature: reportedNature(scene) }, messages }
+    messages.push(...natureExchange(state, scene, hail, present))
+    if (service) messages.push(hail(service), copy)
+    return { state: onSceneState(present, scene), messages }
   }
 
   if (!reportable) return { state, messages }
 
   if (scene.sspOnScene) {
     if (scene.mode === 'toc-dispatched' && state.phase !== 'dispatched') messages.push(...dispatchExchange(unit, controller, scene))
-    messages.push(...onSceneExchange(unit, controller, scene))
-    const nature = natureUpdate(state, scene)
-    if (nature) messages.push(hail(nature), copy)
-    return { state: { phase: 'on-scene', agencies: sortAgencies(scene.agencies), nature: reportedNature(scene) }, messages }
+    const present = sortAgencies(scene.agencies)
+    messages.push(...onSceneExchange(unit, controller, scene, state.phase === 'dispatched' || scene.mode === 'toc-dispatched'))
+    messages.push(...natureExchange(state, scene, hail, present))
+    return { state: onSceneState(present, scene), messages }
   }
 
   if (scene.mode === 'toc-dispatched' && state.phase === 'idle') {
@@ -348,19 +397,21 @@ function dispatchExchange(unit: string, controller: string, scene: Communication
   return [
     { channel: 'TOC', text: `${controller} to ${unit}?` },
     { channel: 'SSP', text: `${unit}.` },
-    { channel: 'TOC', text: `Please respond to ${dispatchPhrase(scene)} at ${locationPhrase(scene)}.` },
+    { channel: 'TOC', text: [`Please respond to ${dispatchPhrase(scene)} at ${locationPhrase(scene)}.`, alreadyOnScenePhrase(sortAgencies(scene.agencies))].filter(Boolean).join(' ') },
     { channel: 'SSP', text: 'Show me en route.' },
   ]
 }
 
-function onSceneExchange(unit: string, controller: string, scene: CommunicationsScene): RadioMessage[] {
+function onSceneExchange(unit: string, controller: string, scene: CommunicationsScene, afterDispatch = false): RadioMessage[] {
   const onShoulder = scene.sceneHazards ? blockedLanes(scene.sceneHazards).length === 0 : scene.scenario === 'shoulder'
   const present = sortAgencies(scene.agencies)
   const needsVsp = !onShoulder && !present.includes('vsp')
+  const tag = !afterDispatch && scene.tagNumber?.trim() ? `, tag reads ${scene.tagNumber.trim().toUpperCase()} out of ${stateName(scene.tagState ?? DEFAULT_TAG_STATE)}` : ''
+  const opening = afterDispatch ? 'Show me on scene at' : 'Show me out at'
   const report = [
     scene.sceneHazards
-      ? `Show me out at ${locationPhrase(scene)} ${scenePhrase(scene, 'ssp')}.`
-      : `Show me on scene at ${locationPhrase(scene)} ${positionPhrase(scene.scenario, scene.travelLanes)} with ${incidentPhrase(scene.hazards)}.`,
+      ? `${opening} ${locationPhrase(scene)} ${scenePhrase(scene, 'ssp')}${tag}.`
+      : `Show me on scene at ${locationPhrase(scene)} ${positionPhrase(scene.scenario, scene.travelLanes)} with ${incidentPhrase(scene.hazards)}${tag}.`,
     agenciesPhrase(present),
     needsVsp ? 'Send VSP.' : '',
   ].filter(Boolean).join(' ')
@@ -370,6 +421,21 @@ function onSceneExchange(unit: string, controller: string, scene: Communications
     { channel: 'SSP', text: report },
     { channel: 'TOC', text: needsVsp ? 'Copy. VSP en route.' : 'Copy.' },
   ]
+}
+
+function alreadyOnScenePhrase(agencies: AgencyGroup[]): string {
+  if (agencies.length === 0) return ''
+  return `${capitalize(joinList(agencies.map((group) => AGENCY_PHRASES[group].name)))} already on scene.`
+}
+
+function onSceneState(agencies: AgencyGroup[], scene: CommunicationsScene): CommunicationsState {
+  return {
+    phase: 'on-scene',
+    agencies,
+    nature: reportedNature(scene),
+    ...(scene.injuries && scene.injuries !== 'none' ? { injuries: scene.injuries } : {}),
+    ...(scene.service && scene.service !== 'none' ? { service: scene.service } : {}),
+  }
 }
 
 /** Picks the TOC controller from the typed location when it names a route (and exit/mile marker), else from the structured request. */
@@ -507,11 +573,33 @@ function reportedNature(scene: CommunicationsScene): IncidentNature | undefined 
 /** Follow-up once the SSP has determined whether the vehicles crashed or are disabled. */
 function natureUpdate(state: CommunicationsState, scene: CommunicationsScene): string | null {
   const nature = reportedNature(scene)
-  if (!nature || nature === state.nature) return null
+  const injuries = scene.injuries ?? 'none'
+  if (!nature || (nature === state.nature && injuries === (state.injuries ?? 'none'))) return null
   const vehicles = scene.sceneHazards?.filter((hazard) => hazard.kind === 'vehicle').length ?? 1
   if (vehicles === 0) return null
-  if (nature === 'accident') return vehicles === 1 ? 'vehicle was in a crash' : 'vehicles were in a crash'
+  if (nature === 'accident') {
+    const subject = vehicles === 1 ? 'vehicle was in a crash' : 'vehicles were in a crash'
+    const withInjuries = injuries === 'none' ? subject : `${subject} with ${injuries} injuries`
+    return scene.mode === 'toc-dispatched' && injuries !== 'none' && !scene.agencies.includes('fire') ? `${withInjuries}, send fire and rescue` : withInjuries
+  }
+  if (nature === state.nature) return null
   return vehicles === 1 ? 'vehicle is disabled' : 'vehicles are disabled'
+}
+
+/** Nature update plus TOC's answer: on an SSP-discovered crash with injuries TOC dispatches fire and rescue. */
+function natureExchange(state: CommunicationsState, scene: CommunicationsScene, hail: (text: string) => RadioMessage, present: AgencyGroup[]): RadioMessage[] {
+  const update = natureUpdate(state, scene)
+  if (!update) return []
+  const injured = scene.incidentNature === 'accident' && (scene.injuries ?? 'none') !== 'none' && !present.includes('fire')
+  const reply = injured ? (scene.mode === 'toc-dispatched' ? 'Copy. Fire and rescue en route.' : 'Copy. Sending fire and rescue.') : 'Copy.'
+  return [hail(update), { channel: 'TOC', text: reply }]
+}
+
+/** "I performed a tire change" once the service dropdown changes; usually right before scene clear. */
+function serviceUpdate(state: CommunicationsState, scene: CommunicationsScene): string | null {
+  const service = scene.service ?? 'none'
+  if (service === 'none' || service === state.service) return null
+  return SERVICE_OPTIONS.find((option) => option.value === service)?.spoken ?? null
 }
 
 function sortAgencies(agencies: AgencyGroup[]): AgencyGroup[] {

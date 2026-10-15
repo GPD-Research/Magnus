@@ -23,25 +23,31 @@ describe('buildConversation', () => {
   })
 
   it('prefills dispatch, arrival, SSP finding and agency arrivals in order', () => {
-    const { conversation } = buildConversation({ ...scene, mode: 'toc-dispatched', incidentNature: 'disabled', natureSource: 'ssp-update', agencies: ['vsp', 'ems'] })
+    const { conversation } = buildConversation({ ...scene, mode: 'toc-dispatched', incidentNature: 'disabled', natureSource: 'ssp-update', agencies: ['vsp', 'ems'], service: 'tire-change' })
     expect(texts(conversation.nodes)).toEqual([
       '95 Control to SSP970?',
       'SSP970.',
-      'Please respond to a car blocking the right lane at northbound exit 155 in the main lanes.',
+      'Please respond to a car blocking the right lane at northbound exit 155 in the main lanes. EMS and VSP already on scene.',
       'Show me en route.',
       'SSP970 to 95 Control?',
       'SSP970, go ahead.',
-      "Show me out at northbound exit 155 in the main lanes with a car blocking the right lane. I'll advise. Send VSP.",
-      'Copy. VSP en route.',
+      'Show me on scene at northbound exit 155 in the main lanes with a car blocking the right lane. EMS and VSP on scene.',
+      'Copy.',
       'SSP970 to 95 Control, vehicle is disabled.',
       'Copy.',
-      'SSP970 to 95 Control, EMS now on scene.',
-      'Copy.',
-      'SSP970 to 95 Control, VSP now on scene.',
+      'SSP970 to 95 Control, I performed a tire change.',
       'Copy.',
     ])
     expect(conversation.nodes[2].kind).toBe('dispatch')
     expect(conversation.nodes[8].trigger).toEqual({ type: 'finding', nature: 'disabled', source: 'ssp-update' })
+    expect(conversation.nodes[10]).toMatchObject({ kind: 'service', trigger: { type: 'service', service: 'tire-change' } })
+    const discovered = buildConversation({ ...scene, agencies: ['ems'] })
+    expect(texts(discovered.conversation.nodes).slice(2, 6)).toEqual([
+      "Show me out at northbound exit 155 in the main lanes with a car blocking the right lane. I'll advise. Send VSP.",
+      'Copy. VSP en route.',
+      'SSP970 to 95 Control, EMS now on scene.',
+      'Copy.',
+    ])
   })
 
   it('folds a TOC-known finding into the dispatch and sends no SSP update', () => {
