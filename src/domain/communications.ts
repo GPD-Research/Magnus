@@ -214,6 +214,8 @@ export interface CommunicationsScene {
   direction: CommunicationDirection
   referenceType: RoadReferenceType
   reference: string
+  /** Free-text location spoken on the radio (e.g. "the on-ramp from eastbound Route 7 to I-495 southbound"). Overrides the structured fields when set. */
+  location?: string
   scenario: ScenarioType
   travelLanes: number
   sspOnScene: boolean
@@ -258,7 +260,7 @@ export function advanceCommunications(
   scene: CommunicationsScene,
 ): { state: CommunicationsState; messages: RadioMessage[] } {
   const unit = scene.unit.trim() || DEFAULT_SSP_UNIT
-  const controller = controllerFor(scene.highway, scene.reference)
+  const controller = controllerForScene(scene)
   const reportable = hasReportableHazard(scene.hazards)
   const messages: RadioMessage[] = []
   const hail = (text: string): RadioMessage => ({ channel: 'SSP', text: `${unit} to ${controller}, ${text}.` })
@@ -321,7 +323,18 @@ function onSceneExchange(unit: string, controller: string, scene: Communications
   ]
 }
 
+/** Picks the TOC controller from the typed location when it names a route (and exit/mile marker), else from the structured request. */
+export function controllerForScene(scene: Pick<CommunicationsScene, 'highway' | 'reference' | 'location'>): string {
+  const text = scene.location?.trim() ?? ''
+  const route = /\b(?:I-?\s?)?(66|495|395|95)\b/i.exec(text)?.[1]
+  if (!route) return controllerFor(scene.highway, scene.reference)
+  const marker = /\b(?:exit|mm|mile\s*marker)\s*(\d+(?:\.\d+)?)/i.exec(text)?.[1]
+  return controllerFor(route, marker ?? scene.reference)
+}
+
 function locationPhrase(scene: CommunicationsScene): string {
+  const typed = scene.location?.trim().replace(/[.\s]+$/, '')
+  if (typed) return typed
   const reference = scene.reference.trim()
   const where = scene.referenceType === 'exit' ? `exit ${reference}` : `mile marker ${reference}`
   const area = scene.scenario === 'ramp-closure' ? 'on the ramp' : 'in the main lanes'

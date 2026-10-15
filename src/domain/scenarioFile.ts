@@ -31,6 +31,7 @@ export interface PortableScenarioState {
   communicationsState: CommunicationsState
   communicationsMode: CommunicationsMode
   sspUnit: string
+  incidentLocation: string
   incidentType: IncidentType
   tocIncidentDetails: TocIncidentDetails
   roadScene: RoadScene
@@ -104,6 +105,7 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
       communicationsState: normalizeCommunicationsState(state.communicationsState),
       communicationsMode: state.communicationsMode === 'toc-dispatched' ? 'toc-dispatched' : 'ssp-discovered',
       sspUnit: typeof state.sspUnit === 'string' && state.sspUnit.trim() ? state.sspUnit : DEFAULT_SSP_UNIT,
+      incidentLocation: typeof state.incidentLocation === 'string' ? state.incidentLocation : '',
       incidentType: isIncidentType(state.incidentType) ? state.incidentType : 'crash',
       tocIncidentDetails: normalizeTocIncidentDetails(state.tocIncidentDetails),
       roadScene: normalizeRoadScene(state.roadScene),
