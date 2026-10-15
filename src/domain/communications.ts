@@ -152,6 +152,18 @@ export const INCIDENT_NATURE_OPTIONS: { value: IncidentNature; label: string }[]
   { value: 'disabled', label: 'Disabled vehicle' },
 ]
 
+/** Who establishes the finding: the patroller after arrival (update) or TOC from the camera at dispatch. */
+export type NatureSource = 'ssp-update' | 'toc-dispatch'
+
+export const NATURE_SOURCE_OPTIONS: { value: NatureSource; label: string }[] = [
+  { value: 'ssp-update', label: 'SSP reports it after arrival' },
+  { value: 'toc-dispatch', label: 'TOC identifies it at dispatch' },
+]
+
+export function isNatureSource(value: unknown): value is NatureSource {
+  return NATURE_SOURCE_OPTIONS.some((option) => option.value === value)
+}
+
 export function isIncidentNature(value: unknown): value is IncidentNature {
   return INCIDENT_NATURE_OPTIONS.some((option) => option.value === value)
 }
@@ -244,6 +256,7 @@ export interface CommunicationsScene {
   /** Footprint-derived hazards; when present they replace `hazards`/`scenario` for the call-out wording. */
   sceneHazards?: SceneHazard[]
   incidentNature?: IncidentNature
+  natureSource?: NatureSource
   agencies: AgencyGroup[]
 }
 
@@ -323,7 +336,7 @@ export function advanceCommunications(
 
   if (scene.mode === 'toc-dispatched' && state.phase === 'idle') {
     messages.push(...dispatchExchange(unit, controller, scene))
-    return { state: { phase: 'dispatched', agencies: [] }, messages }
+    return { state: { phase: 'dispatched', agencies: [], nature: tocKnownNature(scene) }, messages }
   }
 
   return { state, messages }
@@ -333,7 +346,7 @@ function dispatchExchange(unit: string, controller: string, scene: Communication
   return [
     { channel: 'TOC', text: `${controller} to ${unit}?` },
     { channel: 'SSP', text: `${unit}.` },
-    { channel: 'TOC', text: `I show ${scene.sceneHazards ? scenePhrase(scene, 'toc') : `${incidentPhrase(scene.hazards)} ${positionPhrase(scene.scenario, scene.travelLanes)}`} at ${locationPhrase(scene)}.` },
+    { channel: 'TOC', text: `Please respond to ${dispatchPhrase(scene)} at ${locationPhrase(scene)}.` },
     { channel: 'SSP', text: 'Show me en route.' },
   ]
 }
@@ -464,6 +477,24 @@ function shoulderSide(hazards: SceneHazard[]): ShoulderSide {
   return hazards.some((hazard) => hazard.shoulders.includes('right')) || !hazards.some((hazard) => hazard.shoulders.includes('left'))
     ? 'right'
     : 'left'
+}
+
+function tocKnownNature(scene: CommunicationsScene): IncidentNature | undefined {
+  return scene.natureSource === 'toc-dispatch' ? reportedNature(scene) : undefined
+}
+
+/** TOC's dispatch wording: what it saw on camera, naming the finding only when TOC already has it. */
+function dispatchPhrase(scene: CommunicationsScene): string {
+  if (!scene.sceneHazards) return `${incidentPhrase(scene.hazards)} ${positionPhrase(scene.scenario, scene.travelLanes)}`
+  const nature = tocKnownNature(scene)
+  if (!nature) return scenePhrase(scene, 'toc')
+  const hazards = scene.sceneHazards
+  const lanes = blockedLanes(hazards)
+  if (lanes.length === 0) {
+    return nature === 'accident' ? `an accident on the ${shoulderSide(hazards)} shoulder` : `a disabled ${objectsPhrase(hazards).replace(/^an? /, '')} on the ${shoulderSide(hazards)} shoulder`
+  }
+  if (nature === 'accident') return 'a blocking accident'
+  return `a disabled ${objectsPhrase(hazards).replace(/^an? /, '')} blocking ${lanesPhrase(lanes, scene.travelLanes)}`
 }
 
 function reportedNature(scene: CommunicationsScene): IncidentNature | undefined {

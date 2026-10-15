@@ -72,7 +72,7 @@ describe('advanceCommunications', () => {
     expect(dispatched.messages).toEqual([
       { channel: 'TOC', text: '95 Control to SSP970?' },
       { channel: 'SSP', text: 'SSP970.' },
-      { channel: 'TOC', text: 'I show an accident blocking the right lane at northbound exit 155 in the main lanes.' },
+      { channel: 'TOC', text: 'Please respond to an accident blocking the right lane at northbound exit 155 in the main lanes.' },
       { channel: 'SSP', text: 'Show me en route.' },
     ])
     expect(dispatched.state.phase).toBe('dispatched')
@@ -164,6 +164,17 @@ describe('footprint-based call-outs', () => {
 
   it('phrases the TOC dispatch from the same footprint data', () => {
     const messages = callOut({ mode: 'toc-dispatched', sspOnScene: false, sceneHazards: [car([2])] })
-    expect(messages[2].text).toBe('I show a car blocking the right lane at northbound exit 155 in the main lanes.')
+    expect(messages[2].text).toBe('Please respond to a car blocking the right lane at northbound exit 155 in the main lanes.')
+  })
+
+  it('lets TOC name the finding at dispatch and then skips the SSP update', () => {
+    const known = (hazards: ReturnType<typeof car>[], nature: 'accident' | 'disabled') =>
+      callOut({ mode: 'toc-dispatched', sspOnScene: false, sceneHazards: hazards, incidentNature: nature, natureSource: 'toc-dispatch' })
+    expect(known([car([2])], 'accident')[2].text).toBe('Please respond to a blocking accident at northbound exit 155 in the main lanes.')
+    expect(known([car([], ['right'])], 'disabled')[2].text).toBe('Please respond to a disabled car on the right shoulder at northbound exit 155 in the main lanes.')
+    expect(known([car([], ['right'])], 'accident')[2].text).toBe('Please respond to an accident on the right shoulder at northbound exit 155 in the main lanes.')
+    const dispatched = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, hazards: NO_HAZARDS, mode: 'toc-dispatched', sspOnScene: false, sceneHazards: [car([2])], incidentNature: 'accident', natureSource: 'toc-dispatch' })
+    const arrived = advanceCommunications(dispatched.state, { ...scene, hazards: NO_HAZARDS, mode: 'toc-dispatched', sceneHazards: [car([2])], incidentNature: 'accident', natureSource: 'toc-dispatch' })
+    expect(arrived.messages.map((message) => message.text)).not.toContainEqual(expect.stringContaining('crash'))
   })
 })

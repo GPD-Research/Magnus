@@ -54,11 +54,13 @@ import {
   DEFAULT_TOC_INCIDENT_DETAILS,
   INITIAL_COMMUNICATIONS_STATE,
   INCIDENT_NATURE_OPTIONS,
+  NATURE_SOURCE_OPTIONS,
   VEHICLE_HAZARD_STATE_OPTIONS,
   type CommunicationDirection,
   type CommunicationsMode,
   type CommunicationsState,
   type IncidentNature,
+  type NatureSource,
   type IncidentType,
   type TocIncidentDetails,
   type VehicleHazardState,
@@ -264,6 +266,7 @@ function loadSavedScenario(): PortableScenarioState | null {
           communicationsMode: 'ssp-discovered',
           sspUnit: DEFAULT_SSP_UNIT,
           incidentNature: 'unknown',
+          natureSource: 'ssp-update',
           incidentLocation: '',
           incidentType: 'crash',
           tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
@@ -306,6 +309,7 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     communicationsMode: state.communicationsMode,
     sspUnit: state.sspUnit,
     incidentNature: state.incidentNature,
+    natureSource: state.natureSource,
     incidentLocation: state.incidentLocation,
     incidentType: state.incidentType,
     tocIncidentDetails: state.tocIncidentDetails,
@@ -601,6 +605,7 @@ function App() {
   const [communicationsMode, setCommunicationsMode] = useState<CommunicationsMode>(savedScenario?.communicationsMode ?? 'ssp-discovered')
   const [sspUnit, setSspUnit] = useState(savedScenario?.sspUnit ?? DEFAULT_SSP_UNIT)
   const [incidentNature, setIncidentNature] = useState<IncidentNature>(savedScenario?.incidentNature ?? 'unknown')
+  const [natureSource, setNatureSource] = useState<NatureSource>(savedScenario?.natureSource ?? 'ssp-update')
   const [incidentType] = useState<IncidentType>(savedScenario?.incidentType ?? 'crash')
   const [tocIncidentDetails] = useState<TocIncidentDetails>(savedScenario?.tocIncidentDetails ?? DEFAULT_TOC_INCIDENT_DETAILS)
 
@@ -1141,6 +1146,7 @@ function App() {
       communicationsMode,
       sspUnit,
       incidentNature,
+      natureSource,
       incidentLocation,
       incidentType,
       tocIncidentDetails,
@@ -1254,6 +1260,7 @@ function App() {
     setCommunicationsMode(state.communicationsMode)
     setSspUnit(state.sspUnit)
     setIncidentNature(state.incidentNature)
+    setNatureSource(state.natureSource)
     initializedZoomSceneRef.current = state.roadScene
     setRoadScene(state.roadScene)
     setLocationRequest(state.locationRequest)
@@ -1488,6 +1495,7 @@ function App() {
       hazards: reportedHazards(deployedEquipment),
       sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
       incidentNature,
+      natureSource,
       agencies: agenciesOnScene(deployedEquipment),
     })
     if (messages.length === 0) return
@@ -1497,7 +1505,7 @@ function App() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCommunicationsState(state)
     setRadioEvents((current) => [...current, ...messages.map((message) => ({ ...message, time: now }))])
-  }, [communicationsState, communicationsMode, sspUnit, incidentNature, locationRequest, incidentLocation, scenario, laneCount, roadScene, sceneVisible, trucks.length, deployedEquipment])
+  }, [communicationsState, communicationsMode, sspUnit, incidentNature, natureSource, locationRequest, incidentLocation, scenario, laneCount, roadScene, sceneVisible, trucks.length, deployedEquipment])
 
   function changeLaneCount(delta: number) {
     const next = Math.min(5, Math.max(2, laneCount + delta))
@@ -3734,6 +3742,20 @@ function App() {
                   ))}
                 </select>
               </label>
+              {communicationsMode === 'toc-dispatched' && (
+                <label htmlFor="communications-nature-source">
+                  Who identifies it
+                  <select
+                    id="communications-nature-source"
+                    value={natureSource}
+                    onChange={(event) => setNatureSource(event.target.value as NatureSource)}
+                  >
+                    {NATURE_SOURCE_OPTIONS.map((option) => (
+                      <option value={option.value} key={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label htmlFor="communications-direction">
                 Travel direction
                 <select

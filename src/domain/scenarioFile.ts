@@ -3,12 +3,14 @@ import type { DrawingStroke } from './drawing'
 import {
   DEFAULT_SSP_UNIT,
   isIncidentNature,
+  isNatureSource,
   isIncidentType,
   normalizeCommunicationsState,
   normalizeTocIncidentDetails,
   type CommunicationsMode,
   type CommunicationsState,
   type IncidentNature,
+  type NatureSource,
   type IncidentType,
   type TocIncidentDetails,
 } from './communications'
@@ -34,6 +36,7 @@ export interface PortableScenarioState {
   communicationsMode: CommunicationsMode
   sspUnit: string
   incidentNature: IncidentNature
+  natureSource: NatureSource
   incidentLocation: string
   incidentType: IncidentType
   tocIncidentDetails: TocIncidentDetails
@@ -109,6 +112,7 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
       communicationsMode: state.communicationsMode === 'toc-dispatched' ? 'toc-dispatched' : 'ssp-discovered',
       sspUnit: typeof state.sspUnit === 'string' && state.sspUnit.trim() ? state.sspUnit : DEFAULT_SSP_UNIT,
       incidentNature: isIncidentNature(state.incidentNature) ? state.incidentNature : 'unknown',
+      natureSource: isNatureSource(state.natureSource) ? state.natureSource : 'ssp-update',
       incidentLocation: typeof state.incidentLocation === 'string' ? state.incidentLocation : '',
       incidentType: isIncidentType(state.incidentType) ? state.incidentType : 'crash',
       tocIncidentDetails: normalizeTocIncidentDetails(state.tocIncidentDetails),
