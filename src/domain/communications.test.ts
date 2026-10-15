@@ -56,8 +56,8 @@ describe('advanceCommunications', () => {
   })
 
   it('folds agencies already drawn into the call-out and skips the VSP request', () => {
-    const { messages } = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, agencies: ['vsp', 'fire-rescue'] })
-    expect(messages[2].text).toBe('Show me on scene at northbound exit 155 in the main lanes blocking the right lane with an accident. Fire and rescue plus VSP already on scene.')
+    const { messages } = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, agencies: ['vsp', 'fire'] })
+    expect(messages[2].text).toBe('Show me on scene at northbound exit 155 in the main lanes blocking the right lane with an accident. Fire department and VSP on scene.')
     expect(messages[3].text).toBe('Copy.')
   })
 
@@ -72,7 +72,7 @@ describe('advanceCommunications', () => {
     expect(dispatched.messages).toEqual([
       { channel: 'TOC', text: '95 Control to SSP970?' },
       { channel: 'SSP', text: 'SSP970.' },
-      { channel: 'TOC', text: 'I show an accident blocking the right lane at northbound exit 155 in the main lanes.' },
+      { channel: 'TOC', text: 'Please respond to an accident blocking the right lane at northbound exit 155 in the main lanes.' },
       { channel: 'SSP', text: 'Show me en route.' },
     ])
     expect(dispatched.state.phase).toBe('dispatched')
@@ -89,10 +89,10 @@ describe('advanceCommunications', () => {
       { channel: 'TOC', text: 'Copy.' },
     ])
     expect(advanceCommunications(first.state, { ...scene, agencies: ['vsp'] }).messages).toEqual([])
-    const fire = advanceCommunications(first.state, { ...scene, agencies: ['vsp', 'fire-rescue'] })
-    expect(fire.messages[0].text).toBe('SSP970 to 95 Control, fire and rescue now on scene.')
+    const fire = advanceCommunications(first.state, { ...scene, agencies: ['vsp', 'fire'] })
+    expect(fire.messages[0].text).toBe('SSP970 to 95 Control, fire department now on scene.')
     const gone = advanceCommunications(fire.state, { ...scene, agencies: ['vsp'] })
-    expect(gone.messages[0].text).toBe('SSP970 to 95 Control, fire and rescue have cleared.')
+    expect(gone.messages[0].text).toBe('SSP970 to 95 Control, fire department has cleared.')
     const tree = advanceCommunications(gone.state, { ...scene, agencies: ['vsp', 'tree-removal'] })
     expect(tree.messages[0].text).toBe('SSP970 to 95 Control, tree removal workers on scene.')
     const clear = advanceCommunications(tree.state, { ...scene, sspOnScene: false })
@@ -116,5 +116,65 @@ describe('incidentPhrase', () => {
     expect(incidentPhrase({ ...NO_HAZARDS, tractorTrailerFires: 1 })).toBe('a tractor-trailer fire')
     expect(incidentPhrase({ ...NO_HAZARDS, debris: 2, downedTrees: 1 })).toBe('debris and a downed tree')
     expect(incidentPhrase({ ...NO_HAZARDS, crashedVehicles: 1, disabledVehicles: 1, vehicleFires: 1 })).toBe('an accident, a disabled vehicle and a vehicle fire')
+  })
+})
+
+describe('footprint-based call-outs', () => {
+  const car = (lanes: number[], shoulders: ('left' | 'right')[] = []) =>
+    ({ kind: 'vehicle' as const, noun: ['car', 'cars'] as [string, string], lanes, shoulders })
+  const tree = (lanes: number[], shoulders: ('left' | 'right')[]) =>
+    ({ kind: 'tree' as const, noun: ['downed tree', 'downed trees'] as [string, string], lanes, shoulders })
+  const callOut = (overrides: Partial<CommunicationsScene>) =>
+    advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, hazards: NO_HAZARDS, ...overrides }).messages
+
+  it('reports a shoulder-only car without "blocking" and skips the VSP request', () => {
+    const messages = callOut({ sceneHazards: [car([], ['right'])] })
+    expect(messages[2].text).toBe("Show me out at northbound exit 155 in the main lanes on the right shoulder with a car. I'll advise.")
+    expect(messages[3].text).toBe('Copy.')
+  })
+
+  it('names only the travel lanes when a car overlaps a lane and a shoulder', () => {
+    expect(callOut({ sceneHazards: [car([2], ['right'])] })[2].text)
+      .toBe("Show me out at northbound exit 155 in the main lanes with a car blocking the right lane. I'll advise. Send VSP.")
+    expect(callOut({ sceneHazards: [car([0], ['left'])] })[2].text)
+      .toContain('with a car blocking the left lane.')
+    expect(callOut({ sceneHazards: [car([1, 2])] })[2].text)
+      .toContain('with a car blocking the center and right lanes.')
+  })
+
+  it('counts and lists objects and keeps the shoulder for a downed tree', () => {
+    const trailer = { kind: 'vehicle' as const, noun: ['tractor trailer', 'tractor trailers'] as [string, string], lanes: [], shoulders: ['right' as const] }
+    expect(callOut({ sceneHazards: [car([], ['right']), car([], ['right']), trailer], agencies: ['ems', 'fire'] })[2].text)
+      .toBe('Show me out at northbound exit 155 in the main lanes on the right shoulder with two cars and a tractor trailer. EMS and fire department on scene.')
+    expect(callOut({ sceneHazards: [tree([2], ['right'])] })[2].text)
+      .toContain('with a downed tree blocking the right lane and the right shoulder.')
+  })
+
+  it('sends the crash/disabled finding as a later update, once per change', () => {
+    const onScene = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, hazards: NO_HAZARDS, sceneHazards: [car([2])] })
+    const disabled = advanceCommunications(onScene.state, { ...scene, hazards: NO_HAZARDS, sceneHazards: [car([2])], incidentNature: 'disabled' })
+    expect(disabled.messages).toEqual([
+      { channel: 'SSP', text: 'SSP970 to 95 Control, vehicle is disabled.' },
+      { channel: 'TOC', text: 'Copy.' },
+    ])
+    expect(advanceCommunications(disabled.state, { ...scene, hazards: NO_HAZARDS, sceneHazards: [car([2])], incidentNature: 'disabled' }).messages).toEqual([])
+    const crash = advanceCommunications(disabled.state, { ...scene, hazards: NO_HAZARDS, sceneHazards: [car([2]), car([1])], incidentNature: 'accident' })
+    expect(crash.messages[0].text).toBe('SSP970 to 95 Control, vehicles were in a crash.')
+  })
+
+  it('phrases the TOC dispatch from the same footprint data', () => {
+    const messages = callOut({ mode: 'toc-dispatched', sspOnScene: false, sceneHazards: [car([2])] })
+    expect(messages[2].text).toBe('Please respond to a car blocking the right lane at northbound exit 155 in the main lanes.')
+  })
+
+  it('lets TOC name the finding at dispatch and then skips the SSP update', () => {
+    const known = (hazards: ReturnType<typeof car>[], nature: 'accident' | 'disabled') =>
+      callOut({ mode: 'toc-dispatched', sspOnScene: false, sceneHazards: hazards, incidentNature: nature, natureSource: 'toc-dispatch' })
+    expect(known([car([2])], 'accident')[2].text).toBe('Please respond to a blocking accident at northbound exit 155 in the main lanes.')
+    expect(known([car([], ['right'])], 'disabled')[2].text).toBe('Please respond to a disabled car on the right shoulder at northbound exit 155 in the main lanes.')
+    expect(known([car([], ['right'])], 'accident')[2].text).toBe('Please respond to an accident on the right shoulder at northbound exit 155 in the main lanes.')
+    const dispatched = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...scene, hazards: NO_HAZARDS, mode: 'toc-dispatched', sspOnScene: false, sceneHazards: [car([2])], incidentNature: 'accident', natureSource: 'toc-dispatch' })
+    const arrived = advanceCommunications(dispatched.state, { ...scene, hazards: NO_HAZARDS, mode: 'toc-dispatched', sceneHazards: [car([2])], incidentNature: 'accident', natureSource: 'toc-dispatch' })
+    expect(arrived.messages.map((message) => message.text)).not.toContainEqual(expect.stringContaining('crash'))
   })
 })

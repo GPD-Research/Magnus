@@ -141,7 +141,40 @@ export interface RadioMessage {
 
 export type CommunicationsMode = 'ssp-discovered' | 'toc-dispatched'
 export type VehicleHazardState = 'traffic' | 'crashed' | 'disabled' | 'fire'
-export type AgencyGroup = 'vsp' | 'fire-rescue' | 'tow' | 'tree-removal'
+export type AgencyGroup = 'vsp' | 'ems' | 'fire' | 'tow' | 'tree-removal'
+export type ShoulderSide = 'left' | 'right'
+/** What the SSP learns about the vehicles once on scene; drives the follow-up update to TOC. */
+export type IncidentNature = 'unknown' | 'accident' | 'disabled'
+
+export const INCIDENT_NATURE_OPTIONS: { value: IncidentNature; label: string }[] = [
+  { value: 'unknown', label: 'Not yet determined' },
+  { value: 'accident', label: 'Accident' },
+  { value: 'disabled', label: 'Disabled vehicle' },
+]
+
+/** Who establishes the finding: the patroller after arrival (update) or TOC from the camera at dispatch. */
+export type NatureSource = 'ssp-update' | 'toc-dispatch'
+
+export const NATURE_SOURCE_OPTIONS: { value: NatureSource; label: string }[] = [
+  { value: 'ssp-update', label: 'SSP reports it after arrival' },
+  { value: 'toc-dispatch', label: 'TOC identifies it at dispatch' },
+]
+
+export function isNatureSource(value: unknown): value is NatureSource {
+  return NATURE_SOURCE_OPTIONS.some((option) => option.value === value)
+}
+
+export function isIncidentNature(value: unknown): value is IncidentNature {
+  return INCIDENT_NATURE_OPTIONS.some((option) => option.value === value)
+}
+
+/** One object the SSP names on the radio and the lanes (0 = left) / shoulders its footprint covers. */
+export interface SceneHazard {
+  kind: 'vehicle' | 'debris' | 'tree' | 'other'
+  noun: [singular: string, plural: string]
+  lanes: number[]
+  shoulders: ShoulderSide[]
+}
 export type CommunicationsPhase = 'idle' | 'dispatched' | 'on-scene' | 'cleared'
 
 export const DEFAULT_SSP_UNIT = 'SSP970'
@@ -220,12 +253,18 @@ export interface CommunicationsScene {
   travelLanes: number
   sspOnScene: boolean
   hazards: ReportedHazards
+  /** Footprint-derived hazards; when present they replace `hazards`/`scenario` for the call-out wording. */
+  sceneHazards?: SceneHazard[]
+  incidentNature?: IncidentNature
+  natureSource?: NatureSource
   agencies: AgencyGroup[]
 }
 
 export interface CommunicationsState {
   phase: CommunicationsPhase
   agencies: AgencyGroup[]
+  /** Nature already reported to TOC, so the update is sent once per change. */
+  nature?: IncidentNature
 }
 
 export const INITIAL_COMMUNICATIONS_STATE: CommunicationsState = { phase: 'idle', agencies: [] }
@@ -234,17 +273,19 @@ export function normalizeCommunicationsState(value: unknown): CommunicationsStat
   if (!value || typeof value !== 'object') return INITIAL_COMMUNICATIONS_STATE
   const state = value as Partial<CommunicationsState>
   const phases: CommunicationsPhase[] = ['idle', 'dispatched', 'on-scene', 'cleared']
-  const groups: AgencyGroup[] = ['vsp', 'fire-rescue', 'tow', 'tree-removal']
+  const groups: AgencyGroup[] = ['vsp', 'ems', 'fire', 'tow', 'tree-removal']
   return {
     phase: phases.includes(state.phase!) ? state.phase! : 'idle',
     agencies: Array.isArray(state.agencies) ? state.agencies.filter((group): group is AgencyGroup => groups.includes(group)) : [],
+    ...(isIncidentNature(state.nature) && state.nature !== 'unknown' ? { nature: state.nature } : {}),
   }
 }
 
-const AGENCY_ORDER: AgencyGroup[] = ['fire-rescue', 'vsp', 'tow', 'tree-removal']
+const AGENCY_ORDER: AgencyGroup[] = ['ems', 'fire', 'vsp', 'tow', 'tree-removal']
 
 const AGENCY_PHRASES: Record<AgencyGroup, { name: string; arrived: string; departed: string }> = {
-  'fire-rescue': { name: 'fire and rescue', arrived: 'fire and rescue now on scene', departed: 'fire and rescue have cleared' },
+  ems: { name: 'EMS', arrived: 'EMS now on scene', departed: 'EMS has cleared' },
+  fire: { name: 'fire department', arrived: 'fire department now on scene', departed: 'fire department has cleared' },
   vsp: { name: 'VSP', arrived: 'VSP now on scene', departed: 'VSP has departed the scene' },
   tow: { name: 'tow', arrived: 'tow is on scene', departed: 'tow has cleared' },
   'tree-removal': { name: 'tree removal workers', arrived: 'tree removal workers on scene', departed: 'tree removal has cleared' },
@@ -261,7 +302,7 @@ export function advanceCommunications(
 ): { state: CommunicationsState; messages: RadioMessage[] } {
   const unit = scene.unit.trim() || DEFAULT_SSP_UNIT
   const controller = controllerForScene(scene)
-  const reportable = hasReportableHazard(scene.hazards)
+  const reportable = scene.sceneHazards ? scene.sceneHazards.length > 0 : hasReportableHazard(scene.hazards)
   const messages: RadioMessage[] = []
   const hail = (text: string): RadioMessage => ({ channel: 'SSP', text: `${unit} to ${controller}, ${text}.` })
   const copy: RadioMessage = { channel: 'TOC', text: 'Copy.' }
@@ -278,7 +319,9 @@ export function advanceCommunications(
       if (is && !was) messages.push(hail(AGENCY_PHRASES[group].arrived), copy)
       if (was && !is) messages.push(hail(AGENCY_PHRASES[group].departed), copy)
     }
-    return { state: { phase: 'on-scene', agencies: present }, messages }
+    const nature = natureUpdate(state, scene)
+    if (nature) messages.push(hail(nature), copy)
+    return { state: { phase: 'on-scene', agencies: present, nature: reportedNature(scene) }, messages }
   }
 
   if (!reportable) return { state, messages }
@@ -286,12 +329,14 @@ export function advanceCommunications(
   if (scene.sspOnScene) {
     if (scene.mode === 'toc-dispatched' && state.phase !== 'dispatched') messages.push(...dispatchExchange(unit, controller, scene))
     messages.push(...onSceneExchange(unit, controller, scene))
-    return { state: { phase: 'on-scene', agencies: sortAgencies(scene.agencies) }, messages }
+    const nature = natureUpdate(state, scene)
+    if (nature) messages.push(hail(nature), copy)
+    return { state: { phase: 'on-scene', agencies: sortAgencies(scene.agencies), nature: reportedNature(scene) }, messages }
   }
 
   if (scene.mode === 'toc-dispatched' && state.phase === 'idle') {
     messages.push(...dispatchExchange(unit, controller, scene))
-    return { state: { phase: 'dispatched', agencies: [] }, messages }
+    return { state: { phase: 'dispatched', agencies: [], nature: tocKnownNature(scene) }, messages }
   }
 
   return { state, messages }
@@ -301,17 +346,19 @@ function dispatchExchange(unit: string, controller: string, scene: Communication
   return [
     { channel: 'TOC', text: `${controller} to ${unit}?` },
     { channel: 'SSP', text: `${unit}.` },
-    { channel: 'TOC', text: `I show ${incidentPhrase(scene.hazards)} ${positionPhrase(scene.scenario, scene.travelLanes)} at ${locationPhrase(scene)}.` },
+    { channel: 'TOC', text: `Please respond to ${dispatchPhrase(scene)} at ${locationPhrase(scene)}.` },
     { channel: 'SSP', text: 'Show me en route.' },
   ]
 }
 
 function onSceneExchange(unit: string, controller: string, scene: CommunicationsScene): RadioMessage[] {
-  const onShoulder = scene.scenario === 'shoulder'
+  const onShoulder = scene.sceneHazards ? blockedLanes(scene.sceneHazards).length === 0 : scene.scenario === 'shoulder'
   const present = sortAgencies(scene.agencies)
   const needsVsp = !onShoulder && !present.includes('vsp')
   const report = [
-    `Show me on scene at ${locationPhrase(scene)} ${positionPhrase(scene.scenario, scene.travelLanes)} with ${incidentPhrase(scene.hazards)}.`,
+    scene.sceneHazards
+      ? `Show me out at ${locationPhrase(scene)} ${scenePhrase(scene, 'ssp')}.`
+      : `Show me on scene at ${locationPhrase(scene)} ${positionPhrase(scene.scenario, scene.travelLanes)} with ${incidentPhrase(scene.hazards)}.`,
     agenciesPhrase(present),
     needsVsp ? 'Send VSP.' : '',
   ].filter(Boolean).join(' ')
@@ -363,9 +410,106 @@ export function incidentPhrase(hazards: ReportedHazards): string {
 
 function agenciesPhrase(agencies: AgencyGroup[]): string {
   if (agencies.length === 0) return "I'll advise."
-  const names = agencies.map((group) => AGENCY_PHRASES[group].name)
-  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} plus ${names[names.length - 1]}`
-  return `${capitalize(list)} already on scene.`
+  return `${capitalize(joinList(agencies.map((group) => AGENCY_PHRASES[group].name)))} on scene.`
+}
+
+function joinList(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? ''
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
+const COUNT_WORDS = ['', 'a', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']
+
+/** "a car and a tractor trailer", "two cars", "debris" — vehicles first, in scene order. */
+export function objectsPhrase(hazards: SceneHazard[]): string {
+  const counts = new Map<string, { noun: SceneHazard['noun']; count: number }>()
+  for (const hazard of hazards) {
+    const entry = counts.get(hazard.noun[0]) ?? { noun: hazard.noun, count: 0 }
+    entry.count += 1
+    counts.set(hazard.noun[0], entry)
+  }
+  return joinList([...counts.values()].map(({ noun, count }) => {
+    if (noun[0] === 'debris') return 'debris'
+    if (count === 1) return `${/^[aeiou]/i.test(noun[0]) ? 'an' : 'a'} ${noun[0]}`
+    return `${COUNT_WORDS[count] ?? String(count)} ${noun[1]}`
+  }))
+}
+
+export function blockedLanes(hazards: SceneHazard[]): number[] {
+  return [...new Set(hazards.flatMap((hazard) => hazard.lanes))].sort((first, second) => first - second)
+}
+
+function laneName(index: number, laneCount: number): string {
+  if (laneCount === 1) return 'the'
+  if (index === 0) return 'left'
+  if (index === laneCount - 1) return 'right'
+  if (laneCount === 3) return 'center'
+  if (laneCount === 4) return index === 1 ? 'left center' : 'right center'
+  if (laneCount === 5) return index === 1 ? 'left center' : index === 2 ? 'center' : 'right center'
+  return `number ${index + 1}`
+}
+
+export function lanesPhrase(lanes: number[], laneCount: number): string {
+  if (lanes.length >= laneCount) return 'all lanes'
+  if (lanes.length === 1) return `the ${laneName(lanes[0], laneCount)} lane`
+  return `the ${joinList(lanes.map((lane) => laneName(lane, laneCount)))} lanes`
+}
+
+/**
+ * Where/what clause: hazards in a travel lane are "blocking the … lane(s)" (shoulders not mentioned,
+ * except a downed tree also on a shoulder); shoulder-only hazards are "on the right shoulder with …".
+ */
+function scenePhrase(scene: CommunicationsScene, voice: 'ssp' | 'toc'): string {
+  const hazards = scene.sceneHazards ?? []
+  const objects = objectsPhrase(hazards)
+  const lanes = blockedLanes(hazards)
+  if (lanes.length === 0) {
+    const side = shoulderSide(hazards)
+    return voice === 'ssp' ? `on the ${side} shoulder with ${objects}` : `${objects} on the ${side} shoulder`
+  }
+  const treeShoulders = [...new Set(hazards.filter((hazard) => hazard.kind === 'tree').flatMap((hazard) => hazard.shoulders))]
+  const shoulderTail = treeShoulders.length > 0 ? ` and the ${joinList(treeShoulders)} shoulder` : ''
+  const blocking = `blocking ${lanesPhrase(lanes, scene.travelLanes)}${shoulderTail}`
+  return voice === 'ssp' ? `with ${objects} ${blocking}` : `${objects} ${blocking}`
+}
+
+function shoulderSide(hazards: SceneHazard[]): ShoulderSide {
+  return hazards.some((hazard) => hazard.shoulders.includes('right')) || !hazards.some((hazard) => hazard.shoulders.includes('left'))
+    ? 'right'
+    : 'left'
+}
+
+function tocKnownNature(scene: CommunicationsScene): IncidentNature | undefined {
+  return scene.natureSource === 'toc-dispatch' ? reportedNature(scene) : undefined
+}
+
+/** TOC's dispatch wording: what it saw on camera, naming the finding only when TOC already has it. */
+function dispatchPhrase(scene: CommunicationsScene): string {
+  if (!scene.sceneHazards) return `${incidentPhrase(scene.hazards)} ${positionPhrase(scene.scenario, scene.travelLanes)}`
+  const nature = tocKnownNature(scene)
+  if (!nature) return scenePhrase(scene, 'toc')
+  const hazards = scene.sceneHazards
+  const lanes = blockedLanes(hazards)
+  if (lanes.length === 0) {
+    return nature === 'accident' ? `an accident on the ${shoulderSide(hazards)} shoulder` : `a disabled ${objectsPhrase(hazards).replace(/^an? /, '')} on the ${shoulderSide(hazards)} shoulder`
+  }
+  if (nature === 'accident') return 'a blocking accident'
+  return `a disabled ${objectsPhrase(hazards).replace(/^an? /, '')} blocking ${lanesPhrase(lanes, scene.travelLanes)}`
+}
+
+function reportedNature(scene: CommunicationsScene): IncidentNature | undefined {
+  const nature = scene.incidentNature ?? 'unknown'
+  return nature === 'unknown' ? undefined : nature
+}
+
+/** Follow-up once the SSP has determined whether the vehicles crashed or are disabled. */
+function natureUpdate(state: CommunicationsState, scene: CommunicationsScene): string | null {
+  const nature = reportedNature(scene)
+  if (!nature || nature === state.nature) return null
+  const vehicles = scene.sceneHazards?.filter((hazard) => hazard.kind === 'vehicle').length ?? 1
+  if (vehicles === 0) return null
+  if (nature === 'accident') return vehicles === 1 ? 'vehicle was in a crash' : 'vehicles were in a crash'
+  return vehicles === 1 ? 'vehicle is disabled' : 'vehicles are disabled'
 }
 
 function sortAgencies(agencies: AgencyGroup[]): AgencyGroup[] {
