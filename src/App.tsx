@@ -35,7 +35,6 @@ import {
   Undo2,
   Wifi,
   WifiOff,
-  Wrench,
   X,
 } from 'lucide-react'
 import { ArrowUp } from 'lucide-react'
@@ -98,6 +97,7 @@ import {
 } from './domain/equipmentCatalog'
 import {
   createReferenceRoadScene,
+  isGenericHighwayScene,
   type RoadFeature,
   type RoadScene,
   type RoadLayerVisibility,
@@ -261,6 +261,7 @@ function loadSavedScenario(): PortableScenarioState | null {
           communicationsState: INITIAL_COMMUNICATIONS_STATE,
           communicationsMode: 'ssp-discovered',
           sspUnit: DEFAULT_SSP_UNIT,
+          incidentLocation: '',
           incidentType: 'crash',
           tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
           roadScene: createReferenceRoadScene(),
@@ -301,6 +302,7 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     communicationsState: state.communicationsState,
     communicationsMode: state.communicationsMode,
     sspUnit: state.sspUnit,
+    incidentLocation: state.incidentLocation,
     incidentType: state.incidentType,
     tocIncidentDetails: state.tocIncidentDetails,
     roadScene: state.roadScene,
@@ -527,6 +529,9 @@ function App() {
   const [mapRotation, setMapRotation] = useState(savedScenario?.mapRotation ?? 0)
   const [mode, setMode] = useState<ComplianceMode>(savedScenario?.mode ?? 'gospel')
   const [laneCount, setLaneCount] = useState(savedScenario?.laneCount ?? 3)
+  const [incidentLocation, setIncidentLocation] = useState(savedScenario?.incidentLocation ?? '')
+  const [incidentLocationDraft, setIncidentLocationDraft] = useState(savedScenario?.incidentLocation ?? '')
+  const [layersMenuOpen, setLayersMenuOpen] = useState(false)
   const [points, setPoints] = useState<ScenePoint[]>(() => savedScenario?.points ?? createScene('right-lane'))
   const [trucks, setTrucks] = useState(() => savedScenario?.trucks ?? createSspTrucks())
   const [selectedTruckId, setSelectedTruckId] = useState('ssp-truck-1')
@@ -548,7 +553,6 @@ function App() {
   const [sceneZoom, setSceneZoom] = useState(savedScenario?.sceneZoom ?? 1)
   const [sceneDisplaySize, setSceneDisplaySize] = useState({ width: 1, height: 1 })
   const [templateCreatorOpen, setTemplateCreatorOpen] = useState(false)
-  const [toolsMenuOpen, setToolsMenuOpen] = useState(false)
   const [locationTemplates, setLocationTemplates] = useState(() => listLocationTemplates(localStorage))
   const [locationTemplatesOpen, setLocationTemplatesOpen] = useState(false)
   const [loadedTemplateName, setLoadedTemplateName] = useState<string | null>(() => savedScenario ? null : '3 Lane Highway')
@@ -1131,6 +1135,7 @@ function App() {
       communicationsState,
       communicationsMode,
       sspUnit,
+      incidentLocation,
       incidentType,
       tocIncidentDetails,
       roadScene,
@@ -1228,6 +1233,8 @@ function App() {
     setMapRotation(state.mapRotation)
     setMode(state.mode)
     setLaneCount(state.laneCount)
+    setIncidentLocation(state.incidentLocation)
+    setIncidentLocationDraft(state.incidentLocation)
     setPoints(state.points)
     setTrucks(state.trucks)
     setSelectedTruckId(state.trucks[0]?.id ?? '')
@@ -1467,6 +1474,7 @@ function App() {
       direction,
       referenceType: locationRequest.referenceType,
       reference: locationRequest.reference,
+      location: incidentLocation,
       scenario,
       travelLanes: laneCount,
       sspOnScene: sceneVisible && trucks.length > 0,
@@ -1480,7 +1488,18 @@ function App() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCommunicationsState(state)
     setRadioEvents((current) => [...current, ...messages.map((message) => ({ ...message, time: now }))])
-  }, [communicationsState, communicationsMode, sspUnit, locationRequest, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment])
+  }, [communicationsState, communicationsMode, sspUnit, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment])
+
+  function changeLaneCount(delta: number) {
+    const next = Math.min(5, Math.max(2, laneCount + delta))
+    if (next === laneCount) return
+    setLaneCount(next)
+    if (isGenericHighwayScene(roadScene)) {
+      const scene = createReferenceRoadScene(next)
+      initializedZoomSceneRef.current = scene
+      setRoadScene(scene)
+    }
+  }
 
   function removeRearCone() {
     const lastTaper = points
@@ -1762,6 +1781,62 @@ function App() {
             <span>SSP Scene Builder</span>
           </div>
         </div>
+        <div className="save-scene-anchor saved-scenes-anchor">
+            <button
+              className="saved-scenes-toggle"
+              type="button"
+              aria-label="SAVED SCENES"
+              aria-expanded={savedScenesOpen}
+              aria-haspopup="menu"
+              onClick={() => {
+                setSavedScenesOpen((open) => !open)
+                setSaveMenuOpen(false)
+              }}
+            >
+              <FolderOpen size={17} /> <span>Saved scenes</span> {savedScenesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+            {savedScenesOpen && (
+              <div
+                className="saved-scenes-menu"
+                role="menu"
+                aria-label="Saved scenes"
+              >
+                <span>Saved JSON scenes</span>
+                {savedScenes.length === 0 ? (
+                  <p>No saved scenes yet.</p>
+                ) : savedScenes.map((entry) => (
+                  <div className="saved-scene-entry" key={entry.name}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => loadSavedScene(entry)}
+                    >
+                      <b>{entry.name}</b>
+                      <small>{new Date(entry.savedAt).toLocaleString()}</small>
+                    </button>
+                    <button
+                      className="saved-scene-icon"
+                      type="button"
+                      title={`Download ${entry.name}`}
+                      aria-label={`Download ${entry.name}`}
+                      onClick={() => downloadSavedScene(entry)}
+                    >
+                      <Download size={14} />
+                    </button>
+                    <button
+                      className="saved-scene-icon"
+                      type="button"
+                      title={`Remove ${entry.name} from saved scenes`}
+                      aria-label={`Remove ${entry.name} from saved scenes`}
+                      onClick={() => removeSavedScene(entry)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         <div
           className="connectivity-switch"
           role="group"
@@ -2064,6 +2139,27 @@ function App() {
           <Trash2 size={18} />
         </button>
         <div className="scene-file-actions">
+          <button
+            className="scene-file-button"
+            type="button"
+            aria-label="LOAD SCENE"
+            onClick={() => {
+              void chooseScenarioFile();
+            }}
+          >
+            <FolderOpen size={17} /> <span>LOAD SCENE</span>
+          </button>
+          <input
+            ref={loadSceneInputRef}
+            className="scene-file-input"
+            type="file"
+            accept=".json,.magnus.json,application/json"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void loadScenarioFile(file);
+              event.currentTarget.value = "";
+            }}
+          />
           <div className="save-scene-anchor">
             <button
               className="scene-file-button"
@@ -2125,83 +2221,6 @@ function App() {
               </div>
             )}
           </div>
-          <div className="save-scene-anchor">
-            <button
-              className="scene-file-button"
-              type="button"
-              aria-label="SAVED SCENES"
-              aria-expanded={savedScenesOpen}
-              aria-haspopup="menu"
-              onClick={() => {
-                setSavedScenesOpen((open) => !open)
-                setSaveMenuOpen(false)
-              }}
-            >
-              <FolderOpen size={17} /> <span>SAVED SCENES</span>
-            </button>
-            {savedScenesOpen && (
-              <div
-                className="saved-scenes-menu"
-                role="menu"
-                aria-label="Saved scenes"
-              >
-                <span>Saved JSON scenes</span>
-                {savedScenes.length === 0 ? (
-                  <p>No saved scenes yet.</p>
-                ) : savedScenes.map((entry) => (
-                  <div className="saved-scene-entry" key={entry.name}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => loadSavedScene(entry)}
-                    >
-                      <b>{entry.name}</b>
-                      <small>{new Date(entry.savedAt).toLocaleString()}</small>
-                    </button>
-                    <button
-                      className="saved-scene-icon"
-                      type="button"
-                      title={`Download ${entry.name}`}
-                      aria-label={`Download ${entry.name}`}
-                      onClick={() => downloadSavedScene(entry)}
-                    >
-                      <Download size={14} />
-                    </button>
-                    <button
-                      className="saved-scene-icon"
-                      type="button"
-                      title={`Remove ${entry.name} from saved scenes`}
-                      aria-label={`Remove ${entry.name} from saved scenes`}
-                      onClick={() => removeSavedScene(entry)}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            className="scene-file-button"
-            type="button"
-            aria-label="LOAD SCENE"
-            onClick={() => {
-              void chooseScenarioFile();
-            }}
-          >
-            <FolderOpen size={17} /> <span>LOAD SCENE</span>
-          </button>
-          <input
-            ref={loadSceneInputRef}
-            className="scene-file-input"
-            type="file"
-            accept=".json,.magnus.json,application/json"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void loadScenarioFile(file);
-              event.currentTarget.value = "";
-            }}
-          />
           {saveStatus === "saved" && (
             <span className="scene-file-status" role="status">
               Scene ready
@@ -2255,44 +2274,119 @@ function App() {
             <button
               className="tools-menu-toggle"
               type="button"
-              aria-expanded={toolsMenuOpen}
-              aria-haspopup="menu"
-              onClick={() => setToolsMenuOpen((open) => !open)}
+              aria-expanded={layersMenuOpen}
+              aria-haspopup="true"
+              onClick={() => setLayersMenuOpen((open) => !open)}
             >
-              <Wrench size={16} />
+              <Layers3 size={16} />
               <span>
-                <b>Tools</b>
-                <small>Editors &amp; template authoring</small>
+                <b>Layers</b>
+                <small>Map layer visibility</small>
               </span>
-              {toolsMenuOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              {layersMenuOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
-            {toolsMenuOpen && (
-              <div className="tools-menu" role="menu" aria-label="Tools">
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setToolsMenuOpen(false);
-                    if (!openTemplateEditorWindow()) setTemplateCreatorOpen(true);
-                  }}
-                >
-                  <MapPinned size={16} />
-                  <span>
-                    <b>Location Template Creator</b>
-                    <small>Build polished exit &amp; interchange templates</small>
-                  </span>
-                </button>
+            {layersMenuOpen && (
+              <div className="tools-menu layers-menu" aria-label="Layers">
+              <label className="toggle-row">
+                <span>
+                  <Layers3 size={16} /> Road geometry
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.roadGeometry}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "roadGeometry",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <span className="barrier-symbol" /> Barriers
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.barriers}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "barriers",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <span className="flow-symbol">→</span> Traffic flow
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.trafficFlow}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "trafficFlow",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <MapPinned size={16} />{" "}
+                  {highwayLabelsAvailable
+                    ? "Highway labels"
+                    : "Highway labels unavailable in preview"}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={
+                    roadLayerVisibility.highwayLabels && highwayLabelsAvailable
+                  }
+                  disabled={!highwayLabelsAvailable}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "highwayLabels",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
+              <label className="toggle-row">
+                <span>
+                  <Pencil size={16} /> Drawings
+                </span>
+                <input
+                  type="checkbox"
+                  checked={roadLayerVisibility.drawings}
+                  onChange={(event) =>
+                    setRoadLayerVisibilityValue(
+                      "drawings",
+                      event.target.checked,
+                    )
+                  }
+                />
+              </label>
               </div>
             )}
           </div>
-          <div className="location-template-anchor">
-            <div className="location-template-current" role="status">
+          <div className="tools-menu-anchor">
+            <button
+              className="tools-menu-toggle"
+              type="button"
+              onClick={() => {
+                if (!openTemplateEditorWindow()) setTemplateCreatorOpen(true);
+              }}
+            >
               <MapPinned size={16} />
-              <div>
-                <span>Location template</span>
-                <b>{loadedTemplateName ?? 'Untitled / manual scene'}</b>
-              </div>
-            </div>
+              <span>
+                <b>Roadway Template Editor</b>
+                <small>Build &amp; edit roadway templates</small>
+              </span>
+            </button>
+          </div>
+          <div className="location-template-anchor">
             <button
               className="location-template-load-button"
               type="button"
@@ -2302,7 +2396,7 @@ function App() {
             >
               <FolderOpen size={16} />
               <span>
-                <b>Load location template</b>
+                <b>Load scene type</b>
                 <small>{displayedLocationTemplates.length} available</small>
               </span>
               {locationTemplatesOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -2587,6 +2681,31 @@ function App() {
               </span>
             </div>
           </div>
+          <div className="control-group incident-location-control">
+            <label htmlFor="incident-location">Incident location (as spoken to TOC)</label>
+            <div className="incident-location-row">
+              <input
+                id="incident-location"
+                type="text"
+                placeholder="northbound exit 155 in the main lanes"
+                value={incidentLocationDraft}
+                onChange={(event) => setIncidentLocationDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') setIncidentLocation(incidentLocationDraft.trim())
+                }}
+              />
+              <button type="button" onClick={() => setIncidentLocation(incidentLocationDraft.trim())}>
+                Set
+              </button>
+            </div>
+          </div>
+          <div className="location-template-current" role="status">
+            <MapPinned size={14} />
+            <div>
+              <span>Roadway template</span>
+              <b>{loadedTemplateName ?? 'Untitled / manual scene'}</b>
+            </div>
+          </div>
         </aside>
 
         <button
@@ -2618,6 +2737,10 @@ function App() {
               <small className="scene-dataset">
                 {roadScene.source.dataset}
               </small>
+            </div>
+            <div className="incident-location-output" role="status" aria-label="Incident location">
+              <span>Location</span>
+              <b>{incidentLocation || 'Not set'}</b>
             </div>
             <div className="canvas-tools">
               <div className="drawing-menu-anchor">
@@ -3384,9 +3507,7 @@ function App() {
                   <button
                     type="button"
                     title="Remove lane"
-                    onClick={() =>
-                      setLaneCount((count) => Math.max(2, count - 1))
-                    }
+                    onClick={() => changeLaneCount(-1)}
                   >
                     <Minus size={15} />
                   </button>
@@ -3394,9 +3515,7 @@ function App() {
                   <button
                     type="button"
                     title="Add lane"
-                    onClick={() =>
-                      setLaneCount((count) => Math.min(5, count + 1))
-                    }
+                    onClick={() => changeLaneCount(1)}
                   >
                     <Plus size={15} />
                   </button>
@@ -3409,90 +3528,6 @@ function App() {
                   <span>MPH</span>
                 </div>
               </div>
-            </div>
-            <div className="control-group map-layers">
-              <label>Map layers</label>
-              <label className="toggle-row">
-                <span>
-                  <Layers3 size={16} /> Road geometry
-                </span>
-                <input
-                  type="checkbox"
-                  checked={roadLayerVisibility.roadGeometry}
-                  onChange={(event) =>
-                    setRoadLayerVisibilityValue(
-                      "roadGeometry",
-                      event.target.checked,
-                    )
-                  }
-                />
-              </label>
-              <label className="toggle-row">
-                <span>
-                  <span className="barrier-symbol" /> Barriers
-                </span>
-                <input
-                  type="checkbox"
-                  checked={roadLayerVisibility.barriers}
-                  onChange={(event) =>
-                    setRoadLayerVisibilityValue(
-                      "barriers",
-                      event.target.checked,
-                    )
-                  }
-                />
-              </label>
-              <label className="toggle-row">
-                <span>
-                  <span className="flow-symbol">→</span> Traffic flow
-                </span>
-                <input
-                  type="checkbox"
-                  checked={roadLayerVisibility.trafficFlow}
-                  onChange={(event) =>
-                    setRoadLayerVisibilityValue(
-                      "trafficFlow",
-                      event.target.checked,
-                    )
-                  }
-                />
-              </label>
-              <label className="toggle-row">
-                <span>
-                  <MapPinned size={16} />{" "}
-                  {highwayLabelsAvailable
-                    ? "Highway labels"
-                    : "Highway labels unavailable in preview"}
-                </span>
-                <input
-                  type="checkbox"
-                  checked={
-                    roadLayerVisibility.highwayLabels && highwayLabelsAvailable
-                  }
-                  disabled={!highwayLabelsAvailable}
-                  onChange={(event) =>
-                    setRoadLayerVisibilityValue(
-                      "highwayLabels",
-                      event.target.checked,
-                    )
-                  }
-                />
-              </label>
-              <label className="toggle-row">
-                <span>
-                  <Pencil size={16} /> Drawings
-                </span>
-                <input
-                  type="checkbox"
-                  checked={roadLayerVisibility.drawings}
-                  onChange={(event) =>
-                    setRoadLayerVisibilityValue(
-                      "drawings",
-                      event.target.checked,
-                    )
-                  }
-                />
-              </label>
             </div>
           </section>
           {roadSections.length > 1 && (

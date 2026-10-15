@@ -616,3 +616,25 @@
 }
 
 @media (prefers-reduced-motion: reduce) { .strobe, .location-spinner { animation: none; } }
+/* Layers dropdown (left pane) */
+.layers-menu { display: grid; gap: 2px; padding: 8px; }
+.layers-menu .toggle-row { margin: 0; }
+
+/* Saved scenes dropdown (top bar, beside connectivity) */
+.saved-scenes-anchor { position: relative; margin-left: auto; }
+.saved-scenes-toggle { height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; color: #eef3ef; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.22); border-radius: 2px; font: 600 10px 'IBM Plex Sans', sans-serif; white-space: nowrap; cursor: pointer; }
+.saved-scenes-toggle:hover, .saved-scenes-toggle[aria-expanded='true'] { background: rgba(255,255,255,.12); }
+.saved-scenes-anchor .saved-scenes-menu { color: var(--ink); background: var(--panel-bg); border: 1px solid var(--line); }
+
+/* Incident location (left pane input + toolbar readout) */
+.incident-location-row { display: flex; gap: 6px; }
+.incident-location-row input { flex: 1; min-width: 0; padding: 7px 8px; color: var(--ink); background: var(--control-bg); border: 1px solid var(--line); border-radius: 2px; font-size: 11px; }
+.incident-location-row button { padding: 0 12px; color: #111; background: var(--yellow); border: 1px solid #111; border-radius: 2px; font-weight: 700; font-size: 10px; cursor: pointer; }
+.incident-location-output { flex: 1; min-width: 0; display: grid; justify-items: center; gap: 2px; margin: 0 16px; text-align: center; }
+.incident-location-output span { color: #bdc8c2; font: 600 8px 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: 1px; }
+.incident-location-output b { max-width: 100%; overflow: hidden; color: #f3c52b; font: 600 14px/1.2 'Barlow Condensed', sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Loaded template readout: informational, not a control */
+.config-panel .location-template-current { margin: auto 12px 10px; padding: 8px 10px; background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.config-panel .location-template-current span { font-size: 8px; }
+.config-panel .location-template-current b { font-size: 12px; font-weight: 600; color: var(--muted); }

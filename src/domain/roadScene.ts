@@ -162,7 +162,20 @@ export function roadLayerForFeature(feature: RoadFeature): RoadLayer {
   return 'roadGeometry'
 }
 
-export function createReferenceRoadScene(): RoadScene {
+const GENERIC_HIGHWAY_DATASET = /^(Three|\d+)-lane divided-highway scale reference$/
+
+/** True for the generic straight-highway reference scene (any lane count), as opposed to a map pull or authored template. */
+export function isGenericHighwayScene(scene: RoadScene): boolean {
+  return scene.source.type === 'reference-layout' && GENERIC_HIGHWAY_DATASET.test(scene.source.dataset)
+}
+
+export function createReferenceRoadScene(lanes = 3): RoadScene {
+  const { shoulderWidth, laneWidth, viewportLength } = ROADWAY_DIMENSIONS_FEET
+  const laneCount = Math.max(1, Math.round(lanes))
+  const edge = shoulderWidth + 6
+  const width = edge * 2 + laneWidth * laneCount
+  const leftFog = edge
+  const rightFog = width - leftFog
   const verticalLine = (
     id: string,
     kind: RoadFeatureKind,
@@ -173,66 +186,47 @@ export function createReferenceRoadScene(): RoadScene {
     id,
     kind,
     layer,
-    geometry: {
-      type: 'LineString',
-      coordinates: [[x, 0], [x, ROADWAY_DIMENSIONS_FEET.viewportLength]],
-    },
-    properties: { lanes: 3, direction: 'forward', renderWidthFeet },
+    geometry: { type: 'LineString', coordinates: [[x, 0], [x, viewportLength]] },
+    properties: { lanes: laneCount, direction: 'forward', renderWidthFeet },
+  })
+  const roadProperties = { name: 'I-95 Northbound', highway: 'motorway', reference: 'I-95', lanes: laneCount, direction: 'forward' as const }
+  const rect = (inset: number): [number, number][] => [
+    [inset, 0], [width - inset, 0], [width - inset, viewportLength], [inset, viewportLength], [inset, 0],
+  ]
+  const skipId = (index: number) =>
+    index === 0 ? 'left-center-skip' : index === laneCount - 2 ? 'right-center-skip' : `center-skip-${index + 1}`
+  const skipLines = Array.from({ length: laneCount - 1 }, (_, index) =>
+    verticalLine(skipId(index), 'skip-line', leftFog + laneWidth * (index + 1), 2, ROADWAY_DIMENSIONS_FEET.skipLineWidth))
+  const flowVectors = Array.from({ length: Math.max(1, laneCount - 1) }, (_, index): RoadFeature => {
+    const x = leftFog + laneWidth / 2 + laneWidth * index
+    return {
+      id: index === 0 ? 'flow-vector-left' : index === 1 ? 'flow-vector-center' : `flow-vector-${index + 1}`,
+      kind: 'traffic-flow',
+      layer: 3,
+      geometry: { type: 'LineString', coordinates: [[x, 705], [x, 55]] },
+      properties: { direction: 'forward' },
+    }
   })
 
   return {
     version: 1,
     source: {
       type: 'reference-layout',
-      dataset: 'Three-lane divided-highway scale reference',
+      dataset: `${laneCount}-lane divided-highway scale reference`,
       generatedAt: '2026-08-20T00:00:00.000Z',
       attribution: 'Magnus scale reference; geometry is not map-derived.',
     },
-    coordinateSystem: {
-      worldCrs: 'EPSG:2283',
-      displayUnits: 'feet',
-      origin: 'top-left',
-      trafficFlow: 'bottom-to-top',
-    },
-    viewport: {
-      width: ROADWAY_DIMENSIONS_FEET.viewportWidth,
-      height: ROADWAY_DIMENSIONS_FEET.viewportLength,
-    },
+    coordinateSystem: { worldCrs: 'EPSG:2283', displayUnits: 'feet', origin: 'top-left', trafficFlow: 'bottom-to-top' },
+    viewport: { width, height: viewportLength },
     features: [
-      {
-        id: 'mainline-casing',
-        kind: 'road-casing',
-        layer: 0,
-        geometry: { type: 'Polygon', coordinates: [[[4, 0], [68, 0], [68, 760], [4, 760], [4, 0]]] },
-        properties: { name: 'I-95 Northbound', highway: 'motorway', reference: 'I-95', lanes: 3, direction: 'forward' },
-      },
-      {
-        id: 'mainline-surface',
-        kind: 'road-surface',
-        layer: 0,
-        geometry: { type: 'Polygon', coordinates: [[[6, 0], [66, 0], [66, 760], [6, 760], [6, 0]]] },
-        properties: { name: 'I-95 Northbound', highway: 'motorway', reference: 'I-95', lanes: 3, direction: 'forward' },
-      },
+      { id: 'mainline-casing', kind: 'road-casing', layer: 0, geometry: { type: 'Polygon', coordinates: [rect(4)] }, properties: roadProperties },
+      { id: 'mainline-surface', kind: 'road-surface', layer: 0, geometry: { type: 'Polygon', coordinates: [rect(6)] }, properties: roadProperties },
       verticalLine('left-shoulder-edge', 'shoulder-edge', 6, 1, 1),
-      verticalLine('left-fog-line', 'left-fog-line', 18, 2, ROADWAY_DIMENSIONS_FEET.edgeLineWidth),
-      verticalLine('left-center-skip', 'skip-line', 30, 2, ROADWAY_DIMENSIONS_FEET.skipLineWidth),
-      verticalLine('right-center-skip', 'skip-line', 42, 2, ROADWAY_DIMENSIONS_FEET.skipLineWidth),
-      verticalLine('right-fog-line', 'right-fog-line', 54, 2, ROADWAY_DIMENSIONS_FEET.edgeLineWidth),
-      verticalLine('right-shoulder-edge', 'shoulder-edge', 66, 1, 1),
-      {
-        id: 'flow-vector-left',
-        kind: 'traffic-flow',
-        layer: 3,
-        geometry: { type: 'LineString', coordinates: [[24, 705], [24, 55]] },
-        properties: { direction: 'forward' },
-      },
-      {
-        id: 'flow-vector-center',
-        kind: 'traffic-flow',
-        layer: 3,
-        geometry: { type: 'LineString', coordinates: [[48, 705], [48, 55]] },
-        properties: { direction: 'forward' },
-      },
+      verticalLine('left-fog-line', 'left-fog-line', leftFog, 2, ROADWAY_DIMENSIONS_FEET.edgeLineWidth),
+      ...skipLines,
+      verticalLine('right-fog-line', 'right-fog-line', rightFog, 2, ROADWAY_DIMENSIONS_FEET.edgeLineWidth),
+      verticalLine('right-shoulder-edge', 'shoulder-edge', width - 6, 1, 1),
+      ...flowVectors,
     ],
   }
 }

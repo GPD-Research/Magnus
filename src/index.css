@@ -25,33 +25,34 @@
 }
 
 :root[data-theme='light'] {
-  color: #26332e;
-  background: #eef2f0;
-  color-scheme: light;
-  --ink: #26332e;
-  --muted: #66736e;
-  --line: #c8d1cd;
-  --paper: #eef2f0;
+  color: #e4ebe7;
+  background: #2a3531;
+  color-scheme: dark;
+  --ink: #e8eeeb;
+  --muted: #aab6b0;
+  --line: #4a5753;
+  --paper: #2a3531;
   --chrome: #183027;
-  --panel-bg: #f4f7f5;
-  --panel-raised: #e6ece9;
-  --control-bg: #fff;
-  --control-hover: #e4eee9;
+  --panel-bg: #333f3a;
+  --panel-raised: #2c3733;
+  --control-bg: #222c28;
+  --control-hover: #3c4a44;
 }
 
+/* Custom themes derive every surface from the picked colour, kept dark enough to sit with the top bar. */
 :root[data-theme='custom'] {
-  color: #26312d;
-  background: color-mix(in srgb, var(--theme-accent) 8%, #f5f7f6);
-  color-scheme: light;
-  --ink: color-mix(in srgb, var(--theme-accent) 30%, #17201d);
-  --muted: color-mix(in srgb, var(--theme-accent) 28%, #64706b);
-  --line: color-mix(in srgb, var(--theme-accent) 22%, #c9d0cd);
-  --paper: color-mix(in srgb, var(--theme-accent) 8%, #f5f7f6);
+  color: color-mix(in srgb, var(--theme-accent) 12%, #e9eeec);
+  background: color-mix(in srgb, var(--theme-accent) 22%, #1d2522);
+  color-scheme: dark;
+  --ink: color-mix(in srgb, var(--theme-accent) 12%, #e9eeec);
+  --muted: color-mix(in srgb, var(--theme-accent) 25%, #a8b3ae);
+  --line: color-mix(in srgb, var(--theme-accent) 30%, #46524d);
+  --paper: color-mix(in srgb, var(--theme-accent) 22%, #1d2522);
   --chrome: color-mix(in srgb, var(--theme-accent) 48%, #101614);
-  --panel-bg: color-mix(in srgb, var(--theme-accent) 10%, #f5f7f6);
-  --panel-raised: color-mix(in srgb, var(--theme-accent) 16%, #eef2f0);
-  --control-bg: #fff;
-  --control-hover: color-mix(in srgb, var(--theme-accent) 13%, #f5f7f6);
+  --panel-bg: color-mix(in srgb, var(--theme-accent) 30%, #242c29);
+  --panel-raised: color-mix(in srgb, var(--theme-accent) 24%, #202825);
+  --control-bg: color-mix(in srgb, var(--theme-accent) 18%, #171e1c);
+  --control-hover: color-mix(in srgb, var(--theme-accent) 36%, #263a31);
 }
 
 * { box-sizing: border-box; }
