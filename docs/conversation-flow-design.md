@@ -27,8 +27,14 @@ Non-goals (this version): audio playback, scoring of trainee answers, multi-unit
 - Two panes, resizable split (default 62 / 38):
   - **Left — timeline canvas (SVG).** A serpentine path: horizontal rows that alternate direction
     (left→right, then right→left) joined by semicircular bends, with an arrowhead at the end of the
-    last row showing the flow of time. Row count grows with the node count (≈ 6–8 nodes per row at the
-    default zoom); the canvas scrolls vertically when rows exceed the pane.
+    last row showing the flow of time. The path is sized to fill the pane (rows chosen from pane
+    height, no scrolling at default zoom); it does not grow with the conversation.
+  - **Even spacing.** Nodes are placed at equal *arc-length* intervals along the whole path: one node
+    sits at the start, one at the arrowhead, and the rest are spread between them (`t = i / (N - 1)`
+    along the path; a single node sits at the start). Adding or removing a node re-spaces all nodes
+    with an animated slide, so the spacing simply gets more compact as the conversation grows. The
+    path exposes `pointAtLength` so bends count as real distance; labels flip side on right→left rows
+    to stay readable.
   - **Right — transcript.** The existing text-message bubbles (SSP right-aligned, TOC left-aligned),
     one bubble per node, in timeline order.
 - Toolbar (top of left pane): origin selector (SSP discovered / TOC dispatched), unit, vehicle finding
@@ -125,7 +131,8 @@ conversation across scenes) is a possible later addition and is not needed for v
    helpers; unit tests covering both origins, TOC-known vs SSP-found findings, regenerate-keeps-edits.
 2. `src/domain/scenarioFile.ts` — `conversation` field + normalizer + fixture.
 3. `src/components/ConversationFlow.tsx` + `.css` — window shell, serpentine path geometry
-   (`serpentinePoints(count, width)` → node centres and the path `d`), node layer, transcript pane,
+   (`serpentinePath(width, height, rows)` → path `d` + total length; `nodePositions(path, count)` →
+   evenly spaced centres via `getPointAtLength`), node layer, transcript pane,
    connector, inline editing, keyboard handling.
 4. `src/domain/conversationWindow.ts` — open/close helpers mirroring `templateEditorWindow.ts`;
    `main.tsx` route for `?view=conversation`; state shared with the main window through the existing
