@@ -7,6 +7,7 @@ import {
   isNatureSource,
   isInjurySeverity,
   isServiceRendered,
+  isTransportCount,
   DEFAULT_TAG_STATE,
   isIncidentType,
   normalizeCommunicationsState,
@@ -17,6 +18,7 @@ import {
   type NatureSource,
   type InjurySeverity,
   type ServiceRendered,
+  type TransportCount,
   type IncidentType,
   type TocIncidentDetails,
 } from './communications'
@@ -45,6 +47,7 @@ export interface PortableScenarioState {
   incidentNature: IncidentNature
   natureSource: NatureSource
   injuries: InjurySeverity
+  transports: TransportCount
   service: ServiceRendered
   tagNumber: string
   tagState: string
@@ -126,6 +129,7 @@ export function parsePortableScenario(value: string): PortableScenarioDocument {
       incidentNature: isIncidentNature(state.incidentNature) ? state.incidentNature : 'unknown',
       natureSource: isNatureSource(state.natureSource) ? state.natureSource : 'ssp-update',
       injuries: isInjurySeverity(state.injuries) ? state.injuries : 'none',
+      transports: isTransportCount(state.transports) ? state.transports : 0,
       service: isServiceRendered(state.service) ? state.service : 'none',
       tagNumber: typeof state.tagNumber === 'string' ? state.tagNumber : '',
       tagState: typeof state.tagState === 'string' && state.tagState ? state.tagState : DEFAULT_TAG_STATE,

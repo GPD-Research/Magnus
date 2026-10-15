@@ -27,7 +27,7 @@
 .flow-node.speaker-ssp .flow-node-speaker { fill: #f4f7f5; }
 .flow-node-label { fill: var(--ink); font-size: 12px; pointer-events: none; }
 .flow-empty { position: absolute; inset: 40% 10% auto; margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
-.conversation-transcript { min-height: 0; padding: 12px; overflow-y: auto; background: var(--panel-bg); border-left: 1px solid var(--line); }
+.conversation-transcript { position: relative; z-index: 1; min-height: 0; padding: 12px; overflow-y: auto; background: var(--panel-bg); border-left: 1px solid var(--line); }
 .conversation-transcript .conversation-log { max-height: none; min-height: 100%; gap: 8px; padding: 0; }
 .conversation-log .radio-event { position: relative; cursor: pointer; border: 2px solid transparent; }
 .conversation-log .radio-event.selected { border-color: var(--yellow); }
@@ -44,3 +44,5 @@
 .view-switch .record-dot { position: absolute; top: 4px; right: 4px; width: 14px; height: 14px; background: var(--red); border: 2px solid #fff; border-radius: 50%; animation: record-pulse 1.4s ease-in-out infinite; }
 .view-hidden { display: none !important; }
 .communications-tag span { display: grid; grid-template-columns: 1fr 64px; gap: 4px; }
+.conversation-body { position: relative; }
+.flow-connector-overlay { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 2; }

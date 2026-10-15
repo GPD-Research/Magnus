@@ -161,7 +161,7 @@ interface Step { trigger: ConversationTrigger; scene: CommunicationsScene }
 function skeletonSteps(scene: CommunicationsScene): Step[] {
   // Agencies already drawn are part of the opening (TOC names them at dispatch); the rest arrive one by one.
   const opening: AgencyGroup[] = scene.mode === 'toc-dispatched' ? AGENCY_ORDER.filter((group) => scene.agencies.includes(group)) : []
-  const base: CommunicationsScene = { ...scene, sspOnScene: true, sceneEmpty: false, agencies: opening, incidentNature: 'unknown', injuries: 'none', service: 'none' }
+  const base: CommunicationsScene = { ...scene, sspOnScene: true, sceneEmpty: false, agencies: opening, incidentNature: 'unknown', injuries: 'none', transports: 0, service: 'none' }
   const steps: Step[] = []
   if (scene.mode === 'toc-dispatched') {
     const tocKnows = scene.natureSource === 'toc-dispatch' && scene.incidentNature && scene.incidentNature !== 'unknown'
@@ -268,7 +268,7 @@ function recordedTriggers(before: CommunicationsState, after: CommunicationsStat
     if (is && !was) triggers.push({ type: 'agency', group, event: 'arrived' })
     if (was && !is) triggers.push({ type: 'agency', group, event: 'departed' })
   }
-  if (after.nature && after.nature !== 'unknown' && (after.nature !== before.nature || after.injuries !== before.injuries)) {
+  if (after.nature && after.nature !== 'unknown' && (after.nature !== before.nature || after.injuries !== before.injuries || after.transports !== before.transports)) {
     triggers.push({ type: 'finding', nature: after.nature, source: scene.natureSource ?? 'ssp-update' })
   }
   return [...triggers, ...serviceTrigger]

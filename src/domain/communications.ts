@@ -174,6 +174,14 @@ export function isInjurySeverity(value: unknown): value is InjurySeverity {
   return INJURY_OPTIONS.some((option) => option.value === value)
 }
 
+export type TransportCount = 0 | 1 | 2 | 3
+export const TRANSPORT_OPTIONS: { value: TransportCount; label: string }[] = [
+  { value: 0, label: 'No transports' }, { value: 1, label: '1 transport' }, { value: 2, label: '2 transports' }, { value: 3, label: '3 transports' },
+]
+export function isTransportCount(value: unknown): value is TransportCount {
+  return value === 0 || value === 1 || value === 2 || value === 3
+}
+
 export type ServiceRendered = 'none' | 'tire-change' | 'jump-start' | 'traffic-control' | 'added-coolant' | 'performed-push'
 export const SERVICE_OPTIONS: { value: ServiceRendered; label: string; spoken: string }[] = [
   { value: 'none', label: 'No service rendered', spoken: '' },
@@ -290,7 +298,7 @@ export interface CommunicationsScene {
   scenario: ScenarioType
   travelLanes: number
   sspOnScene: boolean
-  /** Only the SSP truck is left: no hazards, agencies or other equipment. Ends the script with "scene clear". */
+  /** Nothing left on the pavement — no hazards, agencies, cones or other equipment (the truck may still be there). Ends the script with "scene clear". */
   sceneEmpty?: boolean
   hazards: ReportedHazards
   /** Footprint-derived hazards; when present they replace `hazards`/`scenario` for the call-out wording. */
@@ -298,6 +306,7 @@ export interface CommunicationsScene {
   incidentNature?: IncidentNature
   natureSource?: NatureSource
   injuries?: InjurySeverity
+  transports?: TransportCount
   service?: ServiceRendered
   /** Licence plate read off the vehicle; spoken in SSP-discovered call-outs only. */
   tagNumber?: string
@@ -311,6 +320,7 @@ export interface CommunicationsState {
   /** Nature already reported to TOC, so the update is sent once per change. */
   nature?: IncidentNature
   injuries?: InjurySeverity
+  transports?: TransportCount
   service?: ServiceRendered
 }
 
@@ -326,6 +336,7 @@ export function normalizeCommunicationsState(value: unknown): CommunicationsStat
     agencies: Array.isArray(state.agencies) ? state.agencies.filter((group): group is AgencyGroup => groups.includes(group)) : [],
     ...(isIncidentNature(state.nature) && state.nature !== 'unknown' ? { nature: state.nature } : {}),
     ...(isInjurySeverity(state.injuries) && state.injuries !== 'none' ? { injuries: state.injuries } : {}),
+    ...(isTransportCount(state.transports) && state.transports > 0 ? { transports: state.transports } : {}),
     ...(isServiceRendered(state.service) && state.service !== 'none' ? { service: state.service } : {}),
   }
 }
@@ -358,7 +369,7 @@ export function advanceCommunications(
 
   if (state.phase === 'on-scene') {
     const service = serviceUpdate(state, scene)
-    if (!scene.sspOnScene || scene.sceneEmpty) {
+    if (scene.sceneEmpty) {
       if (service) messages.push(hail(service), copy)
       messages.push(hail("scene clear, I'm clear"), copy)
       return { state: { phase: 'cleared', agencies: [] }, messages }
@@ -368,7 +379,7 @@ export function advanceCommunications(
       const was = state.agencies.includes(group)
       const is = present.includes(group)
       if (is && !was) messages.push(hail(AGENCY_PHRASES[group].arrived), copy)
-      if (was && !is) messages.push(hail(AGENCY_PHRASES[group].departed), copy)
+      if (was && !is) messages.push(hail(group === 'ems' && (scene.transports ?? 0) > 0 ? `${AGENCY_PHRASES[group].departed}, ${transportsPhrase(scene.transports ?? 0)}` : AGENCY_PHRASES[group].departed), copy)
     }
     messages.push(...natureExchange(state, scene, hail, present))
     if (service) messages.push(hail(service), copy)
@@ -406,7 +417,7 @@ function onSceneExchange(unit: string, controller: string, scene: Communications
   const onShoulder = scene.sceneHazards ? blockedLanes(scene.sceneHazards).length === 0 : scene.scenario === 'shoulder'
   const present = sortAgencies(scene.agencies)
   const needsVsp = !onShoulder && !present.includes('vsp')
-  const tag = !afterDispatch && scene.tagNumber?.trim() ? `, tag reads ${scene.tagNumber.trim().toUpperCase()} out of ${stateName(scene.tagState ?? DEFAULT_TAG_STATE)}` : ''
+  const tag = scene.tagNumber?.trim() ? `, tag reads ${scene.tagNumber.trim().toUpperCase()} out of ${stateName(scene.tagState ?? DEFAULT_TAG_STATE)}` : ''
   const opening = afterDispatch ? 'Show me on scene at' : 'Show me out at'
   const report = [
     scene.sceneHazards
@@ -434,6 +445,7 @@ function onSceneState(agencies: AgencyGroup[], scene: CommunicationsScene): Comm
     agencies,
     nature: reportedNature(scene),
     ...(scene.injuries && scene.injuries !== 'none' ? { injuries: scene.injuries } : {}),
+    ...(scene.transports ? { transports: scene.transports } : {}),
     ...(scene.service && scene.service !== 'none' ? { service: scene.service } : {}),
   }
 }
@@ -571,27 +583,42 @@ function reportedNature(scene: CommunicationsScene): IncidentNature | undefined 
 }
 
 /** Follow-up once the SSP has determined whether the vehicles crashed or are disabled. */
+function transportsPhrase(count: number): string {
+  return count === 1 ? '1 transport' : `${count} transports`
+}
+
+/**
+ * Follow-up once the SSP has determined whether the vehicles crashed or are disabled, with injuries
+ * and EMS transports folded in when they change at the same time; transports alone are their own update.
+ */
 function natureUpdate(state: CommunicationsState, scene: CommunicationsScene): string | null {
   const nature = reportedNature(scene)
   const injuries = scene.injuries ?? 'none'
-  if (!nature || (nature === state.nature && injuries === (state.injuries ?? 'none'))) return null
+  const transports = scene.transports ?? 0
+  const natureChanged = nature !== state.nature
+  const injuriesChanged = injuries !== (state.injuries ?? 'none')
+  const transportsChanged = transports !== (state.transports ?? 0)
+  if (!nature && !transportsChanged) return null
   const vehicles = scene.sceneHazards?.filter((hazard) => hazard.kind === 'vehicle').length ?? 1
   if (vehicles === 0) return null
-  if (nature === 'accident') {
+  const transportsTail = transports > 0 && transportsChanged ? `, ${transportsPhrase(transports)}` : ''
+  if (nature === 'accident' && (natureChanged || injuriesChanged)) {
     const subject = vehicles === 1 ? 'vehicle was in a crash' : 'vehicles were in a crash'
-    const withInjuries = injuries === 'none' ? subject : `${subject} with ${injuries} injuries`
-    return scene.mode === 'toc-dispatched' && injuries !== 'none' && !scene.agencies.includes('fire') ? `${withInjuries}, send fire and rescue` : withInjuries
+    return `${injuries === 'none' ? subject : `${subject} with ${injuries} injuries`}${transportsTail}`
   }
-  if (nature === state.nature) return null
-  return vehicles === 1 ? 'vehicle is disabled' : 'vehicles are disabled'
+  if (nature === 'disabled' && natureChanged) return `${vehicles === 1 ? 'vehicle is disabled' : 'vehicles are disabled'}${transportsTail}`
+  if (transportsTail) return transportsPhrase(transports)
+  return null
 }
 
-/** Nature update plus TOC's answer: on an SSP-discovered crash with injuries TOC dispatches fire and rescue. */
+/** Nature update plus TOC's answer: when injuries are first reported and no EMS or fire is there, TOC sends them. */
 function natureExchange(state: CommunicationsState, scene: CommunicationsScene, hail: (text: string) => RadioMessage, present: AgencyGroup[]): RadioMessage[] {
   const update = natureUpdate(state, scene)
   if (!update) return []
-  const injured = scene.incidentNature === 'accident' && (scene.injuries ?? 'none') !== 'none' && !present.includes('fire')
-  const reply = injured ? (scene.mode === 'toc-dispatched' ? 'Copy. Fire and rescue en route.' : 'Copy. Sending fire and rescue.') : 'Copy.'
+  const injuries = scene.injuries ?? 'none'
+  const newlyInjured = scene.incidentNature === 'accident' && injuries !== 'none' && injuries !== (state.injuries ?? 'none')
+  const medicalPresent = present.includes('ems') || present.includes('fire')
+  const reply = newlyInjured && !medicalPresent ? 'Copy. EMS and fire and rescue en route.' : 'Copy.'
   return [hail(update), { channel: 'TOC', text: reply }]
 }
 

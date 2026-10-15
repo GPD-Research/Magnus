@@ -142,7 +142,7 @@ export interface RoadScene {
 
 export const ROADWAY_DIMENSIONS_FEET = {
   viewportWidth: 72,
-  viewportLength: 760,
+  viewportLength: 1520,
   shoulderWidth: 12,
   laneWidth: 12,
   edgeLineWidth: 0.5,
@@ -203,7 +203,7 @@ export function createReferenceRoadScene(lanes = 3): RoadScene {
       id: index === 0 ? 'flow-vector-left' : index === 1 ? 'flow-vector-center' : `flow-vector-${index + 1}`,
       kind: 'traffic-flow',
       layer: 3,
-      geometry: { type: 'LineString', coordinates: [[x, 705], [x, 55]] },
+      geometry: { type: 'LineString', coordinates: [[x, viewportLength - 55], [x, 55]] },
       properties: { direction: 'forward' },
     }
   })

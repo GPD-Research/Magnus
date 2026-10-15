@@ -1,7 +1,7 @@
 import { ROADWAY_DIMENSIONS_FEET, type Position, type RoadFeature, type RoadScene } from './roadScene'
 import { sideAwareOffsets } from './locationTemplateEditing'
 
-export type HighwayLaneCount = 1 | 2 | 3
+export type HighwayLaneCount = 1 | 2 | 3 | 4 | 5
 export type HighwayDirectionMode = 'one-direction' | 'both-directions'
 export type HighwayAuxiliaryLane = 'none' | 'acceleration-lane' | 'deceleration-lane'
 export type HighwayRampStyle = 'straight-off-ramp' | 'straight-on-ramp' | 'circular-off-ramp' | 'circular-on-ramp'
@@ -17,6 +17,8 @@ export const HIGHWAY_LANE_OPTIONS: { value: HighwayLaneCount; label: string }[] 
   { value: 1, label: '1 lane highway' },
   { value: 2, label: '2 lane highway' },
   { value: 3, label: '3 lane highway' },
+  { value: 4, label: '4 lane highway' },
+  { value: 5, label: '5 lane highway' },
 ]
 
 export const HIGHWAY_DIRECTION_OPTIONS: { value: HighwayDirectionMode; label: string }[] = [

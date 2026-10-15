@@ -27,6 +27,7 @@ import {
   RotateCw,
   Save,
   ScreenShare,
+  Route,
   Settings,
   ShieldCheck,
   Trash2,
@@ -57,6 +58,7 @@ import {
   INCIDENT_NATURE_OPTIONS,
   NATURE_SOURCE_OPTIONS,
   INJURY_OPTIONS,
+  TRANSPORT_OPTIONS,
   SERVICE_OPTIONS,
   US_STATES,
   DEFAULT_TAG_STATE,
@@ -68,6 +70,7 @@ import {
   type IncidentNature,
   type NatureSource,
   type InjurySeverity,
+  type TransportCount,
   type ServiceRendered,
   type IncidentType,
   type TocIncidentDetails,
@@ -277,6 +280,7 @@ function loadSavedScenario(): PortableScenarioState | null {
           incidentNature: 'unknown',
           natureSource: 'ssp-update',
           injuries: 'none',
+          transports: 0,
           service: 'none',
           tagNumber: '',
           tagState: DEFAULT_TAG_STATE,
@@ -325,6 +329,7 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     incidentNature: state.incidentNature,
     natureSource: state.natureSource,
     injuries: state.injuries,
+    transports: state.transports,
     service: state.service,
     tagNumber: state.tagNumber,
     tagState: state.tagState,
@@ -623,12 +628,14 @@ function App() {
   const [conversation, setConversation] = useState<Conversation>(savedScenario?.conversation ?? EMPTY_CONVERSATION)
   const [recording, setRecording] = useState(false)
   const [activeView, setActiveView] = useState<'scene' | 'comms'>('scene')
+  const [savedRoadwaysOpen, setSavedRoadwaysOpen] = useState(false)
   const [communicationsMode, setCommunicationsMode] = useState<CommunicationsMode>(savedScenario?.communicationsMode ?? 'ssp-discovered')
   const [sspUnit, setSspUnit] = useState(savedScenario?.sspUnit ?? DEFAULT_SSP_UNIT)
   const [incidentNature, setIncidentNature] = useState<IncidentNature>(savedScenario?.incidentNature ?? 'unknown')
   const [natureSource, setNatureSource] = useState<NatureSource>(savedScenario?.natureSource ?? 'ssp-update')
   const [injuries, setInjuries] = useState<InjurySeverity>(savedScenario?.injuries ?? 'none')
   const [service, setService] = useState<ServiceRendered>(savedScenario?.service ?? 'none')
+  const [transports, setTransports] = useState<TransportCount>(savedScenario?.transports ?? 0)
   const [tagNumber, setTagNumber] = useState(savedScenario?.tagNumber ?? '')
   const [tagState, setTagState] = useState(savedScenario?.tagState ?? DEFAULT_TAG_STATE)
   const [incidentType] = useState<IncidentType>(savedScenario?.incidentType ?? 'crash')
@@ -1176,6 +1183,7 @@ function App() {
       incidentNature,
       natureSource,
       injuries,
+      transports,
       service,
       tagNumber,
       tagState,
@@ -1296,6 +1304,7 @@ function App() {
     setIncidentNature(state.incidentNature)
     setNatureSource(state.natureSource)
     setInjuries(state.injuries)
+    setTransports(state.transports)
     setService(state.service)
     setTagNumber(state.tagNumber)
     setTagState(state.tagState)
@@ -1528,17 +1537,18 @@ function App() {
     scenario,
     travelLanes: laneCount,
     sspOnScene: sceneVisible && trucks.length > 0,
-    sceneEmpty: trucks.length > 0 && deployedEquipment.length === 0,
+    sceneEmpty: deployedEquipment.length === 0 && points.length === 0,
     hazards: reportedHazards(deployedEquipment),
     sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
     incidentNature,
     natureSource,
     injuries,
+    transports,
     service,
     tagNumber,
     tagState,
     agencies: agenciesOnScene(deployedEquipment),
-  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment, roadScene, incidentNature, natureSource, injuries, service, tagNumber, tagState])
+  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment, points.length, roadScene, incidentNature, natureSource, injuries, transports, service, tagNumber, tagState])
 
   // With Record on, scene changes are diffed against the last recorded state and appended to the
   // conversation; with it off the instructor can edit the scene freely.
@@ -1920,6 +1930,39 @@ function App() {
                     </button>
                   </div>
                 ))}
+                <button
+                  className="saved-scenes-load"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setSavedScenesOpen(false); void chooseScenarioFile() }}
+                >
+                  <FolderOpen size={14} /> Load from file…
+                </button>
+              </div>
+            )}
+          </div>
+        <div className="save-scene-anchor saved-scenes-anchor">
+            <button
+              className="saved-scenes-toggle"
+              type="button"
+              aria-label="SAVED ROADWAYS"
+              aria-expanded={savedRoadwaysOpen}
+              aria-haspopup="menu"
+              onClick={() => { setSavedRoadwaysOpen((open) => !open); setSavedScenesOpen(false); setSaveMenuOpen(false) }}
+            >
+              <Route size={17} /> <span>Saved roadways</span> {savedRoadwaysOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+            {savedRoadwaysOpen && (
+              <div className="saved-scenes-menu" role="menu" aria-label="Saved roadways">
+                <span>Roadway templates from the editor</span>
+                {displayedLocationTemplates.map((entry) => (
+                  <div className="saved-scene-entry" key={entry.name}>
+                    <button type="button" role="menuitem" onClick={() => { setSavedRoadwaysOpen(false); loadLocationTemplateEntry(entry) }}>
+                      <b>{entry.name}</b>
+                      <small>{isBuiltInLocationTemplate(entry.name) ? 'Built-in template' : new Date(entry.savedAt).toLocaleString()}</small>
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -2225,16 +2268,6 @@ function App() {
           <Trash2 size={18} />
         </button>
         <div className="scene-file-actions">
-          <button
-            className="scene-file-button"
-            type="button"
-            aria-label="LOAD SCENE"
-            onClick={() => {
-              void chooseScenarioFile();
-            }}
-          >
-            <FolderOpen size={17} /> <span>LOAD SCENE</span>
-          </button>
           <input
             ref={loadSceneInputRef}
             className="scene-file-input"
@@ -2482,7 +2515,7 @@ function App() {
             >
               <FolderOpen size={16} />
               <span>
-                <b>Load scene type</b>
+                <b>Roadway templates</b>
                 <small>{displayedLocationTemplates.length} available</small>
               </span>
               {locationTemplatesOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -2531,11 +2564,7 @@ function App() {
                 <div className="scenario-options">
                   {SCENARIO_CATALOG.map((item) => (
                     <button
-                      className={
-                        (sceneVisible || scenePlacementActive) && scenario === item.id
-                          ? "scenario-card active"
-                          : "scenario-card"
-                      }
+                      className={scenario === item.id ? "scenario-card active" : "scenario-card"}
                       disabled={scenePlacementActive || (sceneVisible && !sceneConversionActive) || (sceneConversionActive && scenario === item.id)}
                       key={item.id}
                       type="button"
@@ -2550,7 +2579,7 @@ function App() {
                         {item.label}
                         <small>{item.mutcdApplication}</small>
                       </span>
-                      <i>{(sceneVisible || scenePlacementActive) && scenario === item.id && <Check size={13} />}</i>
+                      <i>{scenario === item.id && <Check size={13} />}</i>
                     </button>
                   ))}
                 </div>
@@ -3840,6 +3869,14 @@ function App() {
             Injuries
             <select id="communications-injuries" value={injuries} onChange={(event) => setInjuries(event.target.value as InjurySeverity)}>
               {INJURY_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="communications-transports">
+            Transports
+            <select id="communications-transports" value={transports} onChange={(event) => setTransports(Number(event.target.value) as TransportCount)}>
+              {TRANSPORT_OPTIONS.map((option) => (
                 <option value={option.value} key={option.value}>{option.label}</option>
               ))}
             </select>

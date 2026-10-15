@@ -23,6 +23,7 @@ const state: PortableScenarioState = {
   incidentNature: 'unknown',
   natureSource: 'ssp-update',
   injuries: 'none',
+  transports: 0,
   service: 'none',
   tagNumber: '',
   tagState: 'VA',

@@ -81,7 +81,8 @@ export function ConversationFlow({ conversation, onChange, onRedo, onReassess, r
     const frame = window.requestAnimationFrame(() => {
       const canvasBox = canvas.getBoundingClientRect()
       const bubbleBox = bubble.getBoundingClientRect()
-      setConnector({ x1: position.x, y1: position.y, x2: canvasBox.width, y2: bubbleBox.top + bubbleBox.height / 2 - canvasBox.top })
+      // Overlay coordinates are relative to the body, so the line can cross into the transcript pane.
+      setConnector({ x1: position.x, y1: position.y, x2: bubbleBox.left - canvasBox.left, y2: bubbleBox.top + bubbleBox.height / 2 - canvasBox.top })
     })
     return () => window.cancelAnimationFrame(frame)
   }, [selected, positions, nodes])
@@ -97,6 +98,7 @@ export function ConversationFlow({ conversation, onChange, onRedo, onReassess, r
       else if (event.key === 'ArrowLeft') setSelectedId(nodes[Math.max(0, index - 1)]?.id ?? null)
       else if (event.key === 'ArrowRight') setSelectedId(nodes[Math.min(nodes.length - 1, index + 1)]?.id ?? null)
       else if (event.key === 'Delete' || event.key === 'Backspace') onChange(removeNode(conversation, selected.id))
+      else if (event.key === 'Escape') setSelectedId(null)
       else return
       event.preventDefault()
     }
@@ -131,7 +133,7 @@ export function ConversationFlow({ conversation, onChange, onRedo, onReassess, r
             <Circle size={12} fill="currentColor" /> {recording ? 'Recording' : 'Record'}
           </button>
           <button type="button" onClick={onReassess} title="Compare the scene with the last state and add the arrivals, departures or clearing call it implies"><Search size={13} /> Reassess</button>
-          <button type="button" onClick={() => { if (conversation.nodes.length === 0 || window.confirm('Start the conversation over? Edits and recorded calls will be discarded.')) onRedo() }} title="Discard the conversation and rebuild it from the scene"><RotateCcw size={13} /> Redo</button>
+          <button type="button" onClick={() => { if (conversation.nodes.length === 0 || window.confirm('Start the conversation over? Edits and recorded calls will be discarded.')) onRedo() }} title={conversation.nodes.length === 0 ? 'Build the conversation from the scene' : 'Discard the conversation and rebuild it from the scene'}><RotateCcw size={13} /> {conversation.nodes.length === 0 ? 'Generate' : 'Redo'}</button>
           <button type="button" onClick={() => addCall()}><Plus size={13} /> Add call</button>
           <div className="quick-acks" aria-label="Quick acknowledgements">
             {QUICK_ACKNOWLEDGEMENTS.map((text) => (
@@ -142,7 +144,12 @@ export function ConversationFlow({ conversation, onChange, onRedo, onReassess, r
         </div>
       </div>
       <div className="conversation-body">
-        <div className="conversation-canvas" ref={canvasRef}>
+        {connector && (
+          <svg className="flow-connector-overlay" aria-hidden="true">
+            <line {...connector} className="flow-connector" />
+          </svg>
+        )}
+        <div className="conversation-canvas" ref={canvasRef} onClick={(event) => { if (event.target === event.currentTarget || (event.target as Element).tagName === 'svg') setSelectedId(null) }}>
           <svg width={size.width} height={size.height} viewBox={`0 0 ${size.width} ${size.height}`} role="img" aria-label="Timeline">
             <defs>
               <marker id="flow-arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="userSpaceOnUse">
@@ -150,7 +157,6 @@ export function ConversationFlow({ conversation, onChange, onRedo, onReassess, r
               </marker>
             </defs>
             <path ref={pathRef} d={pathD} className="flow-path" markerEnd="url(#flow-arrow)" />
-            {connector && <line {...connector} className="flow-connector" />}
             {nodes.map((node, index) => {
               const position = positions[index]
               if (!position) return null
@@ -179,7 +185,7 @@ export function ConversationFlow({ conversation, onChange, onRedo, onReassess, r
             })}
           </svg>
           {nodes.length === 0 && (
-            <p className="flow-empty">Set the origin and finding, then press Redo to prefill the exchange from the scene — or Add call to write it yourself.</p>
+            <p className="flow-empty">Set the origin and finding, then press Generate to prefill the exchange from the scene — or Add call to write it yourself.</p>
           )}
         </div>
         <div className="conversation-transcript" ref={transcriptRef} aria-label="Radio transcript">
