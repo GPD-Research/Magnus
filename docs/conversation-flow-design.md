@@ -51,6 +51,7 @@ export interface ConversationNode {
   speaker: 'SSP' | 'TOC'
   text: string                        // the spoken line, exactly as rendered in the bubble
   kind: 'hail' | 'ack' | 'report' | 'dispatch' | 'en-route' | 'update' | 'finding' | 'clear' | 'custom'
+                                      // 'ack' = one-word calls: "Copy.", "10-4.", "Disregard." — always their own node
   trigger: ConversationTrigger        // why this line exists (drives prefill and the node tooltip)
   edited: boolean                     // instructor changed text/speaker; regenerate keeps it
   pinned: boolean                     // instructor added it; regenerate never removes it
@@ -110,6 +111,9 @@ as assets are added.
 - **Speaker toggle** on the node (SSP ⇄ TOC).
 - **Add call** inserts a `custom` pinned node after the selection (or at the end), speaker alternating
   from the previous node, empty text focused for typing.
+- **Quick acknowledgements**: a one-click menu ("Copy.", "10-4.", "Disregard.", "Go ahead.", "Stand by.")
+  inserts an `ack` node for the *other* speaker after the selection — single words are how most of
+  the traffic actually goes, so they must be as cheap to add as they are to say.
 - **Remove** deletes the selected node (Delete key or ✕ on the bubble); heuristic nodes removed this
   way are remembered as suppressed (`trigger` added to a `suppressed` list) so regenerate does not
   bring them back until "Reset conversation".
@@ -142,8 +146,10 @@ conversation across scenes) is a possible later addition and is not needed for v
    mirror of the conversation nodes.
 6. Version bump to 11.0.0-rc.1, `.deb` release.
 
-Open questions for the instructor:
-- Should TOC acknowledgements (`Copy.`) be their own nodes (more nodes, clearer ownership) or be shown
-  as a small tail on the preceding SSP node? Design above assumes **own nodes**.
+Decisions from the instructor:
+- Every acknowledgement (`Copy.`, `10-4.`, `Disregard.`) is its **own node**; nothing is folded into
+  a neighbouring node.
+
+Open question:
 - Should departures of agencies be prefilled at the end of the skeleton (before `show me clear`) so a
   complete lesson exists without edits? Design above assumes **not prefilled**.
