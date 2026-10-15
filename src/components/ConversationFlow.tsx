@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Circle, Map, MonitorUp, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Circle, Map, MonitorUp, Plus, RotateCcw, Search, Trash2 } from 'lucide-react'
 import {
   QUICK_ACKNOWLEDGEMENTS,
   insertNode,
@@ -17,7 +17,8 @@ import './ConversationFlow.css'
 interface ConversationFlowProps {
   conversation: Conversation
   onChange: (conversation: Conversation) => void
-  onRegenerate: () => void
+  onRedo: () => void
+  onReassess: () => void
   recording: boolean
   onToggleRecording: () => void
   onSwitchToScene: () => void
@@ -26,7 +27,7 @@ interface ConversationFlowProps {
   fields: ReactNode
 }
 
-export function ConversationFlow({ conversation, onChange, onRegenerate, recording, onToggleRecording, onSwitchToScene, onDisplay, fields }: ConversationFlowProps) {
+export function ConversationFlow({ conversation, onChange, onRedo, onReassess, recording, onToggleRecording, onSwitchToScene, onDisplay, fields }: ConversationFlowProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const pathRef = useRef<SVGPathElement>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
@@ -129,7 +130,8 @@ export function ConversationFlow({ conversation, onChange, onRegenerate, recordi
           <button type="button" className={`record-toggle${recording ? ' recording' : ''}`} onClick={onToggleRecording} aria-pressed={recording} title="While recording, scene changes add calls to the timeline">
             <Circle size={12} fill="currentColor" /> {recording ? 'Recording' : 'Record'}
           </button>
-          <button type="button" onClick={onRegenerate} title="Rebuild the skeleton from the scene; your edits are kept"><RotateCcw size={13} /> Regenerate</button>
+          <button type="button" onClick={onReassess} title="Compare the scene with the last state and add the arrivals, departures or clearing call it implies"><Search size={13} /> Reassess</button>
+          <button type="button" onClick={() => { if (conversation.nodes.length === 0 || window.confirm('Start the conversation over? Edits and recorded calls will be discarded.')) onRedo() }} title="Discard the conversation and rebuild it from the scene"><RotateCcw size={13} /> Redo</button>
           <button type="button" onClick={() => addCall()}><Plus size={13} /> Add call</button>
           <div className="quick-acks" aria-label="Quick acknowledgements">
             {QUICK_ACKNOWLEDGEMENTS.map((text) => (
@@ -177,7 +179,7 @@ export function ConversationFlow({ conversation, onChange, onRegenerate, recordi
             })}
           </svg>
           {nodes.length === 0 && (
-            <p className="flow-empty">Set the origin and finding, then press Regenerate to prefill the exchange from the scene — or Add call to write it yourself.</p>
+            <p className="flow-empty">Set the origin and finding, then press Redo to prefill the exchange from the scene — or Add call to write it yourself.</p>
           )}
         </div>
         <div className="conversation-transcript" ref={transcriptRef} aria-label="Radio transcript">

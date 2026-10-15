@@ -1521,8 +1521,19 @@ function App() {
     setConversation(result.conversation)
   }, [recording, conversation, communicationsState, communicationsScene])
 
-  function regenerateConversation() {
-    const result = buildConversation(communicationsScene, conversation)
+  // Redo throws the conversation away (edits included) and rebuilds the skeleton from the scene.
+  function redoConversation() {
+    const result = buildConversation(communicationsScene)
+    setConversation(result.conversation)
+    setCommunicationsState(result.state)
+  }
+
+  // Reassess diffs the scene against the last state and appends what changed, like one Record step.
+  function reassessConversation() {
+    const baseline = communicationsState.phase === 'idle' && conversation.nodes.length > 0
+      ? buildConversation(communicationsScene, conversation).state
+      : communicationsState
+    const result = recordSceneChange(conversation, baseline, communicationsScene)
     setConversation(result.conversation)
     setCommunicationsState(result.state)
   }
@@ -3740,7 +3751,8 @@ function App() {
         <ConversationFlow
           conversation={conversation}
           onChange={setConversation}
-          onRegenerate={regenerateConversation}
+          onRedo={redoConversation}
+          onReassess={reassessConversation}
           recording={recording}
           onToggleRecording={toggleRecording}
           onSwitchToScene={() => setActiveView('scene')}
