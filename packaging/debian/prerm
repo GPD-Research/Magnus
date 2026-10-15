@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+curl --silent --fail -X POST http://127.0.0.1:8787/api/exit >/dev/null 2>&1 || true
+pkill -x spatial_server 2>/dev/null || true
+exit 0

@@ -28,6 +28,7 @@ install -m 0755 tools/topology-worker/target/release/magnus-topology-worker "$ST
 cp -r dist/. "$STAGE/opt/magnus/web/"
 printf '%s\n' "$COMMIT" >"$STAGE/opt/magnus/BUILD_COMMIT"
 install -m 0755 packaging/debian/magnus "$STAGE/usr/bin/magnus"
+install -m 0755 packaging/debian/postinst packaging/debian/prerm "$STAGE/DEBIAN/"
 install -m 0644 packaging/debian/magnus.desktop "$STAGE/usr/share/applications/"
 install -m 0644 public/favicon.svg "$STAGE/usr/share/icons/hicolor/scalable/apps/magnus.svg"
 
@@ -39,7 +40,7 @@ Section: education
 Priority: optional
 Architecture: $ARCH
 Installed-Size: $INSTALLED_SIZE
-Depends: curl, xdg-utils, libc6 (>= 2.34)
+Depends: curl, xdg-utils, iproute2, procps, libc6 (>= 2.34)
 Maintainer: GPD Research <gregorydearth@gmail.com>
 Homepage: https://gpd-research.com/magnus.html
 Description: Highway incident-scene builder for Safety Service Patrol training
