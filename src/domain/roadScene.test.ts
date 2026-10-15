@@ -37,7 +37,7 @@ describe('road scene IPC contract', () => {
     const scene = createReferenceRoadScene()
     const skipLines = scene.features.filter((feature) => feature.kind === 'skip-line')
 
-    expect(scene.viewport).toEqual({ width: 72, height: 760 })
+    expect(scene.viewport).toEqual({ width: 72, height: 1520 })
     expect(ROADWAY_DIMENSIONS_FEET).toMatchObject({
       laneWidth: 12,
       skipStripeLength: 10,

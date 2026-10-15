@@ -95,7 +95,7 @@ describe('advanceCommunications', () => {
     expect(gone.messages[0].text).toBe('SSP970 to 95 Control, fire has departed.')
     const tree = advanceCommunications(gone.state, { ...scene, agencies: ['vsp', 'tree-removal'] })
     expect(tree.messages[0].text).toBe('SSP970 to 95 Control, tree removal workers on scene.')
-    const clear = advanceCommunications(tree.state, { ...scene, sspOnScene: false })
+    const clear = advanceCommunications(tree.state, { ...scene, sceneEmpty: true })
     expect(clear.messages).toEqual([
       { channel: 'SSP', text: "SSP970 to 95 Control, scene clear, I'm clear." },
       { channel: 'TOC', text: 'Copy.' },
@@ -187,16 +187,17 @@ describe('injuries, services and tag numbers', () => {
     const out = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...base, tagNumber: 'xyz 123', tagState: 'VA' }).messages
     expect(out[2].text).toBe("Show me out at northbound exit 155 in the main lanes on the right shoulder with a car, tag reads XYZ 123 out of Virginia. I'll advise.")
     const dispatched = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...base, mode: 'toc-dispatched', tagNumber: 'XYZ' }).messages
-    expect(dispatched.map((message) => message.text).join(' ')).not.toContain('tag reads')
+    expect(dispatched[2].text).not.toContain('tag reads')
     expect(dispatched[6].text).toContain('Show me on scene at')
+    expect(dispatched[6].text).toContain('tag reads XYZ out of Virginia')
   })
 
-  it('reports crash injuries and TOC sends fire and rescue when SSP discovered it', () => {
+  it('reports crash injuries from either origin and TOC sends EMS and fire when none are there', () => {
     const onScene = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, base).state
     const injured = advanceCommunications(onScene, { ...base, incidentNature: 'accident', injuries: 'minor' })
     expect(injured.messages).toEqual([
       { channel: 'SSP', text: 'SSP970 to 95 Control, vehicle was in a crash with minor injuries.' },
-      { channel: 'TOC', text: 'Copy. Sending fire and rescue.' },
+      { channel: 'TOC', text: 'Copy. EMS and fire and rescue en route.' },
     ])
     expect(advanceCommunications(injured.state, { ...base, incidentNature: 'accident', injuries: 'minor' }).messages).toEqual([])
     const worse = advanceCommunications(injured.state, { ...base, incidentNature: 'accident', injuries: 'major', agencies: ['fire'] })
@@ -206,13 +207,24 @@ describe('injuries, services and tag numbers', () => {
     ])
   })
 
-  it('has the SSP ask for fire and rescue when TOC dispatched the crash', () => {
-    const dispatched = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...base, mode: 'toc-dispatched', sspOnScene: false })
-    const arrived = advanceCommunications(dispatched.state, { ...base, mode: 'toc-dispatched', incidentNature: 'accident', injuries: 'major' })
-    expect(arrived.messages.slice(-2)).toEqual([
-      { channel: 'SSP', text: 'SSP970 to 95 Control, vehicle was in a crash with major injuries, send fire and rescue.' },
-      { channel: 'TOC', text: 'Copy. Fire and rescue en route.' },
+  it('folds transports into the crash update, reports them alone later, and restates them when EMS departs', () => {
+    const dispatched = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, { ...base, mode: 'toc-dispatched', sspOnScene: false, agencies: ['ems', 'fire'] })
+    const arrived = advanceCommunications(dispatched.state, { ...base, mode: 'toc-dispatched', agencies: ['ems', 'fire'] })
+    const injured = advanceCommunications(arrived.state, { ...base, mode: 'toc-dispatched', agencies: ['ems', 'fire'], incidentNature: 'accident', injuries: 'minor', transports: 1 })
+    expect(injured.messages).toEqual([
+      { channel: 'SSP', text: 'SSP970 to 95 Control, vehicle was in a crash with minor injuries, 1 transport.' },
+      { channel: 'TOC', text: 'Copy.' },
     ])
+    const more = advanceCommunications(injured.state, { ...base, mode: 'toc-dispatched', agencies: ['ems', 'fire'], incidentNature: 'accident', injuries: 'minor', transports: 2 })
+    expect(more.messages[0].text).toBe('SSP970 to 95 Control, 2 transports.')
+    const emsGone = advanceCommunications(more.state, { ...base, mode: 'toc-dispatched', agencies: ['fire'], incidentNature: 'accident', injuries: 'minor', transports: 2 })
+    expect(emsGone.messages[0].text).toBe('SSP970 to 95 Control, EMS has departed, 2 transports.')
+  })
+
+  it('does not clear when the truck leaves while cones are still out', () => {
+    const onScene = advanceCommunications(INITIAL_COMMUNICATIONS_STATE, base).state
+    expect(advanceCommunications(onScene, { ...base, sspOnScene: false, sceneEmpty: false }).messages).toEqual([])
+    expect(advanceCommunications(onScene, { ...base, sspOnScene: false, sceneHazards: [], sceneEmpty: true }).messages[0].text).toBe("SSP970 to 95 Control, scene clear, I'm clear.")
   })
 
   it('says the service rendered once, before scene clear if both happen together', () => {
