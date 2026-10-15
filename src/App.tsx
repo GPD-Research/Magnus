@@ -53,15 +53,17 @@ import {
   DEFAULT_SSP_UNIT,
   DEFAULT_TOC_INCIDENT_DETAILS,
   INITIAL_COMMUNICATIONS_STATE,
+  INCIDENT_NATURE_OPTIONS,
   VEHICLE_HAZARD_STATE_OPTIONS,
   type CommunicationDirection,
   type CommunicationsMode,
   type CommunicationsState,
+  type IncidentNature,
   type IncidentType,
   type TocIncidentDetails,
   type VehicleHazardState,
 } from './domain/communications'
-import { agenciesOnScene, isVehicleHazard, reportedHazards, vehicleHazardState } from './domain/sceneReport'
+import { agenciesOnScene, isVehicleHazard, reportedHazards, sceneHazards, vehicleHazardState } from './domain/sceneReport'
 import {
   createPortableScenario,
   parsePortableScenario,
@@ -261,6 +263,7 @@ function loadSavedScenario(): PortableScenarioState | null {
           communicationsState: INITIAL_COMMUNICATIONS_STATE,
           communicationsMode: 'ssp-discovered',
           sspUnit: DEFAULT_SSP_UNIT,
+          incidentNature: 'unknown',
           incidentLocation: '',
           incidentType: 'crash',
           tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
@@ -302,6 +305,7 @@ function scenarioStateSnapshot(state: PortableScenarioState): string {
     communicationsState: state.communicationsState,
     communicationsMode: state.communicationsMode,
     sspUnit: state.sspUnit,
+    incidentNature: state.incidentNature,
     incidentLocation: state.incidentLocation,
     incidentType: state.incidentType,
     tocIncidentDetails: state.tocIncidentDetails,
@@ -596,6 +600,7 @@ function App() {
   const [communicationsState, setCommunicationsState] = useState<CommunicationsState>(savedScenario?.communicationsState ?? INITIAL_COMMUNICATIONS_STATE)
   const [communicationsMode, setCommunicationsMode] = useState<CommunicationsMode>(savedScenario?.communicationsMode ?? 'ssp-discovered')
   const [sspUnit, setSspUnit] = useState(savedScenario?.sspUnit ?? DEFAULT_SSP_UNIT)
+  const [incidentNature, setIncidentNature] = useState<IncidentNature>(savedScenario?.incidentNature ?? 'unknown')
   const [incidentType] = useState<IncidentType>(savedScenario?.incidentType ?? 'crash')
   const [tocIncidentDetails] = useState<TocIncidentDetails>(savedScenario?.tocIncidentDetails ?? DEFAULT_TOC_INCIDENT_DETAILS)
 
@@ -1135,6 +1140,7 @@ function App() {
       communicationsState,
       communicationsMode,
       sspUnit,
+      incidentNature,
       incidentLocation,
       incidentType,
       tocIncidentDetails,
@@ -1247,6 +1253,7 @@ function App() {
     setCommunicationsState(state.communicationsState)
     setCommunicationsMode(state.communicationsMode)
     setSspUnit(state.sspUnit)
+    setIncidentNature(state.incidentNature)
     initializedZoomSceneRef.current = state.roadScene
     setRoadScene(state.roadScene)
     setLocationRequest(state.locationRequest)
@@ -1479,6 +1486,8 @@ function App() {
       travelLanes: laneCount,
       sspOnScene: sceneVisible && trucks.length > 0,
       hazards: reportedHazards(deployedEquipment),
+      sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
+      incidentNature,
       agencies: agenciesOnScene(deployedEquipment),
     })
     if (messages.length === 0) return
@@ -1488,7 +1497,7 @@ function App() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCommunicationsState(state)
     setRadioEvents((current) => [...current, ...messages.map((message) => ({ ...message, time: now }))])
-  }, [communicationsState, communicationsMode, sspUnit, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment])
+  }, [communicationsState, communicationsMode, sspUnit, incidentNature, locationRequest, incidentLocation, scenario, laneCount, roadScene, sceneVisible, trucks.length, deployedEquipment])
 
   function changeLaneCount(delta: number) {
     const next = Math.min(5, Math.max(2, laneCount + delta))
@@ -3711,6 +3720,18 @@ function App() {
                 >
                   <option value="ssp-discovered">SSP discovered</option>
                   <option value="toc-dispatched">TOC dispatched</option>
+                </select>
+              </label>
+              <label htmlFor="communications-nature">
+                Vehicle finding
+                <select
+                  id="communications-nature"
+                  value={incidentNature}
+                  onChange={(event) => setIncidentNature(event.target.value as IncidentNature)}
+                >
+                  {INCIDENT_NATURE_OPTIONS.map((option) => (
+                    <option value={option.value} key={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </label>
               <label htmlFor="communications-direction">

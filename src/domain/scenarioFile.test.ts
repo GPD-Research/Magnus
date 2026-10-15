@@ -19,6 +19,7 @@ const state: PortableScenarioState = {
   communicationsState: { phase: 'idle', agencies: [] },
   communicationsMode: 'ssp-discovered',
   sspUnit: 'SSP970',
+  incidentNature: 'unknown',
   incidentLocation: '',
   incidentType: 'crash',
   tocIncidentDetails: DEFAULT_TOC_INCIDENT_DETAILS,
