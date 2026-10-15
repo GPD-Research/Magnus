@@ -643,3 +643,5 @@
 .comms-open-button:hover { background: var(--control-hover); border-color: var(--green); }
 .comms-open-button small { grid-column: 2; color: var(--muted); font-size: 8px; font-weight: 500; }
 .recording-badge { color: #fff !important; background: var(--red) !important; }
+.saved-scenes-load { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 6px; padding: 8px 10px; color: var(--ink); background: var(--control-bg); border: 1px dashed var(--line); border-radius: 3px; font-size: 10px; font-weight: 600; cursor: pointer; }
+.saved-scenes-load:hover { background: var(--control-hover); }

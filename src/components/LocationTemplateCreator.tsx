@@ -270,7 +270,7 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
   const [draggingVertex, setDraggingVertex] = useState<{ featureId: string; vertexIndex: number } | null>(null)
   const [draggingWholeFeature, setDraggingWholeFeature] = useState<{ featureId: string; startPoint: Position; originalFeature: RoadFeature } | null>(null)
   const [pavementPoints, setPavementPoints] = useState<Position[]>([])
-  const [pavementLanes, setPavementLanes] = useState<1 | 2 | 3>(1)
+  const [pavementLanes, setPavementLanes] = useState<1 | 2 | 3 | 4 | 5>(1)
   const [pavementShoulders, setPavementShoulders] = useState<'none' | 'left' | 'right' | 'both'>('none')
   const [pavementFogLines, setPavementFogLines] = useState(false)
   const [pavementUnlocked, setPavementUnlocked] = useState(false)
@@ -1207,10 +1207,12 @@ export function LocationTemplateCreator({ onClose }: LocationTemplateCreatorProp
           <>
             <label className="loc-editor-field">
               Lanes
-              <select value={pavementLanes} onChange={(event) => setPavementLanes(Number(event.target.value) as 1 | 2 | 3)}>
+              <select value={pavementLanes} onChange={(event) => setPavementLanes(Number(event.target.value) as 1 | 2 | 3 | 4 | 5)}>
                 <option value={1}>1 lane</option>
                 <option value={2}>2 lanes</option>
                 <option value={3}>3 lanes</option>
+                <option value={4}>4 lanes</option>
+                <option value={5}>5 lanes</option>
               </select>
             </label>
             <label className="loc-editor-field">

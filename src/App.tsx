@@ -27,6 +27,7 @@ import {
   RotateCw,
   Save,
   ScreenShare,
+  Route,
   Settings,
   ShieldCheck,
   Trash2,
@@ -623,6 +624,7 @@ function App() {
   const [conversation, setConversation] = useState<Conversation>(savedScenario?.conversation ?? EMPTY_CONVERSATION)
   const [recording, setRecording] = useState(false)
   const [activeView, setActiveView] = useState<'scene' | 'comms'>('scene')
+  const [savedRoadwaysOpen, setSavedRoadwaysOpen] = useState(false)
   const [communicationsMode, setCommunicationsMode] = useState<CommunicationsMode>(savedScenario?.communicationsMode ?? 'ssp-discovered')
   const [sspUnit, setSspUnit] = useState(savedScenario?.sspUnit ?? DEFAULT_SSP_UNIT)
   const [incidentNature, setIncidentNature] = useState<IncidentNature>(savedScenario?.incidentNature ?? 'unknown')
@@ -1920,6 +1922,39 @@ function App() {
                     </button>
                   </div>
                 ))}
+                <button
+                  className="saved-scenes-load"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setSavedScenesOpen(false); void chooseScenarioFile() }}
+                >
+                  <FolderOpen size={14} /> Load from file…
+                </button>
+              </div>
+            )}
+          </div>
+        <div className="save-scene-anchor saved-scenes-anchor">
+            <button
+              className="saved-scenes-toggle"
+              type="button"
+              aria-label="SAVED ROADWAYS"
+              aria-expanded={savedRoadwaysOpen}
+              aria-haspopup="menu"
+              onClick={() => { setSavedRoadwaysOpen((open) => !open); setSavedScenesOpen(false); setSaveMenuOpen(false) }}
+            >
+              <Route size={17} /> <span>Saved roadways</span> {savedRoadwaysOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+            {savedRoadwaysOpen && (
+              <div className="saved-scenes-menu" role="menu" aria-label="Saved roadways">
+                <span>Roadway templates from the editor</span>
+                {displayedLocationTemplates.map((entry) => (
+                  <div className="saved-scene-entry" key={entry.name}>
+                    <button type="button" role="menuitem" onClick={() => { setSavedRoadwaysOpen(false); loadLocationTemplateEntry(entry) }}>
+                      <b>{entry.name}</b>
+                      <small>{isBuiltInLocationTemplate(entry.name) ? 'Built-in template' : new Date(entry.savedAt).toLocaleString()}</small>
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -2225,16 +2260,6 @@ function App() {
           <Trash2 size={18} />
         </button>
         <div className="scene-file-actions">
-          <button
-            className="scene-file-button"
-            type="button"
-            aria-label="LOAD SCENE"
-            onClick={() => {
-              void chooseScenarioFile();
-            }}
-          >
-            <FolderOpen size={17} /> <span>LOAD SCENE</span>
-          </button>
           <input
             ref={loadSceneInputRef}
             className="scene-file-input"
@@ -2482,7 +2507,7 @@ function App() {
             >
               <FolderOpen size={16} />
               <span>
-                <b>Load scene type</b>
+                <b>Roadway templates</b>
                 <small>{displayedLocationTemplates.length} available</small>
               </span>
               {locationTemplatesOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -2531,11 +2556,7 @@ function App() {
                 <div className="scenario-options">
                   {SCENARIO_CATALOG.map((item) => (
                     <button
-                      className={
-                        (sceneVisible || scenePlacementActive) && scenario === item.id
-                          ? "scenario-card active"
-                          : "scenario-card"
-                      }
+                      className={scenario === item.id ? "scenario-card active" : "scenario-card"}
                       disabled={scenePlacementActive || (sceneVisible && !sceneConversionActive) || (sceneConversionActive && scenario === item.id)}
                       key={item.id}
                       type="button"
@@ -2550,7 +2571,7 @@ function App() {
                         {item.label}
                         <small>{item.mutcdApplication}</small>
                       </span>
-                      <i>{(sceneVisible || scenePlacementActive) && scenario === item.id && <Check size={13} />}</i>
+                      <i>{scenario === item.id && <Check size={13} />}</i>
                     </button>
                   ))}
                 </div>
