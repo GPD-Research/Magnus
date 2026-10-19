@@ -1553,7 +1553,7 @@ function App() {
     tagNumber,
     tagState,
     agencies: agenciesOnScene(deployedEquipment),
-  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment, points.length, roadScene, incidentNature, natureSource, injuries, transports, service, tagNumber, tagState])
+  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, roadwayLaneCount, roadwayCarriageways, sceneVisible, trucks.length, deployedEquipment, points.length, roadScene, incidentNature, natureSource, injuries, transports, service, tagNumber, tagState])
 
   // With Record on, scene changes are diffed against the last recorded state and appended to the
   // conversation; with it off the instructor can edit the scene freely.
