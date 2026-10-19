@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { agenciesOnScene, reportedHazards, sceneHazards } from './sceneReport'
+import { carriagewaysOf, createReferenceRoadScene } from './roadScene'
+import { generateHighwayScene, DEFAULT_HIGHWAY_GENERATOR_OPTIONS } from './highwayGenerator'
 import type { DeployedEquipment } from './equipmentCatalog'
 
 const item = (definitionId: string, hazardState?: DeployedEquipment['hazardState']): DeployedEquipment =>
@@ -22,7 +24,7 @@ describe('scene report', () => {
 })
 
 describe('sceneHazards', () => {
-  const layout = { laneCount: 3, generic: true, scenario: 'right-lane' as const }
+  const layout = { laneCount: 3, carriageways: carriagewaysOf(createReferenceRoadScene(3)), scenario: 'right-lane' as const }
   const placed = (definitionId: string, x: number, rotation = 0, hazardState?: DeployedEquipment['hazardState']): DeployedEquipment =>
     ({ id: `${definitionId}-${x}-${rotation}`, definitionId, x, y: 300, rotation, hazardState })
 
@@ -43,9 +45,40 @@ describe('sceneHazards', () => {
   })
 
   it('falls back to the closure scenario on map-pulled roadways', () => {
-    expect(sceneHazards([placed('sedan-grey', 0, 0, 'crashed')], { laneCount: 3, generic: false, scenario: 'two-right-lanes' }))
+    expect(sceneHazards([placed('sedan-grey', 0, 0, 'crashed')], { laneCount: 3, carriageways: [], scenario: 'two-right-lanes' }))
       .toMatchObject([{ lanes: [1, 2] }])
-    expect(sceneHazards([placed('sedan-grey', 0)], { laneCount: 3, generic: false, scenario: 'shoulder' }))
+    expect(sceneHazards([placed('sedan-grey', 0)], { laneCount: 3, carriageways: [], scenario: 'shoulder' }))
       .toMatchObject([{ lanes: [], shoulders: ['right'] }])
+  })
+})
+
+describe('sceneHazards on generated highways', () => {
+  const placed = (definitionId: string, x: number, rotation = 0): DeployedEquipment =>
+    ({ id: `${definitionId}-${x}`, definitionId, x, y: 300, rotation, hazardState: 'disabled' })
+
+  it('names lanes from the loaded five-lane template rather than the stepper', () => {
+    const scene = generateHighwayScene({ ...DEFAULT_HIGHWAY_GENERATOR_OPTIONS, lanes: 5, direction: 'one-direction', ramp: 'none' })
+    const [primary] = carriagewaysOf(scene)
+    expect(primary).toMatchObject({ lanes: 5, direction: 'forward' })
+    const laneCenter = (index: number) => primary.minX + (primary.maxX - primary.minX - 12 * 5) / 2 + 12 * index + 6
+    const layout = { laneCount: 3, carriageways: [primary], scenario: 'two-left-lanes' as const }
+    expect(sceneHazards([placed('sedan-grey', laneCenter(1))], layout)).toMatchObject([{ lanes: [1] }])
+    expect(sceneHazards([placed('sedan-grey', laneCenter(3))], layout)).toMatchObject([{ lanes: [3] }])
+  })
+
+  it('mirrors lane names and shoulders on the opposing carriageway of a divided highway', () => {
+    const scene = generateHighwayScene({ ...DEFAULT_HIGHWAY_GENERATOR_OPTIONS, lanes: 3, direction: 'both-directions', ramp: 'none' })
+    const carriageways = carriagewaysOf(scene)
+    const opposing = carriageways.find((c) => c.direction === 'backward')!
+    const forward = carriageways.find((c) => c.direction === 'forward')!
+    expect(opposing.maxX).toBeLessThan(forward.minX)
+    const shoulder = (opposing.maxX - opposing.minX - 36) / 2
+    const layout = { laneCount: 3, carriageways, scenario: 'right-lane' as const }
+    // scene-left lane of the down-flowing carriageway is the driver's right lane
+    expect(sceneHazards([placed('sedan-grey', opposing.minX + shoulder + 6)], layout)).toMatchObject([{ lanes: [2], shoulders: [] }])
+    // median-side shoulder of the down-flowing carriageway is its left shoulder
+    expect(sceneHazards([placed('sedan-grey', opposing.maxX - shoulder / 2)], layout)).toMatchObject([{ lanes: [], shoulders: ['left'] }])
+    // forward carriageway is unchanged
+    expect(sceneHazards([placed('sedan-grey', forward.minX + shoulder + 6)], layout)).toMatchObject([{ lanes: [0], shoulders: [] }])
   })
 })

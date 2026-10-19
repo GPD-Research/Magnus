@@ -1,7 +1,7 @@
 import type { AgencyGroup, ReportedHazards, SceneHazard, ShoulderSide, VehicleHazardState } from './communications'
 import { NO_HAZARDS } from './communications'
 import { equipmentDefinition, type DeployedEquipment } from './equipmentCatalog'
-import { ROADWAY_DIMENSIONS_FEET } from './roadScene'
+import { ROADWAY_DIMENSIONS_FEET, type Carriageway } from './roadScene'
 import type { ScenarioType } from './sop'
 
 const VEHICLE_HAZARD_IDS = new Set([
@@ -71,8 +71,8 @@ export function reportedHazards(equipment: DeployedEquipment[]): ReportedHazards
 
 export interface SceneLayout {
   laneCount: number
-  /** True when equipment coordinates sit on the generic straight highway, so lane occupancy can be measured. */
-  generic: boolean
+  /** Straight mainline carriageways to measure footprints against; empty for map pulls, which fall back to the scenario. */
+  carriageways: Carriageway[]
   scenario: ScenarioType
 }
 
@@ -90,21 +90,42 @@ function lateralExtent(item: DeployedEquipment): [number, number] {
   return [item.x - half + EDGE_TOLERANCE_FEET, item.x + half - EDGE_TOLERANCE_FEET]
 }
 
-/** Lanes (0 = left) and shoulders an item's footprint touches on the generic highway; see createReferenceRoadScene. */
-export function laneOccupancy(item: DeployedEquipment, laneCount: number): Occupancy {
-  const { shoulderWidth, laneWidth } = ROADWAY_DIMENSIONS_FEET
-  const leftFog = shoulderWidth + 6
+/** The carriageway whose pavement holds the item's center, else the nearest one. */
+function carriagewayFor(item: DeployedEquipment, carriageways: Carriageway[]): Carriageway {
+  const inside = carriageways.find((c) => item.x >= c.minX && item.x <= c.maxX)
+  if (inside) return inside
+  return carriageways.reduce((best, c) => {
+    const distance = Math.min(Math.abs(item.x - c.minX), Math.abs(item.x - c.maxX))
+    const bestDistance = Math.min(Math.abs(item.x - best.minX), Math.abs(item.x - best.maxX))
+    return distance < bestDistance ? c : best
+  })
+}
+
+/**
+ * Lanes (0 = driver's left) and shoulders an item's footprint touches on a straight carriageway. Lane
+ * order and shoulder sides are relative to the direction of travel, so a backward (top-to-bottom)
+ * carriageway is mirrored: its left shoulder is the scene-right (median) edge.
+ */
+export function laneOccupancy(item: DeployedEquipment, carriageway: Carriageway): Occupancy {
+  const { laneWidth } = ROADWAY_DIMENSIONS_FEET
+  const laneCount = carriageway.lanes
+  const shoulderWidth = Math.max(0, (carriageway.maxX - carriageway.minX - laneWidth * laneCount) / 2)
+  const leftFog = carriageway.minX + shoulderWidth
   const rightFog = leftFog + laneWidth * laneCount
   const [minX, maxX] = lateralExtent(item)
-  const lanes: number[] = []
+  const sceneLanes: number[] = []
   for (let index = 0; index < laneCount; index += 1) {
     const laneLeft = leftFog + laneWidth * index
-    if (maxX > laneLeft && minX < laneLeft + laneWidth) lanes.push(index)
+    if (maxX > laneLeft && minX < laneLeft + laneWidth) sceneLanes.push(index)
   }
-  const shoulders: ShoulderSide[] = []
-  if (minX < leftFog) shoulders.push('left')
-  if (maxX > rightFog) shoulders.push('right')
-  return { lanes, shoulders }
+  const sceneShoulders: ShoulderSide[] = []
+  if (minX < leftFog) sceneShoulders.push('left')
+  if (maxX > rightFog) sceneShoulders.push('right')
+  if (carriageway.direction === 'forward') return { lanes: sceneLanes, shoulders: sceneShoulders }
+  return {
+    lanes: sceneLanes.map((index) => laneCount - 1 - index).reverse(),
+    shoulders: sceneShoulders.map((side) => (side === 'left' ? 'right' : 'left')),
+  }
 }
 
 /** Lanes a closure scenario covers, used when the roadway is a map pull and footprints cannot be measured. */
@@ -135,7 +156,9 @@ function isRotated(item: DeployedEquipment): boolean {
 export function sceneHazards(equipment: DeployedEquipment[], layout: SceneLayout): SceneHazard[] {
   const hazards: SceneHazard[] = []
   for (const item of equipment) {
-    const where = layout.generic ? laneOccupancy(item, layout.laneCount) : scenarioOccupancy(layout.scenario, layout.laneCount)
+    const where = layout.carriageways.length > 0
+      ? laneOccupancy(item, carriagewayFor(item, layout.carriageways))
+      : scenarioOccupancy(layout.scenario, layout.laneCount)
     if (isVehicleHazard(item.definitionId)) {
       const state = vehicleHazardState(item)
       const onShoulder = where.shoulders.length > 0

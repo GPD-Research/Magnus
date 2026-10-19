@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  primaryTravelLanes,
   ROADWAY_DIMENSIONS_FEET,
   createReferenceRoadScene,
   roadLayerForFeature,
@@ -55,5 +56,14 @@ describe('road scene IPC contract', () => {
     expect(layers['mainline-surface']).toBe('roadGeometry')
     expect(layers['right-shoulder-edge']).toBe('barriers')
     expect(layers['flow-vector-center']).toBe('trafficFlow')
+  })
+})
+describe('primaryTravelLanes', () => {
+  it('reads the lane count stamped on the main carriageway and falls back when absent', () => {
+    const scene = createReferenceRoadScene(3)
+    expect(primaryTravelLanes(scene, 1)).toBe(3)
+    expect(primaryTravelLanes(createReferenceRoadScene(5), 1)).toBe(5)
+    const noLanes = { ...scene, features: scene.features.filter((feature) => feature.kind !== 'road-surface') }
+    expect(primaryTravelLanes(noLanes, 4)).toBe(4)
   })
 })

@@ -123,9 +123,11 @@ function carriageway(idPrefix: string, startX: number, lanes: HighwayLaneCount, 
       properties,
     },
     vertical('left-shoulder-edge', 'shoulder-edge', leftEdgeX, 1, 1),
-    vertical('left-fog-line', 'left-fog-line', leftFogX, 2, edgeLineWidth),
+    // Fog-line colors follow the driver: yellow on the driver's left, white on the driver's right. A
+    // backward (top-to-bottom) carriageway therefore has its yellow line on the scene-right edge.
+    vertical('left-fog-line', direction === 'forward' ? 'left-fog-line' : 'right-fog-line', leftFogX, 2, edgeLineWidth),
     ...Array.from({ length: lanes - 1 }, (_, index) => vertical(`skip-${index}`, 'skip-line', leftFogX + laneWidth * (index + 1), 2, skipLineWidth)),
-    vertical('right-fog-line', 'right-fog-line', rightFogX, 2, edgeLineWidth),
+    vertical('right-fog-line', direction === 'forward' ? 'right-fog-line' : 'left-fog-line', rightFogX, 2, edgeLineWidth),
     vertical('right-shoulder-edge', 'shoulder-edge', rightEdgeX, 1, 1),
   ]
 

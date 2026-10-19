@@ -112,7 +112,9 @@ import {
 } from './domain/equipmentCatalog'
 import {
   createReferenceRoadScene,
+  carriagewaysOf,
   isGenericHighwayScene,
+  primaryTravelLanes,
   type RoadFeature,
   type RoadScene,
   type RoadLayerVisibility,
@@ -1526,6 +1528,9 @@ function App() {
     setSelectedEquipmentId(null)
   }
 
+  // A loaded roadway names its own lanes; the main-view stepper only matters for roadways without lane metadata.
+  const roadwayCarriageways = useMemo(() => carriagewaysOf(roadScene), [roadScene])
+  const roadwayLaneCount = primaryTravelLanes(roadScene, laneCount)
   const communicationsScene = useMemo((): CommunicationsScene => ({
     unit: sspUnit,
     mode: communicationsMode,
@@ -1535,11 +1540,11 @@ function App() {
     reference: locationRequest.reference,
     location: incidentLocation,
     scenario,
-    travelLanes: laneCount,
+    travelLanes: roadwayLaneCount,
     sspOnScene: sceneVisible && trucks.length > 0,
     sceneEmpty: deployedEquipment.length === 0 && points.length === 0,
     hazards: reportedHazards(deployedEquipment),
-    sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
+    sceneHazards: sceneHazards(deployedEquipment, { laneCount: roadwayLaneCount, carriageways: roadwayCarriageways, scenario }),
     incidentNature,
     natureSource,
     injuries,
@@ -1548,7 +1553,7 @@ function App() {
     tagNumber,
     tagState,
     agencies: agenciesOnScene(deployedEquipment),
-  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, laneCount, sceneVisible, trucks.length, deployedEquipment, points.length, roadScene, incidentNature, natureSource, injuries, transports, service, tagNumber, tagState])
+  }), [sspUnit, communicationsMode, locationRequest, incidentLocation, scenario, roadwayLaneCount, roadwayCarriageways, sceneVisible, trucks.length, deployedEquipment, points.length, incidentNature, natureSource, injuries, transports, service, tagNumber, tagState])
 
   // With Record on, scene changes are diffed against the last recorded state and appended to the
   // conversation; with it off the instructor can edit the scene freely.

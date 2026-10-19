@@ -230,3 +230,39 @@ export function createReferenceRoadScene(lanes = 3): RoadScene {
     ],
   }
 }
+
+/** One straight mainline carriageway: its lateral extent in scene feet, lane count and direction of travel. */
+export interface Carriageway {
+  minX: number
+  maxX: number
+  lanes: number
+  direction: 'forward' | 'backward'
+}
+
+/**
+ * Mainline carriageways of a scene, read from motorway `road-surface` polygons that carry a `lanes`
+ * property (the reference layout and the generic generator stamp it; ramps and map pulls do not).
+ */
+export function carriagewaysOf(scene: RoadScene): Carriageway[] {
+  const result: Carriageway[] = []
+  for (const feature of scene.features) {
+    if (feature.kind !== 'road-surface' || feature.geometry.type !== 'Polygon') continue
+    const props = feature.properties as { lanes?: unknown; highway?: unknown; direction?: unknown }
+    if (props.highway !== 'motorway' || typeof props.lanes !== 'number' || props.lanes < 1) continue
+    const xs = feature.geometry.coordinates.flat().map(([x]) => x)
+    result.push({
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      lanes: Math.round(props.lanes),
+      direction: props.direction === 'backward' ? 'backward' : 'forward',
+    })
+  }
+  return result
+}
+
+/** Lane count of the forward (primary) carriageway, or `fallback` when the scene has none. */
+export function primaryTravelLanes(scene: RoadScene, fallback: number): number {
+  const carriageways = carriagewaysOf(scene)
+  const primary = carriageways.find((c) => c.direction === 'forward') ?? carriageways[0]
+  return primary?.lanes ?? fallback
+}
