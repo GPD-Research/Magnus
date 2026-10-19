@@ -112,7 +112,9 @@ import {
 } from './domain/equipmentCatalog'
 import {
   createReferenceRoadScene,
+  carriagewaysOf,
   isGenericHighwayScene,
+  primaryTravelLanes,
   type RoadFeature,
   type RoadScene,
   type RoadLayerVisibility,
@@ -1526,6 +1528,9 @@ function App() {
     setSelectedEquipmentId(null)
   }
 
+  // A loaded roadway names its own lanes; the main-view stepper only matters for roadways without lane metadata.
+  const roadwayCarriageways = useMemo(() => carriagewaysOf(roadScene), [roadScene])
+  const roadwayLaneCount = primaryTravelLanes(roadScene, laneCount)
   const communicationsScene = useMemo((): CommunicationsScene => ({
     unit: sspUnit,
     mode: communicationsMode,
@@ -1535,11 +1540,11 @@ function App() {
     reference: locationRequest.reference,
     location: incidentLocation,
     scenario,
-    travelLanes: laneCount,
+    travelLanes: roadwayLaneCount,
     sspOnScene: sceneVisible && trucks.length > 0,
     sceneEmpty: deployedEquipment.length === 0 && points.length === 0,
     hazards: reportedHazards(deployedEquipment),
-    sceneHazards: sceneHazards(deployedEquipment, { laneCount, generic: isGenericHighwayScene(roadScene), scenario }),
+    sceneHazards: sceneHazards(deployedEquipment, { laneCount: roadwayLaneCount, carriageways: roadwayCarriageways, scenario }),
     incidentNature,
     natureSource,
     injuries,
