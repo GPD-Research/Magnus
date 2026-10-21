@@ -161,7 +161,7 @@ Open `http://127.0.0.1:8787`. In VS Code, `Ctrl+Shift+B` exposes equivalent deve
 
 ### Debian / Ubuntu package
 
-Tagged releases publish a `.deb` on the [GitHub Releases page](https://github.com/GPD-Research/Magnus/releases) (built by `.github/workflows/release.yml`). It installs the release `spatial_server`, the topology worker and the built web app under `/opt/magnus`, plus a `magnus` command and an application-drawer entry. Install with:
+Tagged releases publish a `.deb` on the [GitHub Releases page](https://github.com/GPD-Research/Magnus/releases) (built by `.github/workflows/release.yml`). It installs the release `spatial_server`, the topology worker and the built web app under `/opt/magnus`, plus a `magnus` command and an application-drawer entry. The package is named `gpd-magnus` because Ubuntu's archive already has an unrelated `magnus` (an audio plugin, versioned `1:1.0.3`) that apt and App Center would otherwise treat as newer; installing `gpd-magnus` removes that package if it is present. Install with:
 
 ```bash
 sudo apt install ./magnus_11.0.3_amd64.deb

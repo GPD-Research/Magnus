@@ -34,7 +34,9 @@ install -m 0644 public/favicon.svg "$STAGE/usr/share/icons/hicolor/scalable/apps
 
 INSTALLED_SIZE="$(du -sk "$STAGE" --exclude=DEBIAN | cut -f1)"
 cat >"$STAGE/DEBIAN/control" <<CONTROL
-Package: magnus
+Package: gpd-magnus
+Conflicts: magnus
+Replaces: magnus
 Version: $DEB_VERSION
 Section: education
 Priority: optional
